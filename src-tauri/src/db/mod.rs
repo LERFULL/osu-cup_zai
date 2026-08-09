@@ -1,0 +1,126 @@
+//! Слой SQLite. Одно соединение под мьютексом — приложение однопользовательское,
+//! конкуренции за запись нет, а WAL и busy_timeout закрывают редкие пересечения.
+
+pub mod beatmaps;
+pub mod collections;
+pub mod labels;
+
+use std::path::Path;
+use std::sync::Mutex;
+
+use rusqlite::{Connection, Transaction};
+
+use crate::error::{AppError, Result};
+
+/// Полная схема первой версии. Все выражения идемпотентны (IF NOT EXISTS),
+/// поэтому повторное применение безопасно.
+const SCHEMA_V1: &str = include_str!("schema.sql");
+
+/// Миграции по возрастанию версии. Чтобы добавить версию 2, допиши пару
+/// `(2, include_str!("migrations/002_...sql"))` — цикл применит её сам.
+const MIGRATIONS: &[(i64, &str)] = &[(1, SCHEMA_V1)];
+
+/// Версия схемы, которую ожидает текущий код.
+const TARGET_VERSION: i64 = 1;
+
+pub struct Db {
+    conn: Mutex<Connection>,
+}
+
+impl Db {
+    /// Открывает (и при необходимости создаёт) базу, настраивает прагмы
+    /// и доводит схему до целевой версии.
+    pub fn open(path: impl AsRef<Path>) -> Result<Db> {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+
+        let conn = Connection::open(path)?;
+
+        // journal_mode возвращает строку, поэтому только через execute_batch/query_row.
+        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
+        conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+
+        let db = Db {
+            conn: Mutex::new(conn),
+        };
+        db.migrate()?;
+        Ok(db)
+    }
+
+    /// Читает user_version и применяет все миграции, версия которых выше текущей.
+    pub fn migrate(&self) -> Result<()> {
+        let conn = self.lock()?;
+
+        let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+
+        for (target, sql) in MIGRATIONS {
+            if *target <= version {
+                continue;
+            }
+            // Без явной транзакции: внутри схемы есть PRAGMA journal_mode,
+            // которую SQLite не отдаёт менять в открытой транзакции.
+            conn.execute_batch(sql)?;
+            conn.execute_batch(&format!("PRAGMA user_version = {target};"))?;
+            version = *target;
+        }
+
+        if version < TARGET_VERSION {
+            return Err(AppError::Db(format!(
+                "База осталась на версии {version}, а нужна {TARGET_VERSION}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Доступ к соединению для чтения и одиночных записей.
+    pub fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        let conn = self.lock()?;
+        f(&conn)
+    }
+
+    /// Транзакция: закрывается коммитом, при ошибке замыкания — откатом.
+    pub fn with_tx<T>(&self, f: impl FnOnce(&Transaction) -> Result<T>) -> Result<T> {
+        let mut conn = self.lock()?;
+        let tx = conn.transaction()?;
+        let out = f(&tx)?;
+        tx.commit()?;
+        Ok(out)
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.conn
+            .lock()
+            .map_err(|_| AppError::Db("Соединение с базой повреждено после сбоя".into()))
+    }
+}
+
+/// Текущее время в RFC3339 (UTC) — единый формат для всех колонок с датами.
+pub fn now_iso() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+// ──────────────────────────────────────────────────────── общие мелочи
+
+/// Строка вида `?,?,?` под нужное число биндингов.
+pub(crate) fn placeholders(n: usize) -> String {
+    let mut s = String::with_capacity(n * 2);
+    for i in 0..n {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push('?');
+    }
+    s
+}
+
+/// Предел переменных в запросе SQLite — 999. Режем пачки с запасом.
+pub(crate) const CHUNK: usize = 500;
+
+#[cfg(test)]
+mod tests;

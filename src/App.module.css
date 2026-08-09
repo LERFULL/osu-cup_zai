@@ -1,0 +1,85 @@
+.app {
+  position: relative;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--f);
+}
+
+.boot {
+  position: relative;
+  height: 100vh;
+  background: var(--bg);
+}
+
+/* Два больших размытых пятна по краям: глубина без шума. */
+.bgglow {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(760px 460px at 78% -8%, rgba(255, 111, 177, 0.1), transparent 65%),
+    radial-gradient(680px 420px at 8% 108%, rgba(91, 200, 245, 0.07), transparent 65%);
+}
+
+.main {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.railBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.railBtn:hover {
+  background: var(--card2);
+  color: var(--txt);
+}
+
+.fatal {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 40px;
+  text-align: center;
+}
+
+.fatal h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.fatal p {
+  margin: 0;
+  max-width: 520px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}

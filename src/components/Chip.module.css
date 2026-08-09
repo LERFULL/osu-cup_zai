@@ -1,0 +1,54 @@
+.chip {
+  --chip: var(--pink);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card2);
+  color: var(--txt2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  border-color: #2e3549;
+  color: var(--txt);
+}
+
+.active {
+  border-color: color-mix(in srgb, var(--chip) 55%, transparent);
+  background: color-mix(in srgb, var(--chip) 14%, var(--card2));
+  color: var(--chip);
+}
+
+.x {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-right: -3px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 9px;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.x:hover {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 1;
+}

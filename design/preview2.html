@@ -1,0 +1,1245 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>osu!cup — превью интерфейса v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0C0E13; --card:#161922; --card2:#1C2029; --line:#232838;
+  --txt:#F4F5F8; --txt2:#8A91A3; --txt3:#565D70;
+  --pink:#FF6FB1; --cyan:#5BC8F5; --green:#7ED957; --gold:#FFD03B;
+  --nm:#E9ECF2; --hd:#FFD03B; --hr:#FF6B6B; --dt:#5BC8F5; --fm:#C77DFF; --tb:#7ED957;
+  --pa:#5AC8FA; --pb:#FF9F6B;
+  --f:'Manrope',system-ui,'Segoe UI',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --glowP:0 0 20px rgba(255,111,177,.35);
+  --glowG:0 0 18px rgba(126,217,87,.3);
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--txt);font-family:var(--f);font-size:14px;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;text-align:left}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#252A38;border-radius:6px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#333A4C;background-clip:content-box}
+
+/* неон: два очень слабых пятна на фоне */
+.bgglow{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(760px 460px at 78% -8%, rgba(255,111,177,.10), transparent 65%),
+    radial-gradient(680px 420px at 8% 108%, rgba(91,200,245,.07), transparent 65%);}
+
+.eyebrow{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3);font-weight:700}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ══ индекс превью ══ */
+.index{position:fixed;left:0;top:0;bottom:0;width:206px;z-index:40;
+  background:rgba(9,11,15,.92);border-right:1px solid rgba(255,255,255,.05);
+  overflow:auto;padding:16px 10px 24px}
+.index .brand{display:flex;align-items:center;gap:9px;padding:4px 10px 16px}
+.index .brand b{font-weight:800;font-size:14px}
+.index .brand b i{color:var(--pink);font-style:normal}
+.index .gr{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#454B5C;font-weight:700;padding:14px 10px 6px}
+.index button{display:block;width:100%;padding:7px 10px;border-radius:8px;font-size:12.5px;
+  font-weight:600;color:var(--txt2);line-height:1.3}
+.index button:hover{background:rgba(255,255,255,.05);color:var(--txt)}
+.index button.on{background:rgba(255,111,177,.15);color:#fff;box-shadow:0 0 16px rgba(255,111,177,.18)}
+.index .cap{font-size:10.5px;color:#454B5C;padding:10px;line-height:1.5}
+
+.app{position:absolute;left:206px;right:0;top:0;bottom:0;z-index:1;overflow:hidden}
+.scr{display:none;height:100%}
+.scr.on{display:flex}
+
+/* ══ знак ══ */
+.logo{width:24px;height:24px;position:relative;flex:0 0 24px}
+.logo i{position:absolute;inset:0;border:2.5px solid var(--pink);border-radius:50%;
+  clip-path:polygon(0 0,100% 0,100% 76%,50% 76%,50% 100%,0 100%);
+  filter:drop-shadow(0 0 6px rgba(255,111,177,.6))}
+.logo u{position:absolute;inset:6px;border-radius:50%;background:var(--pink);opacity:.6}
+
+/* ══ рейл ══ */
+.rail{width:198px;flex:0 0 198px;padding:16px 11px;display:flex;flex-direction:column;gap:2px;
+  border-right:1px solid rgba(255,255,255,.05);position:relative;z-index:2}
+.rail .brand{display:flex;align-items:center;gap:10px;padding:4px 9px 16px}
+.rail .brand b{font-weight:800;font-size:14px}
+.rail .brand b i{color:var(--pink);font-style:normal}
+.rail a{position:relative;display:flex;align-items:center;gap:11px;height:35px;padding:0 12px;
+  border-radius:9px;color:var(--txt2);text-decoration:none;font-size:13px;font-weight:600}
+.rail a:hover{background:rgba(255,255,255,.045);color:var(--txt)}
+.rail a.sel{background:rgba(255,111,177,.11);color:#fff;box-shadow:0 0 18px rgba(255,111,177,.15)}
+.rail a.sel::before{content:"";position:absolute;left:-11px;top:8px;bottom:8px;width:3px;
+  border-radius:0 3px 3px 0;background:var(--pink);box-shadow:0 0 10px var(--pink)}
+.rail a span{width:16px;text-align:center;opacity:.85}
+.rail .grow{flex:1}
+.rail .note{padding:10px 12px;font-size:11px;color:var(--txt3);line-height:1.5}
+.rail .note b{color:var(--txt2)}
+
+.work{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative;z-index:2}
+.topbar{flex:0 0 auto;display:flex;align-items:center;gap:13px;padding:17px 24px 13px}
+.topbar h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.022em;white-space:nowrap}
+.topbar .sub{font-size:11.5px;color:var(--txt3);font-family:var(--mono);white-space:nowrap}
+.topbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+.btn{height:33px;padding:0 14px;border-radius:10px;background:rgba(255,255,255,.06);
+  font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.btn:hover{background:rgba(255,255,255,.11)}
+.btn.p{background:var(--pink);color:#1B0A12;font-weight:700;box-shadow:var(--glowP)}
+.btn.p:hover{background:#ff85bd;box-shadow:0 0 28px rgba(255,111,177,.5)}
+.btn.q{background:transparent;color:var(--txt2)}
+.btn.q:hover{background:rgba(255,255,255,.05);color:var(--txt)}
+.btn.sm{height:28px;padding:0 11px;font-size:12px;border-radius:8px}
+
+.scrollarea{flex:1;overflow:auto;padding:0 24px 28px}
+.col800{max-width:800px;margin:0 auto;width:100%}
+
+/* ══ строка карты ══ */
+.pool{display:flex;flex-direction:column;gap:4px}
+.grp{display:flex;flex-direction:column;gap:4px}
+.grp+.grp{margin-top:11px}
+.row{position:relative;display:flex;align-items:center;gap:13px;height:52px;border-radius:12px;
+  background:var(--card);overflow:hidden;padding:0 12px 0 19px;
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 2px 10px rgba(0,0,0,.3)}
+.cover{position:absolute;right:0;top:0;bottom:0;width:66%;pointer-events:none}
+.cover img{width:100%;height:100%;object-fit:cover;object-position:center 30%;opacity:.4}
+.cover::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,var(--card) 2%,rgba(22,25,34,.72) 42%,rgba(22,25,34,.42) 100%)}
+.tint{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(90deg,transparent 38%,color-mix(in srgb,var(--mod) 20%,transparent) 100%)}
+.info{position:relative;z-index:2;flex:1;min-width:0}
+.info .t{font-size:14.5px;font-weight:700;letter-spacing:-.012em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.info .d{font-size:11.5px;color:var(--txt2);margin-top:1px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.info .d span{color:var(--txt3);font-weight:400}
+.end{position:relative;z-index:2;display:flex;align-items:center;justify-content:flex-end;gap:7px;
+  min-width:118px;font-family:var(--mono);font-size:11.5px;color:var(--txt2);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.end .sr{color:var(--txt);font-weight:500}
+.hex{position:relative;z-index:2;flex:0 0 64px;width:64px;height:40px;display:grid;place-items:center;
+  background:var(--mod);clip-path:polygon(15% 0,85% 0,100% 50%,85% 100%,15% 100%,0 50%);
+  font-weight:800;font-size:12.5px;color:#11131A}
+.hexw{position:relative;z-index:2;flex:0 0 64px;filter:drop-shadow(0 0 9px color-mix(in srgb,var(--mod) 45%,transparent))}
+.hexw .hex{flex:none;width:64px}
+
+.row[data-s="free"]:hover{box-shadow:0 1px 0 rgba(255,255,255,.07) inset,0 6px 20px rgba(0,0,0,.45)}
+.row[data-s="ban"]{background:#111318;box-shadow:none}
+.row[data-s="ban"] .cover img{filter:grayscale(1) brightness(.4);opacity:.28}
+.row[data-s="ban"] .cover::after{background:linear-gradient(90deg,#111318 2%,rgba(17,19,24,.8) 42%,rgba(17,19,24,.6) 100%)}
+.row[data-s="ban"] .tint{opacity:.14}
+.row[data-s="ban"] .info .t{color:#585E6C;text-decoration:line-through;text-decoration-color:#383E4C}
+.row[data-s="ban"] .info .d{color:#434958}
+.row[data-s="ban"] .hexw{filter:none}
+.row[data-s="ban"] .hex{filter:grayscale(1) brightness(.45)}
+.banx{display:inline-flex;align-items:center;gap:6px;color:#A05A5A;font-weight:500}
+.row[data-s="live"]{background:var(--card2);box-shadow:0 0 0 1.5px rgba(126,217,87,.55),var(--glowG)}
+.nowtag{display:inline-flex;align-items:center;gap:7px;color:var(--green);font-weight:700;font-family:var(--f);font-size:11.5px}
+.nowtag em{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pl 1.5s ease-in-out infinite}
+@keyframes pl{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.75)}}
+.row[data-s="done"] .cover img{opacity:.19;filter:saturate(.5)}
+.row[data-s="done"] .info .t{color:#B4BAC7;font-weight:600}
+.row[data-s="done"] .hexw{filter:none;opacity:.5}
+.won{display:inline-flex;align-items:center;gap:8px;font-family:var(--f);font-weight:700;font-size:12.5px;color:var(--txt)}
+.won em{width:7px;height:7px;border-radius:50%;background:var(--c);box-shadow:0 0 9px var(--c);flex:0 0 7px}
+.won i{font-style:normal;color:var(--gold);font-size:12px}
+.row[data-s="lock"]{background:#111318;box-shadow:none}
+.row[data-s="lock"] .cover img{opacity:.13;filter:grayscale(.7)}
+.row[data-s="lock"] .info .t{color:#585E6C}
+.row[data-s="lock"] .hexw{filter:none;opacity:.38}
+.lockt{color:var(--txt3);font-family:var(--f);font-size:11.5px;font-weight:500}
+.warn{display:inline-flex;align-items:center;gap:5px;color:var(--gold);font-family:var(--f);font-size:11px;font-weight:600}
+
+.winpick{position:absolute;left:0;right:76px;top:0;bottom:0;z-index:5;display:flex;align-items:center;
+  justify-content:center;gap:10px;background:rgba(16,19,26,.62);backdrop-filter:blur(8px);
+  opacity:0;pointer-events:none;transition:opacity .18s}
+.row[data-s="live"]:hover .winpick{opacity:1;pointer-events:auto;transition-delay:.3s}
+.winpick.show{opacity:1;pointer-events:auto}
+.wbtn{height:32px;padding:0 20px;border-radius:9px;background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;gap:9px;font-weight:700;font-size:12.5px}
+.wbtn em{width:7px;height:7px;border-radius:50%;background:var(--c);box-shadow:0 0 8px var(--c)}
+.wbtn:hover{background:rgba(255,255,255,.16)}
+.rowtools{position:absolute;z-index:6;right:86px;top:50%;transform:translateY(-50%);display:flex;gap:5px;
+  opacity:0;transition:opacity .15s}
+.row:hover .rowtools{opacity:1}
+.rt{width:30px;height:30px;border-radius:9px;background:rgba(8,10,14,.75);backdrop-filter:blur(6px);
+  display:grid;place-items:center;font-size:13px;color:var(--txt2);border:1px solid rgba(255,255,255,.08)}
+.rt:hover{background:rgba(255,255,255,.16);color:#fff}
+.rt.on{color:var(--gold);background:rgba(255,208,59,.15);border-color:rgba(255,208,59,.35);box-shadow:0 0 12px rgba(255,208,59,.25)}
+
+/* ══ матч ══ */
+.mwrap{position:relative;width:100%;max-width:800px;height:100%;margin:0 auto;display:flex;
+  flex-direction:column;padding:18px 20px 22px;overflow:auto}
+.tools{position:absolute;right:20px;top:18px;display:flex;gap:6px;z-index:20}
+.ic{width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.05);display:grid;place-items:center;
+  font-size:14px;color:var(--txt2)}
+.ic:hover{background:rgba(255,255,255,.1);color:var(--txt)}
+.mhead{flex:0 0 auto;text-align:center;padding:0 0 12px}
+.mhead .eyebrow{margin-bottom:9px}
+.sb{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:20px}
+.sb .pl{display:flex;align-items:center;gap:10px;font-weight:800;font-size:22px;letter-spacing:-.02em}
+.sb .pl.a{justify-content:flex-end}
+.sb .pl em{width:10px;height:10px;border-radius:50%;background:var(--c);box-shadow:0 0 12px var(--c);flex:0 0 10px}
+.sb .nums{display:flex;align-items:center;gap:12px;font-weight:800;font-size:34px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.sb .nums s{text-decoration:none;color:#2F3648;font-weight:500}
+.mp{font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--pink);
+  background:rgba(255,111,177,.13);border-radius:6px;padding:3px 7px;box-shadow:0 0 14px rgba(255,111,177,.2)}
+.tpill{display:inline-flex;align-items:center;gap:9px;margin-top:13px;height:32px;padding:0 16px;
+  border-radius:16px;background:rgba(255,111,177,.1);border:1px solid rgba(255,111,177,.35);
+  color:#FFC2DE;font-size:12.5px;font-weight:600;box-shadow:0 0 24px rgba(255,111,177,.16)}
+.tpill em{width:6px;height:6px;border-radius:50%;background:var(--pink);box-shadow:0 0 8px var(--pink);animation:pl 1.5s ease-in-out infinite}
+.tpill b{color:#fff;font-weight:800}
+
+/* ══ универсальные блоки ══ */
+.panel{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 1px 0 rgba(255,255,255,.04) inset}
+.panel h3{margin:0 0 12px;font-size:13px;font-weight:800}
+.sep{height:1px;background:rgba(255,255,255,.07);margin:13px 0}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11.5px;color:var(--txt3);margin-bottom:6px;font-weight:600}
+.inp{height:36px;border-radius:10px;background:rgba(255,255,255,.05);display:flex;align-items:center;
+  padding:0 12px;font-size:13px;color:var(--txt);gap:8px}
+.inp.big{height:auto;min-height:120px;align-items:flex-start;padding:12px;display:block;
+  font-family:var(--mono);font-size:11.5px;color:var(--txt2);line-height:1.7;white-space:pre-wrap}
+.inp .ph{color:var(--txt3)}
+.sw{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12.5px;color:var(--txt2);cursor:pointer}
+.sw i{width:32px;height:18px;border-radius:10px;background:#2A2F3D;position:relative;flex:0 0 32px}
+.sw i::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#767E90;transition:.15s}
+.sw.on{color:var(--txt)}
+.sw.on i{background:rgba(255,111,177,.35)}
+.sw.on i::after{left:16px;background:var(--pink);box-shadow:0 0 8px var(--pink)}
+.chip{height:29px;padding:0 12px;border-radius:15px;background:rgba(255,255,255,.05);font-size:12px;
+  font-weight:600;color:var(--txt2);display:inline-flex;align-items:center;gap:7px}
+.chip:hover{background:rgba(255,255,255,.1);color:var(--txt)}
+.chip em{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.chip.on{background:rgba(255,111,177,.16);color:#FFC2DE;box-shadow:0 0 14px rgba(255,111,177,.14)}
+.chip.x{color:var(--txt3)}
+.steps{display:flex;gap:6px;align-items:center}
+.steps i{width:7px;height:7px;border-radius:50%;background:#262B39;font-style:normal}
+.steps i.done{background:#3B4356}
+.steps i.now{width:22px;border-radius:4px;background:var(--pink);box-shadow:0 0 12px var(--pink)}
+.tabs2{display:flex;gap:4px;padding:0 24px 12px}
+.tab2{height:30px;padding:0 13px;border-radius:9px;font-size:12.5px;font-weight:700;color:var(--txt3)}
+.tab2.on{background:rgba(255,255,255,.07);color:var(--txt)}
+.hint{font-size:11.5px;color:var(--txt3);line-height:1.55}
+
+/* ══ библиотека ══ */
+.colls{display:flex;flex-direction:column;gap:2px}
+.colls a{position:relative;display:flex;align-items:center;gap:10px;height:31px;padding:0 12px;
+  border-radius:9px;color:var(--txt2);text-decoration:none;font-size:12.5px;font-weight:600;white-space:nowrap}
+.colls a:hover{background:rgba(255,255,255,.045);color:var(--txt)}
+.colls a.sel{background:rgba(255,255,255,.08);color:var(--txt)}
+.colls a u{width:8px;height:8px;border-radius:3px;background:var(--c);flex:0 0 8px;text-decoration:none;box-shadow:0 0 8px var(--c)}
+.colls a .lbl{flex:1;overflow:hidden;text-overflow:ellipsis}
+.colls a .cnt{font-family:var(--mono);font-size:10.5px;color:var(--txt3);font-weight:400}
+.addcoll{margin-top:8px;height:32px;border-radius:9px;border:1px dashed rgba(255,255,255,.14);
+  display:flex;align-items:center;justify-content:center;gap:7px;font-size:12px;font-weight:600;color:var(--txt3);width:100%}
+.addcoll:hover{border-color:rgba(255,111,177,.5);color:var(--pink)}
+.crumb{display:flex;align-items:center;gap:10px;padding:0 24px 12px}
+.crumb .tag{display:inline-flex;align-items:center;gap:9px;height:32px;padding:0 8px 0 12px;border-radius:16px;
+  background:rgba(255,255,255,.06);font-size:12.5px;font-weight:700}
+.crumb .tag u{width:8px;height:8px;border-radius:3px;background:var(--c);box-shadow:0 0 8px var(--c);text-decoration:none}
+.crumb .tag button{width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.08);
+  display:grid;place-items:center;font-size:11px;color:var(--txt2)}
+.crumb .tag button:hover{background:var(--pink);color:#1B0A12}
+.filters{display:flex;align-items:center;gap:7px;padding:0 24px 12px;flex-wrap:wrap}
+.search{flex:0 0 250px;height:33px;border-radius:10px;background:rgba(255,255,255,.05);display:flex;
+  align-items:center;gap:9px;padding:0 13px;font-size:12.5px;color:var(--txt3)}
+.rng2{height:29px;padding:0 13px;border-radius:15px;background:rgba(255,255,255,.05);display:flex;
+  align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--txt2)}
+.rng2 u{width:60px;height:3px;border-radius:2px;background:#2A2F3D;position:relative;text-decoration:none}
+.rng2 u b{position:absolute;left:20%;right:26%;top:0;bottom:0;background:var(--pink);border-radius:2px;box-shadow:0 0 8px var(--pink)}
+.lrow{display:flex;align-items:center;gap:13px;height:57px;padding:0 13px;border-radius:12px}
+.lrow:hover{background:rgba(255,255,255,.04)}
+.lrow.sel{background:rgba(255,111,177,.09)}
+.cb{width:16px;height:16px;border-radius:5px;border:1.5px solid #39405233;background:rgba(255,255,255,.06);
+  flex:0 0 16px;display:grid;place-items:center;font-size:10px;color:transparent}
+.lrow.sel .cb{background:var(--pink);border-color:var(--pink);color:#1B0A12;box-shadow:0 0 10px rgba(255,111,177,.5)}
+.th{position:relative;width:74px;height:40px;flex:0 0 74px;border-radius:8px;overflow:hidden;background:#1E222C}
+.th img{width:100%;height:100%;object-fit:cover}
+.th u{position:absolute;inset:0;display:grid;place-items:center;background:rgba(6,8,12,.55);opacity:0;
+  transition:.14s;font-size:13px;color:#fff;text-decoration:none}
+.lrow:hover .th u{opacity:1}
+.lnm{flex:1;min-width:0}
+.lnm .t{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lnm .s{font-size:11.5px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mods{display:flex;gap:4px;flex:0 0 auto}
+.mh{width:37px;height:21px;display:grid;place-items:center;background:var(--c);color:#11131A;
+  clip-path:polygon(15% 0,85% 0,100% 50%,85% 100%,15% 100%,0 50%);font-size:9.5px;font-weight:800}
+.mh.off{background:#212636;color:#4A5164}
+.tags{display:flex;gap:5px;flex:0 0 186px}
+.tg{font-size:10.5px;font-weight:600;color:#79819A;background:rgba(255,255,255,.045);border-radius:6px;padding:2px 7px}
+.tg.a{color:#8E9BC4;border:1px dashed rgba(142,155,196,.25);padding:1px 6px}
+.n2{font-family:var(--mono);font-size:11.5px;color:var(--txt2);font-variant-numeric:tabular-nums;flex:0 0 auto}
+.n2 b{color:var(--txt);font-weight:500}
+.bulkbar{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:30;display:flex;
+  align-items:center;gap:9px;padding:9px 12px;border-radius:14px;background:rgba(22,25,34,.96);
+  border:1px solid rgba(255,255,255,.09);box-shadow:0 14px 40px rgba(0,0,0,.6),0 0 30px rgba(255,111,177,.1)}
+.bulkbar .c{font-size:12.5px;font-weight:700;padding:0 6px}
+
+/* контекстное меню */
+.ctx{position:absolute;z-index:50;width:212px;background:#1B1F2A;border:1px solid rgba(255,255,255,.09);
+  border-radius:12px;padding:6px;box-shadow:0 20px 50px rgba(0,0,0,.6)}
+.ctx button{display:flex;align-items:center;gap:10px;width:100%;height:31px;padding:0 10px;
+  border-radius:8px;font-size:12.5px;font-weight:600;color:var(--txt2)}
+.ctx button:hover{background:rgba(255,255,255,.07);color:var(--txt)}
+.ctx button.dngr:hover{background:rgba(255,107,107,.15);color:#FF8A8A}
+.ctx .sep{margin:5px 6px}
+
+/* ══ сетка ══ */
+.bracket{flex:1;overflow:auto;padding:4px 24px 40px;position:relative}
+#wires{position:absolute;left:0;top:0;pointer-events:none;z-index:0}
+.lane{margin-bottom:28px}
+.lanetitle{display:flex;align-items:baseline;gap:11px;margin-bottom:15px}
+.lanetitle h2{margin:0;font-size:14px;font-weight:800}
+.lanetitle span{font-size:11.5px;color:var(--txt3)}
+.cols{display:flex;gap:52px;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:16px;min-width:214px}
+.pair{display:flex;flex-direction:column;gap:16px}
+.col.r2 .pair{gap:96px;margin-top:40px}
+.col.r3 .m{margin-top:120px}
+.col.gfc .m{margin-top:120px}
+.m{position:relative;z-index:1;border-radius:12px;background:var(--card);overflow:hidden;
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 2px 12px rgba(0,0,0,.3)}
+.m .p{position:relative;display:flex;align-items:center;gap:10px;height:34px;padding:0 13px;font-size:13px;font-weight:600}
+.m .p em{width:7px;height:7px;border-radius:50%;background:var(--c);flex:0 0 7px}
+.m .p .n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m .p .sc{font-family:var(--mono);font-size:12.5px;color:var(--txt2);font-variant-numeric:tabular-nums}
+.m .p.w{background:linear-gradient(90deg,color-mix(in srgb,var(--c) 15%,transparent),transparent 72%)}
+.m .p.w em{box-shadow:0 0 9px var(--c)}
+.m .p.w .n{font-weight:800}
+.m .p.w .sc{color:var(--txt);font-weight:500}
+.m .p.w::before{content:"";position:absolute;left:0;top:0;width:3px;height:34px;background:var(--c);box-shadow:0 0 10px var(--c)}
+.m .p.l{opacity:.36}
+.m .p.l .drop{font-size:10px;color:var(--txt3)}
+.m .p.tbd{color:var(--txt3);font-weight:500}
+.m .p.tbd em{background:#262B39}
+.m.now{box-shadow:0 0 0 1.5px var(--pink),0 0 26px rgba(255,111,177,.28)}
+.m.now .live{position:absolute;right:10px;top:-9px;font-size:9px;font-weight:800;letter-spacing:.1em;
+  text-transform:uppercase;background:var(--pink);color:#1B0A12;padding:3px 8px;border-radius:7px;z-index:3;
+  box-shadow:0 0 16px rgba(255,111,177,.55)}
+.m.gf{background:linear-gradient(180deg,#241F17,#171A22 70%);box-shadow:0 0 0 1px rgba(255,208,59,.25),0 0 26px rgba(255,208,59,.12)}
+.m .foot{padding:7px 13px 9px;font-size:10.5px;color:var(--txt3)}
+
+/* ══ карточки/сетки блоков ══ */
+.cards3{display:flex;gap:13px}
+.card{width:232px;border-radius:16px;background:var(--card);padding:20px 18px 16px;display:flex;
+  flex-direction:column;gap:8px;position:relative;cursor:pointer;
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 4px 18px rgba(0,0,0,.3);transition:transform .16s,box-shadow .16s}
+.card:hover{transform:translateY(-3px);box-shadow:0 1px 0 rgba(255,255,255,.07) inset,0 12px 30px rgba(0,0,0,.45)}
+.card.rec{box-shadow:0 0 0 1.5px rgba(255,111,177,.5),0 0 30px rgba(255,111,177,.18)}
+.card .ico{width:36px;height:36px;border-radius:11px;background:rgba(255,255,255,.06);display:grid;place-items:center;font-size:16px}
+.card .h{font-size:14.5px;font-weight:800;letter-spacing:-.015em}
+.card .d{font-size:12.5px;color:var(--txt2);line-height:1.5;flex:1}
+.card .pick{margin-top:5px;height:31px;border-radius:9px;background:rgba(255,255,255,.05);display:flex;
+  align-items:center;justify-content:space-between;padding:0 12px;font-size:11.5px;color:var(--txt2);font-weight:600}
+
+.tcard{display:flex;align-items:center;gap:14px;padding:14px;border-radius:14px;background:var(--card);
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset;margin-bottom:9px}
+.tcard .big{font-size:15px;font-weight:800}
+.tcard .sub2{font-size:11.5px;color:var(--txt3);margin-top:2px}
+.tcard .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.badge{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:6px}
+.badge.live{background:rgba(255,111,177,.15);color:var(--pink);box-shadow:0 0 14px rgba(255,111,177,.2)}
+.badge.done{background:rgba(255,255,255,.06);color:var(--txt3)}
+
+.stat{display:flex;flex-direction:column;gap:2px;padding:13px 15px;border-radius:12px;background:var(--card);min-width:118px}
+.stat b{font-size:22px;font-weight:800;letter-spacing:-.02em;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--txt3);font-weight:600}
+.statrow{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px}
+
+.podium{display:flex;align-items:flex-end;justify-content:center;gap:14px;margin:10px 0 26px}
+.pod{width:150px;border-radius:14px 14px 0 0;background:var(--card);display:flex;flex-direction:column;
+  align-items:center;justify-content:flex-end;gap:7px;padding:16px 12px 14px;position:relative}
+.pod .av{width:44px;height:44px;border-radius:50%;background:var(--c);box-shadow:0 0 24px var(--c);opacity:.9}
+.pod .nm2{font-weight:800;font-size:14px}
+.pod .pl2{font-family:var(--mono);font-size:11px;color:var(--txt3)}
+.pod.p1{height:186px}.pod.p2{height:150px}.pod.p3{height:126px}
+.pod.p1{box-shadow:0 0 0 1px rgba(255,208,59,.3),0 0 34px rgba(255,208,59,.15)}
+
+.slotline{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12.5px;color:var(--txt2)}
+.slotline b{width:38px;height:22px;border-radius:6px;background:var(--mod);color:#11131A;display:grid;
+  place-items:center;font-size:10.5px;font-weight:800;flex:0 0 38px}
+.slotline .rng{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--txt3)}
+.slotline .src{font-size:11.5px;color:var(--txt3)}
+.slotline .drag{color:#3A4152;cursor:grab}
+
+.seedgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;max-width:560px}
+.seed{display:flex;align-items:center;gap:10px;height:42px;padding:0 12px;border-radius:11px;background:var(--card)}
+.seed .num{font-family:var(--mono);font-size:11px;color:var(--txt3);width:18px}
+.seed em{width:9px;height:9px;border-radius:50%;background:var(--c);box-shadow:0 0 9px var(--c)}
+.seed .n3{font-weight:700;font-size:13px;flex:1}
+.seed .grab{color:#3A4152;cursor:grab}
+.seed.empty{background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.1);color:var(--txt3);font-size:12px;justify-content:center}
+
+.found{display:flex;align-items:center;gap:10px;height:38px;padding:0 12px;border-radius:10px;
+  background:rgba(255,255,255,.04);margin-bottom:5px;font-size:12.5px}
+.found .ok{color:var(--green)}
+.found .dup{color:var(--txt3)}
+.found .bad{color:#FF8A8A}
+.found .u2{font-family:var(--mono);font-size:11px;color:var(--txt3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:4px;border-radius:3px;background:#212636;overflow:hidden}
+.bar b{display:block;height:100%;background:var(--pink);border-radius:3px;box-shadow:0 0 10px var(--pink)}
+
+.detail{width:330px;flex:0 0 330px;border-left:1px solid rgba(255,255,255,.06);overflow:auto;padding:0 0 24px}
+.detail .hero{position:relative;height:130px;overflow:hidden}
+.detail .hero img{width:100%;height:100%;object-fit:cover;opacity:.55}
+.detail .hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,var(--bg))}
+.detail .body{padding:0 18px;margin-top:-26px;position:relative;z-index:2}
+.detail h2{margin:0;font-size:16px;font-weight:800;letter-spacing:-.02em}
+.detail .sub3{font-size:12px;color:var(--txt2);margin-top:3px}
+.kv{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;color:var(--txt2)}
+.kv b{font-family:var(--mono);color:var(--txt);font-weight:500}
+.spark{display:flex;align-items:flex-end;gap:2px;height:34px;margin-top:6px}
+.spark i{flex:1;background:#2B3142;border-radius:2px}
+</style>
+</head>
+<body>
+<div class="bgglow"></div>
+
+<aside class="index">
+  <div class="brand"><span class="logo"><i></i><u></u></span><b>osu<i>!</i>cup</b></div>
+  <div class="gr">Начало</div>
+  <button data-go="onb">Первый запуск</button>
+  <button data-go="home">Главная</button>
+  <div class="gr">Карты</div>
+  <button data-go="lib" class="on">Библиотека</button>
+  <button data-go="coll">Внутри коллекции</button>
+  <button data-go="imp">Импорт по ссылкам</button>
+  <button data-go="card">Карточка карты</button>
+  <div class="gr">Маппулы</div>
+  <button data-go="tpl">Шаблоны</button>
+  <button data-go="tpled">Редактор шаблона</button>
+  <button data-go="ed">Редактор маппула</button>
+  <button data-go="pick">Подбор карты в слот</button>
+  <div class="gr">Турнир</div>
+  <button data-go="new">Создание турнира</button>
+  <button data-go="seed">Посев игроков</button>
+  <button data-go="brk">Сетка</button>
+  <button data-go="m1">Матч · баны</button>
+  <button data-go="m2">Матч · победитель</button>
+  <button data-go="fin">Итоги турнира</button>
+  <div class="gr">Прочее</div>
+  <button data-go="pl">Профиль игрока</button>
+  <button data-go="set">Настройки</button>
+  <div class="cap">Превью без логики.<br>Наведи на строки — там кнопки.</div>
+</aside>
+
+<main class="app" id="app">
+
+<!-- ─── ПЕРВЫЙ ЗАПУСК ─── -->
+<section class="scr" id="onb">
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;overflow:auto">
+    <div class="steps" style="margin-bottom:30px"><i class="done"></i><i class="now"></i><i></i><i></i></div>
+    <h1 style="font-size:28px;font-weight:800;letter-spacing:-.03em;margin:0 0 9px">Откуда взять карты</h1>
+    <p style="color:var(--txt2);font-size:14px;margin:0 0 30px;text-align:center;max-width:470px;line-height:1.55">
+      Выбери любой способ — потом можно добавить ещё. Всё, что загрузится, останется в библиотеке.</p>
+    <div class="cards3">
+      <div class="card rec"><div class="ico">🏆</div><div class="h">Турнирный пак</div>
+        <div class="d">Готовые пулы официальных турниров osu!. Быстрее всего.</div>
+        <div class="pick">osu! World Cup 2026 <span>▾</span></div></div>
+      <div class="card"><div class="ico">🔗</div><div class="h">Ссылки на карты</div>
+        <div class="d">Вставь хоть весь чат — прога сама найдёт ссылки.</div>
+        <div class="pick">Вставить из буфера <span>Ctrl V</span></div></div>
+      <div class="card"><div class="ico">📄</div><div class="h">Файл JSON</div>
+        <div class="d">Если пул уже собран в другом месте.</div>
+        <div class="pick">Выбрать файл <span>…</span></div></div>
+    </div>
+    <div class="panel" style="margin-top:26px;width:400px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:9px">
+        <span style="color:var(--txt2)">Загружаю карты из пака</span><b class="mono">34 / 120</b></div>
+      <div class="bar"><b style="width:28%"></b></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--txt3);margin-top:8px">
+        <span>можно свернуть и продолжить</span><span>~40 сек</span></div>
+    </div>
+    <div style="margin-top:24px;font-size:12.5px;color:var(--txt3)">Уже разобрался? <u style="cursor:pointer">Пропустить</u></div>
+  </div>
+</section>
+
+<!-- ─── ГЛАВНАЯ ─── -->
+<section class="scr" id="home">
+  <aside class="rail" data-rail="Турниры"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Главная</h1><span class="right"><button class="btn p">+ Новый турнир</button></span></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="eyebrow" style="margin:6px 0 10px">Продолжить</div>
+      <div class="tcard" style="box-shadow:0 0 0 1px rgba(255,111,177,.3),0 0 26px rgba(255,111,177,.12)">
+        <div><div class="big">Осенний кубок</div><div class="sub2">полуфинал · NAGISA 3 : 2 KIRA · маппул «Тир 2»</div></div>
+        <div class="right"><span class="badge live">идёт матч</span><button class="btn p sm">Вернуться в матч</button></div>
+      </div>
+      <div class="eyebrow" style="margin:22px 0 10px">Турниры</div>
+      <div class="tcard"><div><div class="big">Летний сезон</div><div class="sub2">8 игроков · завершён 12 июля · победитель SEVEN</div></div>
+        <div class="right"><span class="badge done">завершён</span><button class="btn sm">Открыть</button></div></div>
+      <div class="tcard"><div><div class="big">Ночная рубка</div><div class="sub2">4 игрока · черновик, игроки не расставлены</div></div>
+        <div class="right"><span class="badge done">черновик</span><button class="btn sm">Продолжить сборку</button></div></div>
+      <div class="eyebrow" style="margin:22px 0 10px">Последние маппулы</div>
+      <div class="tcard"><div><div class="big">Осенний кубок · Тир 2</div><div class="sub2">12 карт · средние 6.31★</div></div>
+        <div class="right"><button class="btn sm">Открыть</button><button class="btn sm">⧉ Картинкой</button></div></div>
+      <div class="tcard"><div><div class="big">Разминка</div><div class="sub2">7 карт · средние 4.10★</div></div>
+        <div class="right"><button class="btn sm">Открыть</button><button class="btn sm">⧉ Картинкой</button></div></div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ─── БИБЛИОТЕКА ─── -->
+<section class="scr on" id="lib">
+  <aside class="rail lib-rail"></aside>
+  <div class="work" style="position:relative">
+    <div class="topbar"><h1>Все карты</h1><span class="sub">2418 карт</span>
+      <span class="right">
+        <button class="btn q">Поиск на osu!</button>
+        <button class="btn q">Турнирный пак</button>
+        <button class="btn q">Импорт JSON</button>
+        <button class="btn p" data-go="imp">+ По ссылке</button>
+      </span></div>
+    <div class="filters">
+      <div class="search">⌕&nbsp; название, артист, маппер, сложность</div>
+      <span class="chip on"><em style="--c:var(--nm)"></em>NM</span>
+      <span class="chip"><em style="--c:var(--hd)"></em>HD</span>
+      <span class="chip on"><em style="--c:var(--hr)"></em>HR</span>
+      <span class="chip"><em style="--c:var(--dt)"></em>DT</span>
+      <span class="chip"><em style="--c:var(--fm)"></em>FM</span>
+      <span class="rng2">5.0 <u><b></b></u> 7.0★</span>
+      <span class="chip">BPM ▾</span><span class="chip">длина ▾</span>
+      <span class="chip on">stream</span><span class="chip">aim</span><span class="chip">tech</span>
+      <span class="chip x">✕ сбросить</span>
+      <span class="chip" style="margin-left:auto">☆ Сохранить как умную</span>
+    </div>
+    <div class="scrollarea" style="padding-top:0" data-lib="1"></div>
+    <div class="bulkbar">
+      <span class="c">Выбрано 3 карты</span>
+      <button class="btn sm">+ В коллекцию</button>
+      <button class="btn sm">Мод-тег</button>
+      <button class="btn sm">Скилсет</button>
+      <button class="btn sm">Метка</button>
+      <button class="btn sm" style="color:#FF8A8A">Удалить</button>
+      <button class="btn q sm">✕</button>
+    </div>
+  </div>
+</section>
+
+<!-- ─── ВНУТРИ КОЛЛЕКЦИИ ─── -->
+<section class="scr" id="coll">
+  <aside class="rail lib-rail" data-sel="Тир 2"></aside>
+  <div class="work" style="position:relative">
+    <div class="topbar"><h1>Тир 2</h1><span class="sub">312 карт</span>
+      <span class="right">
+        <button class="btn q">⧉ Картинкой</button>
+        <button class="btn q">Экспорт JSON</button>
+        <button class="btn">Скатать маппул</button>
+        <button class="btn p">+ Добавить карты</button>
+      </span></div>
+    <div class="crumb">
+      <span class="tag" style="--c:#FFD03B"><u></u>Тир 2 <button title="Выйти в «Все карты»">✕</button></span>
+      <span class="hint">карта может быть в нескольких коллекциях · перетащи строки, чтобы менять порядок</span>
+    </div>
+    <div class="scrollarea" style="padding-top:0" data-lib="2"></div>
+    <div class="ctx" style="left:24px;top:150px">
+      <button>✎ Переименовать</button>
+      <button>◐ Сменить цвет</button>
+      <button>🗀 Переместить в папку</button>
+      <button>⧉ Дублировать</button>
+      <div class="sep"></div>
+      <button>↧ Экспорт в JSON</button>
+      <button>▤ Скатать маппул отсюда</button>
+      <div class="sep"></div>
+      <button class="dngr">🗑 Удалить коллекцию</button>
+    </div>
+  </div>
+</section>
+
+<!-- ─── ИМПОРТ ПО ССЫЛКАМ ─── -->
+<section class="scr" id="imp">
+  <aside class="rail lib-rail"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Добавить карты по ссылкам</h1>
+      <span class="right"><button class="btn q">Отмена</button><button class="btn p">Загрузить 34 карты</button></span></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="panel">
+        <h3>Вставь что угодно</h3>
+        <div class="hint" style="margin-bottom:10px">Ссылки, чат из Discord, текст с комментариями, список из блокнота —
+          прога сама найдёт валидные ссылки. Понимает <span class="mono">/beatmapsets/123</span>,
+          <span class="mono">/beatmapsets/123#osu/456</span> и короткие <span class="mono">/b/456</span>.</div>
+        <div class="inp big">&lt;Nagisa&gt; предлагаю такие
+https://osu.ppy.sh/beatmapsets/1001507#osu/2094114
+https://osu.ppy.sh/b/2094115  — эта посложнее
+&lt;Kira&gt; норм, ещё вот весь сет закинь
+https://osu.ppy.sh/beatmapsets/292301
+osu.ppy.sh/beatmapsets/39804#osu/129891
+https://osu.ppy.sh/beatmapsets/999999999  ← битая</div>
+        <div class="sw on" style="margin-top:10px"><i></i>Добавлять все сложности набора, если ссылка на набор</div>
+        <div class="sw on"><i></i>Считать звёзды под всеми модами сразу</div>
+        <div class="sw"><i></i>Сразу положить в коллекцию «Тир 2»</div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h3>Найдено 34 карты · 1 ошибка</h3>
+        <div class="found"><span class="ok">✓</span><span class="u2">ZUTOMAYO — Kan Saete Kuyashiiwa [Extra]</span><span class="n2">5.42★</span></div>
+        <div class="found"><span class="ok">✓</span><span class="u2">ZUTOMAYO — Kan Saete Kuyashiiwa [Insane]</span><span class="n2">4.31★</span></div>
+        <div class="found"><span class="dup">≡</span><span class="u2">xi — Blue Zenith [FOUR DIMENSIONS] — уже в библиотеке</span><span class="n2">пропуск</span></div>
+        <div class="found"><span class="ok">✓</span><span class="u2">xi — FREEDOM DiVE [FOUR DIMENSIONS]</span><span class="n2">7.95★</span></div>
+        <div class="found"><span class="bad">✕</span><span class="u2">/beatmapsets/999999999 — набор не найден</span>
+          <button class="btn q sm">Найти вручную</button></div>
+        <div class="hint" style="margin-top:8px">…и ещё 30 строк</div>
+        <div class="sep"></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:8px">
+          <span style="color:var(--txt2)">Загрузка · 60 запросов в минуту</span><span class="mono">18 / 34</span></div>
+        <div class="bar"><b style="width:53%"></b></div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ─── КАРТОЧКА КАРТЫ ─── -->
+<section class="scr" id="card">
+  <aside class="rail lib-rail"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Все карты</h1><span class="sub">2418 карт</span></div>
+    <div class="scrollarea" style="padding-top:0" data-lib="3"></div>
+  </div>
+  <aside class="detail">
+    <div class="hero"><img src="https://assets.ppy.sh/beatmaps/292301/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+    <div class="body">
+      <h2>xi — Blue Zenith</h2>
+      <div class="sub3">FOUR DIMENSIONS · Asphyxia</div>
+      <div style="display:flex;gap:6px;margin:12px 0">
+        <button class="btn sm">▶ Превью</button><button class="btn sm">Открыть на osu!</button><button class="btn q sm">⋯</button>
+      </div>
+      <div class="sep"></div>
+      <div class="eyebrow" style="margin-bottom:8px">Разрешённые мод-теги</div>
+      <div class="mods" style="margin-bottom:12px">
+        <span class="mh" style="--c:var(--nm)">NM</span><span class="mh" style="--c:var(--hd)">HD</span>
+        <span class="mh" style="--c:var(--hr)">HR</span><span class="mh off">DT</span>
+        <span class="mh" style="--c:var(--fm)">FM</span><span class="mh" style="--c:var(--tb)">TB</span>
+      </div>
+      <div class="eyebrow" style="margin-bottom:8px">Звёзды под модами</div>
+      <div class="kv"><span>NoMod</span><b>7.16★</b></div>
+      <div class="kv"><span>HD</span><b>7.16★</b></div>
+      <div class="kv"><span>HR</span><b>8.03★</b></div>
+      <div class="kv"><span>DT</span><b>9.61★</b></div>
+      <div class="sep"></div>
+      <div class="eyebrow" style="margin-bottom:8px">Параметры · показаны с HR</div>
+      <div class="kv"><span>AR</span><b>10.0 <span style="color:var(--txt3)">← 9.3</span></b></div>
+      <div class="kv"><span>OD</span><b>10.0 <span style="color:var(--txt3)">← 9.0</span></b></div>
+      <div class="kv"><span>CS</span><b>5.2 <span style="color:var(--txt3)">← 4.0</span></b></div>
+      <div class="kv"><span>BPM · длина</span><b>200 · 4:20</b></div>
+      <div class="sep"></div>
+      <div class="eyebrow" style="margin-bottom:6px">Где умирают</div>
+      <div class="spark" data-spark="1"></div>
+      <div class="sep"></div>
+      <div class="eyebrow" style="margin-bottom:8px">Скилсеты</div>
+      <div class="tags" style="flex:none;flex-wrap:wrap">
+        <span class="tg a">stream</span><span class="tg a">stamina</span><span class="tg">классика</span>
+        <span class="tg" style="color:var(--txt3)">+ добавить</span></div>
+      <div class="sep"></div>
+      <div class="eyebrow" style="margin-bottom:8px">В коллекциях</div>
+      <div class="tags" style="flex:none;flex-wrap:wrap"><span class="tg">Тир 3 — топы</span><span class="tg">Тайбрейки</span></div>
+      <div class="sep"></div>
+      <div class="eyebrow" style="margin-bottom:8px">История</div>
+      <div class="hint">Играли 4 раза · NAGISA 3–1 · последний раз в «Летнем сезоне»</div>
+    </div>
+  </aside>
+</section>
+
+<!-- ─── ШАБЛОНЫ ─── -->
+<section class="scr" id="tpl">
+  <aside class="rail" data-rail="Маппулы"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Маппулы</h1><span class="right"><button class="btn p">+ Создать шаблон</button></span></div>
+    <div class="tabs2"><span class="tab2">Маппулы</span><span class="tab2 on">Шаблоны</span></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="tcard"><div><div class="big">Стандарт 1v1</div>
+        <div class="sub2 mono">NM×4 · HD×2 · HR×2 · DT×2 · FM×1 · TB×1 — 12 слотов</div></div>
+        <div class="right"><button class="btn sm" data-go="tpled">Изменить</button><button class="btn p sm">↻ Скатать маппул</button></div></div>
+      <div class="tcard"><div><div class="big">Короткий</div>
+        <div class="sub2 mono">NM×3 · HD×1 · HR×1 · DT×1 · TB×1 — 7 слотов</div></div>
+        <div class="right"><button class="btn sm">Изменить</button><button class="btn p sm">↻ Скатать маппул</button></div></div>
+      <div class="tcard"><div><div class="big">Только моды</div>
+        <div class="sub2 mono">HD×2 · HR×2 · DT×2 · FM×2 · TB×1 — 9 слотов</div></div>
+        <div class="right"><button class="btn sm">Изменить</button><button class="btn p sm">↻ Скатать маппул</button></div></div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ─── РЕДАКТОР ШАБЛОНА ─── -->
+<section class="scr" id="tpled">
+  <aside class="rail" data-rail="Маппулы"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Стандарт 1v1</h1><span class="sub">12 слотов</span>
+      <span class="right"><button class="btn q">Дублировать</button><button class="btn p">Сохранить</button></span></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="panel">
+        <h3>Слоты</h3>
+        <div class="slotline" style="--mod:var(--nm)"><span class="drag">⠿</span><b>NM</b>×4
+          <span class="src">из «Тир 2»</span><span class="rng">5.2 — 6.0★</span><button class="btn q sm">✕</button></div>
+        <div class="slotline" style="--mod:var(--hd)"><span class="drag">⠿</span><b>HD</b>×2
+          <span class="src">из «Тир 2»</span><span class="rng">5.4 — 6.0★</span><button class="btn q sm">✕</button></div>
+        <div class="slotline" style="--mod:var(--hr)"><span class="drag">⠿</span><b>HR</b>×2
+          <span class="src">из «Тир 2»</span><span class="rng">6.0 — 6.6★</span><button class="btn q sm">✕</button></div>
+        <div class="slotline" style="--mod:var(--dt)"><span class="drag">⠿</span><b>DT</b>×2
+          <span class="src">из «DT-база»</span><span class="rng">6.8 — 7.5★</span><button class="btn q sm">✕</button></div>
+        <div class="slotline" style="--mod:var(--fm)"><span class="drag">⠿</span><b>FM</b>×1
+          <span class="src">из «Тир 2»</span><span class="rng">6.8 — 7.4★</span><button class="btn q sm">✕</button></div>
+        <div class="slotline" style="--mod:var(--tb)"><span class="drag">⠿</span><b>TB</b>×1
+          <span class="src">из «Тайбрейки»</span><span class="rng">7.6 — 8.2★</span></div>
+        <button class="addcoll" style="margin-top:10px">+ Добавить слот</button>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h3>Правила генерации</h3>
+        <div class="sw on"><i></i>Не повторять маппера</div>
+        <div class="sw on"><i></i>Не брать карты из прошлого маппула турнира</div>
+        <div class="sw on"><i></i>Разброс BPM не менее 40</div>
+        <div class="sw"><i></i>Только ranked</div>
+        <div class="sw"><i></i>Держать баланс aim / speed</div>
+      </div>
+
+      <div class="panel" style="margin-top:14px;box-shadow:0 0 0 1px rgba(255,208,59,.25)">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:var(--gold);font-size:15px">⚠</span>
+          <div><div style="font-weight:700;font-size:13px;margin-bottom:3px">Под слот DT карт впритык</div>
+            <div class="hint">В «DT-база» подходят 3 карты, а нужно 2. Генерация сработает, но разнообразия
+              не будет. Расширь диапазон звёзд или добавь карт в коллекцию.</div></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ─── РЕДАКТОР МАППУЛА ─── -->
+<section class="scr" id="ed">
+  <aside class="rail" data-rail="Маппулы"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Осенний кубок · Тир 2</h1><span class="sub">12 карт · 6.31★ · закреплено 2</span>
+      <span class="right">
+        <button class="btn q">⧉ Картинкой</button>
+        <button class="btn q">Поля ▾</button>
+        <button class="btn">Правила ▾</button>
+        <button class="btn p">↻ Скатать незакреплённые</button>
+      </span></div>
+    <div class="scrollarea"><div class="col800" data-pool="ed"></div></div>
+  </div>
+</section>
+
+<!-- ─── ПОДБОР КАРТЫ ─── -->
+<section class="scr" id="pick">
+  <aside class="rail" data-rail="Маппулы"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Осенний кубок · Тир 2</h1><span class="sub">выбор карты в слот HR2</span></div>
+    <div class="scrollarea"><div class="col800" data-pool="pickmini"></div></div>
+  </div>
+  <aside class="detail" style="width:378px;flex:0 0 378px">
+    <div style="padding:18px 18px 0">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px">
+        <span class="hexw" style="--mod:var(--hr);flex:0 0 52px"><span class="hex" style="width:52px;height:32px;font-size:11px">HR2</span></span>
+        <h2 style="font-size:15px">Подбор карты</h2>
+        <button class="btn q sm" style="margin-left:auto">✕</button>
+      </div>
+      <div class="hint" style="margin-bottom:12px">Фильтр уже сужен под слот: разрешён HR, звёзды 6.0—6.6★, источник «Тир 2».</div>
+      <div class="search" style="flex:none;margin-bottom:9px">⌕&nbsp; поиск по библиотеке</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+        <span class="chip on">по слоту</span><span class="chip">вся библиотека</span><span class="chip">своя карта</span>
+      </div>
+    </div>
+    <div style="padding:0 10px" data-lib="pick"></div>
+  </aside>
+</section>
+
+<!-- ─── СОЗДАНИЕ ТУРНИРА ─── -->
+<section class="scr" id="new">
+  <aside class="rail" data-rail="Турниры"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Новый турнир</h1>
+      <span class="right"><span class="steps"><i class="now"></i><i></i><i></i></span>
+        <button class="btn q">Отмена</button><button class="btn p">Дальше — маппулы</button></span></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="panel">
+        <h3>Основное</h3>
+        <div class="field"><label>Название</label><div class="inp">Осенний кубок</div></div>
+        <div style="display:flex;gap:12px">
+          <div class="field" style="flex:1"><label>Размер сетки</label><div class="inp">8 игроков — двойная <span style="margin-left:auto;color:var(--txt3)">▾</span></div></div>
+          <div class="field" style="flex:1"><label>До скольких побед</label><div class="inp">4 <span style="margin-left:auto;color:var(--txt3)">▾</span></div></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Баны по раундам</h3>
+        <div class="hint" style="margin-bottom:11px">Можно задать общее число, а можно разное — например больше банов в финале.</div>
+        <div class="slotline"><b style="--mod:#39405233;color:var(--txt2);width:auto;padding:0 9px">1/4</b>
+          <span>2 бана</span><span class="rng">до 4 побед</span></div>
+        <div class="slotline"><b style="--mod:#39405233;color:var(--txt2);width:auto;padding:0 9px">1/2</b>
+          <span>3 бана</span><span class="rng">до 4 побед</span></div>
+        <div class="slotline"><b style="--mod:#39405233;color:var(--txt2);width:auto;padding:0 9px">Финал</b>
+          <span>4 бана</span><span class="rng">до 5 побед</span></div>
+        <div class="sep"></div>
+        <div class="field" style="margin:0"><label>Кто банит первым</label>
+          <div style="display:flex;gap:6px"><span class="chip on">случайно каждый матч</span>
+            <span class="chip">игрок сверху</span><span class="chip">выбирать вручную</span></div></div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Маппулы в ротации</h3>
+        <div class="slotline"><span style="color:var(--green)">✓</span><span style="font-weight:700;color:var(--txt)">Осенний кубок · Тир 2</span><span class="rng">12 карт · 6.31★</span></div>
+        <div class="slotline"><span style="color:var(--green)">✓</span><span style="font-weight:700;color:var(--txt)">Осенний кубок · Тир 2 (второй)</span><span class="rng">12 карт · 6.28★</span></div>
+        <div class="slotline"><span style="color:var(--txt3)">○</span><span>Разминка</span><span class="rng">7 карт · 4.10★</span></div>
+        <div class="sw on" style="margin-top:6px"><i></i>Не повторять маппул, пока не сыграны все</div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ─── ПОСЕВ ─── -->
+<section class="scr" id="seed">
+  <aside class="rail" data-rail="Турниры"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Осенний кубок</h1><span class="sub">шаг 3 — игроки</span>
+      <span class="right"><button class="btn q">🎲 Случайно</button><button class="btn p">Создать турнир</button></span></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="panel" style="margin-bottom:14px">
+        <div class="inp">⌕ &nbsp;<span class="ph">начни вводить ник — найдём в базе или создадим нового</span></div>
+        <div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap">
+          <span class="chip">NAGISA <span style="color:var(--txt3)">· 12 турниров</span></span>
+          <span class="chip">KIRA <span style="color:var(--txt3)">· 9</span></span>
+          <span class="chip" style="color:var(--pink)">+ создать «Nova»</span>
+        </div>
+      </div>
+      <div class="eyebrow" style="margin:0 0 10px">Посев — перетащи, чтобы поменять</div>
+      <div class="seedgrid">
+        <div class="seed" style="--c:#5AC8FA"><span class="num">1</span><em></em><span class="n3">NAGISA</span><span class="grab">⠿</span></div>
+        <div class="seed" style="--c:#8B7FFF"><span class="num">2</span><em></em><span class="n3">RYU</span><span class="grab">⠿</span></div>
+        <div class="seed" style="--c:#FF9F6B"><span class="num">3</span><em></em><span class="n3">KIRA</span><span class="grab">⠿</span></div>
+        <div class="seed" style="--c:#7ED957"><span class="num">4</span><em></em><span class="n3">MELON</span><span class="grab">⠿</span></div>
+        <div class="seed" style="--c:#FFD03B"><span class="num">5</span><em></em><span class="n3">SEVEN</span><span class="grab">⠿</span></div>
+        <div class="seed" style="--c:#FF6B6B"><span class="num">6</span><em></em><span class="n3">AKARI</span><span class="grab">⠿</span></div>
+        <div class="seed" style="--c:#C77DFF"><span class="num">7</span><em></em><span class="n3">VOID</span><span class="grab">⠿</span></div>
+        <div class="seed empty"><span>8 — пусто, сид пройдёт автоматом</span></div>
+      </div>
+      <div class="panel" style="margin-top:14px;box-shadow:0 0 0 1px rgba(91,200,245,.22)">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:var(--cyan);font-size:15px">◈</span>
+          <div><div style="font-weight:700;font-size:13px;margin-bottom:3px">Цвет KIRA заменён</div>
+            <div class="hint">Был такой же, как у AKARI. В этом турнире KIRA играет оранжевым, глобальный цвет не тронут.</div></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ─── СЕТКА ─── -->
+<section class="scr" id="brk">
+  <aside class="rail" data-rail="Турниры"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Осенний кубок</h1><span class="sub">8 игроков · до 4 побед · сыграно 6 из 14</span>
+      <span class="right"><button class="btn q">Перемешать</button><button class="btn q">⧉ Картинкой</button>
+        <button class="btn p">Начать матч</button></span></div>
+    <div class="bracket">
+      <div class="lane">
+        <div class="lanetitle"><h2>Верхняя сетка</h2><span>линия горит цветом того, кто прошёл дальше</span></div>
+        <div class="cols">
+          <div class="col r1"><div class="eyebrow">1/4 финала</div>
+            <div class="pair">
+              <div class="m" id="u1">
+                <div class="p w" style="--c:#5AC8FA"><em></em><span class="n">NAGISA</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#8B7FFF"><em></em><span class="n">RYU</span><span class="drop">↓</span><span class="sc">1</span></div></div>
+              <div class="m" id="u2">
+                <div class="p w" style="--c:#FF9F6B"><em></em><span class="n">KIRA</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#7ED957"><em></em><span class="n">MELON</span><span class="drop">↓</span><span class="sc">3</span></div></div>
+            </div>
+            <div class="pair">
+              <div class="m" id="u3">
+                <div class="p w" style="--c:#FFD03B"><em></em><span class="n">SEVEN</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#FF6B6B"><em></em><span class="n">AKARI</span><span class="drop">↓</span><span class="sc">0</span></div></div>
+              <div class="m" id="u4">
+                <div class="p w" style="--c:#C77DFF"><em></em><span class="n">VOID</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#22D3EE"><em></em><span class="n">POLARIS</span><span class="drop">↓</span><span class="sc">2</span></div></div>
+            </div>
+          </div>
+          <div class="col r2"><div class="eyebrow">1/2 финала</div>
+            <div class="pair">
+              <div class="m now" id="s1"><span class="live">идёт</span>
+                <div class="p" style="--c:#5AC8FA"><em></em><span class="n">NAGISA</span><span class="sc">3</span></div>
+                <div class="p" style="--c:#FF9F6B"><em></em><span class="n">KIRA</span><span class="sc">2</span></div></div>
+              <div class="m" id="s2">
+                <div class="p w" style="--c:#FFD03B"><em></em><span class="n">SEVEN</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#C77DFF"><em></em><span class="n">VOID</span><span class="drop">↓</span><span class="sc">2</span></div></div>
+            </div>
+          </div>
+          <div class="col r3"><div class="eyebrow">Финал верхней</div>
+            <div class="m" id="uf">
+              <div class="p tbd"><em></em><span class="n">победитель 1/2</span><span class="sc">—</span></div>
+              <div class="p" style="--c:#FFD03B"><em></em><span class="n">SEVEN</span><span class="sc">—</span></div></div>
+          </div>
+          <div class="col gfc"><div class="eyebrow">Гранд-финал</div>
+            <div class="m gf" id="gf">
+              <div class="p tbd"><em></em><span class="n">из верхней</span><span class="sc">—</span></div>
+              <div class="p tbd"><em></em><span class="n">из нижней</span><span class="sc">—</span></div>
+              <div class="foot">преимущество сетки: 1 победа</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="lane">
+        <div class="lanetitle"><h2>Нижняя сетка</h2><span>второе поражение — вылет</span></div>
+        <div class="cols">
+          <div class="col"><div class="eyebrow">Раунд 1</div>
+            <div class="m" id="l1">
+              <div class="p w" style="--c:#8B7FFF"><em></em><span class="n">RYU</span><span class="sc">4</span></div>
+              <div class="p l" style="--c:#7ED957"><em></em><span class="n">MELON</span><span class="sc">2</span></div></div>
+            <div class="m" id="l2">
+              <div class="p l" style="--c:#FF6B6B"><em></em><span class="n">AKARI</span><span class="sc">1</span></div>
+              <div class="p w" style="--c:#22D3EE"><em></em><span class="n">POLARIS</span><span class="sc">4</span></div></div>
+          </div>
+          <div class="col"><div class="eyebrow">Раунд 2</div>
+            <div class="m" id="l3" style="margin-top:40px">
+              <div class="p" style="--c:#8B7FFF"><em></em><span class="n">RYU</span><span class="sc">—</span></div>
+              <div class="p" style="--c:#22D3EE"><em></em><span class="n">POLARIS</span><span class="sc">—</span></div></div>
+          </div>
+          <div class="col"><div class="eyebrow">Раунд 3</div>
+            <div class="m" id="l4" style="margin-top:40px">
+              <div class="p" style="--c:#C77DFF"><em></em><span class="n">VOID</span><span class="sc">—</span></div>
+              <div class="p tbd"><em></em><span class="n">победитель раунда 2</span><span class="sc">—</span></div></div>
+          </div>
+          <div class="col"><div class="eyebrow">Финал нижней</div>
+            <div class="m" id="l5" style="margin-top:40px">
+              <div class="p tbd"><em></em><span class="n">из верхней</span><span class="sc">—</span></div>
+              <div class="p tbd"><em></em><span class="n">победитель раунда 3</span><span class="sc">—</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── МАТЧ · БАНЫ ─── -->
+<section class="scr" id="m1">
+  <div class="mwrap">
+    <div class="tools"><button class="ic" title="Отменить">↶</button><button class="ic" title="Картинкой">⧉</button><button class="ic">⋯</button></div>
+    <div class="mhead">
+      <div class="eyebrow">Осенний кубок · полуфинал</div>
+      <div class="sb">
+        <div class="pl a" style="--c:var(--pa)">NAGISA<em></em></div>
+        <div class="nums">0<s>—</s>0</div>
+        <div class="pl b" style="--c:var(--pb)"><em></em>KIRA</div>
+      </div>
+      <div class="tpill"><em></em>Ход <b>KIRA</b> — бан <b>3 из 4</b></div>
+    </div>
+    <div data-pool="bans"></div>
+  </div>
+</section>
+
+<!-- ─── МАТЧ · ПОБЕДИТЕЛЬ ─── -->
+<section class="scr" id="m2">
+  <div class="mwrap">
+    <div class="tools"><button class="ic" title="Отменить">↶</button><button class="ic" title="Картинкой">⧉</button><button class="ic">⋯</button></div>
+    <div class="mhead">
+      <div class="eyebrow">Осенний кубок · полуфинал</div>
+      <div class="sb">
+        <div class="pl a" style="--c:var(--pa)"><span class="mp">матчпоинт</span>NAGISA<em></em></div>
+        <div class="nums">3<s>—</s>2</div>
+        <div class="pl b" style="--c:var(--pb)"><em></em>KIRA</div>
+      </div>
+      <div class="tpill"><em></em>Кто выиграл <b>NM3</b>?</div>
+    </div>
+    <div data-pool="match"></div>
+  </div>
+</section>
+
+<!-- ─── ИТОГИ ─── -->
+<section class="scr" id="fin">
+  <aside class="rail" data-rail="История"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Осенний кубок</h1><span class="sub">завершён · 14 матчей</span>
+      <span class="right"><button class="btn q">Экспорт</button><button class="btn p">⧉ Картинкой</button></span></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="podium">
+        <div class="pod p2" style="--c:#FF9F6B"><div class="av"></div><div class="nm2">KIRA</div><div class="pl2">2 место</div></div>
+        <div class="pod p1" style="--c:#5AC8FA"><div class="av"></div><div class="nm2">NAGISA</div><div class="pl2">чемпион</div></div>
+        <div class="pod p3" style="--c:#FFD03B"><div class="av"></div><div class="nm2">SEVEN</div><div class="pl2">3 место</div></div>
+      </div>
+      <div class="statrow">
+        <div class="stat"><b>5:3</b><span>счёт гранд-финала</span></div>
+        <div class="stat"><b>14</b><span>матчей</span></div>
+        <div class="stat"><b>78</b><span>карт сыграно</span></div>
+        <div class="stat"><b>DT</b><span>самый частый бан</span></div>
+        <div class="stat"><b>2:14</b><span>дольше всех</span></div>
+      </div>
+      <div class="panel">
+        <h3>Заметки турнира</h3>
+        <div class="slotline"><span>🏆</span><span style="color:var(--txt)">NAGISA прошёл без единого поражения</span></div>
+        <div class="slotline"><span>🔥</span><span style="color:var(--txt)">SEVEN выиграл 6 карт подряд в нижней сетке</span></div>
+        <div class="slotline"><span>💀</span><span style="color:var(--txt)">FREEDOM DiVE открывали 4 раза — рекорд тайбрейков</span></div>
+        <div class="slotline"><span>🎯</span><span style="color:var(--txt)">Blue Zenith никто ни разу не забанил</span></div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Что обновилось в профилях</h3>
+        <div class="hint">У 8 игроков пересчитаны победы, места, личные счета, любимые мод-теги и карты.
+          Профили открываются из раздела «Игроки».</div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ─── ПРОФИЛЬ ─── -->
+<section class="scr" id="pl">
+  <aside class="rail" data-rail="Игроки"></aside>
+  <div class="work">
+    <div class="topbar"><h1>NAGISA</h1><span class="sub">в базе с марта</span>
+      <span class="right"><button class="btn q">Сменить цвет</button><button class="btn q">Объединить</button><button class="btn">Привязать osu!</button></span></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="statrow">
+        <div class="stat"><b>12</b><span>турниров</span></div>
+        <div class="stat"><b>4</b><span>побед</span></div>
+        <div class="stat"><b>68%</b><span>карт выиграно</span></div>
+        <div class="stat"><b>HD</b><span>любимый мод</span></div>
+        <div class="stat"><b>DT</b><span>худший мод</span></div>
+      </div>
+      <div class="panel">
+        <h3>Личный счёт</h3>
+        <div class="slotline"><em style="width:8px;height:8px;border-radius:50%;background:#FF9F6B;box-shadow:0 0 8px #FF9F6B"></em>
+          <span style="color:var(--txt);font-weight:700">KIRA</span><span class="rng">7 — 5</span></div>
+        <div class="slotline"><em style="width:8px;height:8px;border-radius:50%;background:#FFD03B;box-shadow:0 0 8px #FFD03B"></em>
+          <span style="color:var(--txt);font-weight:700">SEVEN</span><span class="rng">3 — 4</span></div>
+        <div class="slotline"><em style="width:8px;height:8px;border-radius:50%;background:#8B7FFF;box-shadow:0 0 8px #8B7FFF"></em>
+          <span style="color:var(--txt);font-weight:700">RYU</span><span class="rng">6 — 1</span></div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Любимая карта</h3>
+        <div data-pool="fav"></div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Места</h3>
+        <div class="statrow" style="margin:0">
+          <div class="stat"><b>4</b><span>первых</span></div>
+          <div class="stat"><b>3</b><span>вторых</span></div>
+          <div class="stat"><b>2</b><span>третьих</span></div>
+          <div class="stat"><b>3</b><span>прочих</span></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ─── НАСТРОЙКИ ─── -->
+<section class="scr" id="set">
+  <aside class="rail" data-rail="Настройки"></aside>
+  <div class="work">
+    <div class="topbar"><h1>Настройки</h1></div>
+    <div class="scrollarea"><div class="col800">
+      <div class="panel">
+        <h3>osu! API</h3>
+        <div class="hint" style="margin-bottom:11px">По умолчанию используется встроенный ключ — всё работает сразу.
+          Если хочешь свой: osu.ppy.sh → Настройки → OAuth → New Application, это минута.</div>
+        <div style="display:flex;gap:12px">
+          <div class="field" style="flex:1"><label>client_id</label><div class="inp mono">65077</div></div>
+          <div class="field" style="flex:1"><label>client_secret</label><div class="inp mono">••••••••••••••••</div></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn sm">Проверить</button>
+          <span style="color:var(--green);font-size:12px;font-weight:600">✓ соединение есть · 1187 из 1200 запросов</span>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Кеш</h3>
+        <div class="kv"><span>Обложки и превью</span><b>412 МБ</b></div>
+        <div class="kv"><span>Карт в базе</span><b>2418</b></div>
+        <div style="display:flex;gap:8px;margin-top:9px"><button class="btn sm">Открыть папку</button><button class="btn sm">Очистить кеш</button></div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Резервные копии</h3>
+        <div class="sw on"><i></i>Автобэкап каждые 10 запусков</div>
+        <div style="display:flex;gap:8px;margin-top:9px">
+          <button class="btn sm">Создать копию</button><button class="btn sm">Восстановить</button>
+          <button class="btn sm">Экспорт всей базы</button><button class="btn sm">Импорт</button></div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Вид</h3>
+        <div class="field"><label>Поля в строке карты по умолчанию</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <span class="chip on">звёзды</span><span class="chip on">длина</span><span class="chip">BPM</span>
+            <span class="chip">AR</span><span class="chip">OD</span><span class="chip">маппер</span><span class="chip">скилсеты</span></div></div>
+        <div class="sw on"><i></i>Неоновая подсветка</div>
+        <div class="sw on"><i></i>Проигрывать превью при наведении</div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+</main>
+
+<script>
+/* ───────── данные ───────── */
+const M = {
+  zuto:{set:1001507,t:'ZUTOMAYO — Kan Saete Kuyashiiwa',d:'Extra',by:'Nathan',sr:'5.42',len:'3:24',sk:'aim, consistency'},
+  shk :{set:1010865,t:'SHK — Violet Perfume',d:'Insane',by:'Sotarks',sr:'5.61',len:'4:12',sk:'stream, stamina'},
+  redm:{set:1195045,t:'awfuless — Redemption',d:'Expert',by:'Mismagius',sr:'5.78',len:'2:51',sk:'aim, tech'},
+  warc:{set:1900000,t:'Wargack — WARCORA',d:'Collab Extra',by:'Kalibe',sr:'5.90',len:'3:38',sk:'jump'},
+  hell:{set:1521928,t:'Minase Inori — HELLO HORIZON',d:'Extra',by:'Nao Tomori',sr:'5.55',len:'1:29',sk:'aim'},
+  ugok:{set:900000, t:'Chito & Yuuri — Ugoku, Ugoku',d:'Another',by:'Fursum',sr:'5.71',len:'2:05',sk:'consistency'},
+  rap :{set:2000000,t:'LIL DARKIE — RAP MUSIC',d:'Nightmare',by:'Ryuusei Aika',sr:'6.44',len:'2:47',sk:'jump, aim'},
+  jour:{set:2100000,t:'S_YOUSEi — JOURNEY',d:'Odyssey',by:'Nifty',sr:'6.31',len:'3:12',sk:'tech'},
+  levn:{set:1500000,t:'VSNS — Levan Polkka (Nightcore Mix)',d:'Hyper',by:'Realazy',sr:'7.02',len:'1:48',sk:'speed'},
+  bigb:{set:41823,  t:'The Quick Brown Fox — The Big Black',d:'WHO\'S AFRAID OF THE BIG BLACK',by:'Blue Dragon',sr:'7.35',len:'1:33',sk:'speed, stream'},
+  zeni:{set:292301, t:'xi — Blue Zenith',d:'FOUR DIMENSIONS',by:'Asphyxia',sr:'7.16',len:'4:20',sk:'stream, stamina'},
+  free:{set:39804,  t:'xi — FREEDOM DiVE',d:'FOUR DIMENSIONS',by:'Nakagawa-Kanon',sr:'7.95',len:'4:19',sk:'stream, speed'},
+};
+const COVER = s => `https://assets.ppy.sh/beatmaps/${s}/covers/cover@2x.jpg`;
+const LIST  = s => `https://assets.ppy.sh/beatmaps/${s}/covers/list@2x.jpg`;
+const PA='var(--pa)', PB='var(--pb)';
+
+/* ───────── строка карты ───────── */
+function row(o){
+  const m=M[o.m], mod=o.slot.replace(/\d/g,'').toLowerCase();
+  let end='', tools='', extra='';
+  if(o.st==='ban')  end=`<span class="banx">✕ бан ${o.n}</span>`;
+  else if(o.st==='live') end=`<span class="nowtag"><em></em>идёт</span>`;
+  else if(o.st==='done') end=`<span class="won" style="--c:${o.w}"><i>♛</i><em></em>${o.wn}</span>`;
+  else if(o.st==='lock') end=`<span class="lockt">${o.note||'откроется при 3:3'}</span>`;
+  else end=`${o.pin?'<span style="color:var(--gold)">📌</span>':''}${o.warn?`<span class="warn">⚠ ${o.warn}</span>`:''}<span class="sr">${m.sr}★</span> · ${m.len}`;
+  if(o.tools) tools=`<div class="rowtools">
+      <button class="rt ${o.pin?'on':''}" title="${o.pin?'Открепить':'Закрепить'}">📌</button>
+      <button class="rt" title="Перекатить слот">↻</button>
+      <button class="rt" title="Сменить мод">◇</button>
+      <button class="rt" title="Заменить вручную">⋯</button></div>`;
+  if(o.st==='live') extra=`<div class="winpick ${o.show?'show':''}">
+      <button class="wbtn" style="--c:${PA}"><em></em>NAGISA</button>
+      <button class="wbtn" style="--c:${PB}"><em></em>KIRA</button></div>`;
+  const sub = o.showSk ? `${m.d} · ${m.sk}` : m.d;
+  return `<div class="row" data-s="${o.st||'free'}" style="--mod:var(--${mod})">
+    <div class="cover"><img src="${COVER(m.set)}" alt="" onerror="this.remove()"></div>
+    <div class="tint"></div>
+    <div class="info"><div class="t">${m.t}</div><div class="d"><span>difficulty</span> ${sub}</div></div>
+    <div class="end">${end}</div>
+    <span class="hexw"><span class="hex">${o.slot}</span></span>${tools}${extra}</div>`;
+}
+const grp = rows => `<div class="grp">${rows.map(row).join('')}</div>`;
+
+/* ───────── наполнение маппулов ───────── */
+const POOLS = {
+  match:[
+    [{m:'zuto',slot:'NM1',st:'done',w:PA,wn:'NAGISA'},{m:'shk',slot:'NM2',st:'done',w:PA,wn:'NAGISA'},
+     {m:'redm',slot:'NM3',st:'live'},{m:'warc',slot:'NM4',st:'ban',n:3}],
+    [{m:'hell',slot:'HD1',st:'done',w:PA,wn:'NAGISA'},{m:'ugok',slot:'HD2',st:'ban',n:4}],
+    [{m:'rap',slot:'HR1'},{m:'jour',slot:'HR2',st:'ban',n:1}],
+    [{m:'levn',slot:'DT1',st:'done',w:PB,wn:'KIRA'},{m:'bigb',slot:'DT2',st:'ban',n:2}],
+    [{m:'zeni',slot:'FM1',st:'done',w:PB,wn:'KIRA'}],
+    [{m:'free',slot:'TB',st:'lock'}],
+  ],
+  bans:[
+    [{m:'zuto',slot:'NM1'},{m:'shk',slot:'NM2'},{m:'redm',slot:'NM3'},{m:'warc',slot:'NM4'}],
+    [{m:'hell',slot:'HD1'},{m:'ugok',slot:'HD2',st:'ban',n:2}],
+    [{m:'rap',slot:'HR1'},{m:'jour',slot:'HR2',st:'ban',n:1}],
+    [{m:'levn',slot:'DT1'},{m:'bigb',slot:'DT2'}],
+    [{m:'zeni',slot:'FM1'}],
+    [{m:'free',slot:'TB',st:'lock'}],
+  ],
+  ed:[
+    [{m:'zuto',slot:'NM1',pin:1,tools:1,showSk:1},{m:'shk',slot:'NM2',tools:1,showSk:1},
+     {m:'redm',slot:'NM3',tools:1,showSk:1},{m:'warc',slot:'NM4',tools:1,showSk:1,warn:'маппер повторяется'}],
+    [{m:'hell',slot:'HD1',tools:1,showSk:1},{m:'ugok',slot:'HD2',tools:1,showSk:1}],
+    [{m:'rap',slot:'HR1',tools:1,showSk:1},{m:'jour',slot:'HR2',tools:1,showSk:1,warn:'вне диапазона'}],
+    [{m:'levn',slot:'DT1',pin:1,tools:1,showSk:1},{m:'bigb',slot:'DT2',tools:1,showSk:1}],
+    [{m:'zeni',slot:'FM1',tools:1,showSk:1}],
+    [{m:'free',slot:'TB',st:'lock',note:'всегда последний'}],
+  ],
+  pickmini:[
+    [{m:'rap',slot:'HR1',showSk:1}],
+    [{m:'jour',slot:'HR2',showSk:1,warn:'заменяется'}],
+  ],
+  fav:[[{m:'zeni',slot:'FM1',st:'done',w:PA,wn:'8 побед'}]],
+};
+document.querySelectorAll('[data-pool]').forEach(el=>{
+  const p = POOLS[el.dataset.pool];
+  if(!p) return;
+  el.insertAdjacentHTML('beforeend', `<div class="pool">${p.map(grp).join('')}</div>`);
+});
+
+/* ───────── строки библиотеки ───────── */
+const MODS=[['NM','nm'],['HD','hd'],['HR','hr'],['DT','dt'],['FM','fm']];
+function lrow(key,on,sel){
+  const m=M[key];
+  return `<div class="lrow ${sel?'sel':''}">
+    <span class="cb">✓</span>
+    <div class="th"><img src="${LIST(m.set)}" alt="" onerror="this.remove()"><u>▶</u></div>
+    <div class="lnm"><div class="t">${m.t}</div><div class="s">${m.d} · ${m.by}</div></div>
+    <div class="mods">${MODS.map(([n,v])=>`<span class="mh ${on.includes(n)?'':'off'}" ${on.includes(n)?`style="--c:var(--${v})"`:''}>${n}</span>`).join('')}</div>
+    <div class="tags">${m.sk.split(', ').map(s=>`<span class="tg a">${s}</span>`).join('')}</div>
+    <div class="n2"><b>${m.sr}★</b> · ${m.len}</div></div>`;
+}
+const LIBSETS={
+  1:[['zeni',['NM','HD','HR','FM'],1],['free',['NM'],0],['zuto',['NM','HD','HR'],1],
+     ['bigb',['NM','DT'],0],['redm',['NM','HD','FM'],1],['shk',['NM','HD','HR'],0],
+     ['hell',['NM','HD','DT'],0],['levn',['DT'],0],['rap',['NM','HR'],0]],
+  2:[['zuto',['NM','HD','HR'],0],['shk',['NM','HD','HR'],0],['redm',['NM','HD','FM'],0],
+     ['warc',['NM','HD'],0],['hell',['NM','HD','DT'],0],['ugok',['NM','HD'],0],['rap',['NM','HR'],0]],
+  3:[['zeni',['NM','HD','HR','FM'],1],['free',['NM'],0],['zuto',['NM','HD','HR'],0],['bigb',['NM','DT'],0]],
+  pick:[['rap',['NM','HR'],0],['jour',['NM','HR'],0],['warc',['NM','HD','HR'],0],['shk',['NM','HD','HR'],0]],
+};
+document.querySelectorAll('[data-lib]').forEach(el=>{
+  const s=LIBSETS[el.dataset.lib]; if(!s) return;
+  el.insertAdjacentHTML('beforeend', s.map(([k,on,sel])=>lrow(k,on,sel)).join(''));
+});
+
+/* ───────── рейлы ───────── */
+const NAV=[['◆','Турниры'],['▤','Маппулы'],['♪','Карты'],['☺','Игроки'],['⏱','История']];
+document.querySelectorAll('.rail[data-rail]').forEach(el=>{
+  const sel=el.dataset.rail;
+  el.innerHTML=`<div class="brand"><span class="logo"><i></i><u></u></span><b>osu<i>!</i>cup</b></div>`
+   + NAV.map(([i,n])=>`<a href="#" class="${n===sel?'sel':''}"><span>${i}</span>${n}</a>`).join('')
+   + `<div class="grow"></div><a href="#" class="${sel==='Настройки'?'sel':''}"><span>⚙</span>Настройки</a>`;
+});
+document.querySelectorAll('.rail.lib-rail').forEach(el=>{
+  const sel=el.dataset.sel;
+  const C=[['Все карты','#4A9EFF','2418'],['Тир 1 — новички','#7ED957','184'],['Тир 2','#FFD03B','312'],
+           ['Тир 3 — топы','#FF6B6B','96'],['DT-база','#C77DFF','207'],['Тайбрейки','#5BC8F5','41']];
+  const S=[['Короткие NM','143'],['Давно не играли','890'],['Стримы 180+','256']];
+  el.innerHTML=`<div class="brand"><span class="logo"><i></i><u></u></span><b>osu<i>!</i>cup</b></div>
+   <div class="eyebrow" style="padding:0 12px 7px">Коллекции</div>
+   <div class="colls">${C.map(([n,c,k])=>
+     `<a href="#" class="${(sel?n===sel:n==='Все карты')?'sel':''}"><u style="--c:${c}"></u><span class="lbl">${n}</span><span class="cnt">${k}</span></a>`).join('')}</div>
+   <div class="eyebrow" style="padding:13px 12px 7px">Умные коллекции</div>
+   <div class="colls">${S.map(([n,k])=>
+     `<a href="#"><u style="--c:var(--pink)"></u><span class="lbl">${n}</span><span class="cnt">${k}</span></a>`).join('')}</div>
+   <button class="addcoll">+ Коллекция</button>
+   <div class="grow"></div>
+   <div class="note"><b>Загружаю карты</b><br>34 из 120 · World Cup</div>`;
+});
+
+/* ───────── спарклайн ───────── */
+document.querySelectorAll('[data-spark]').forEach(el=>{
+  const v=[12,20,16,28,34,26,44,52,40,64,58,76,88,70,54,38,26,18,30,22];
+  el.innerHTML=v.map(h=>`<i style="height:${h}%"></i>`).join('');
+});
+
+/* ───────── навигация превью ───────── */
+const btns=document.querySelectorAll('.index button[data-go]');
+function show(id){
+  btns.forEach(b=>b.classList.toggle('on', b.dataset.go===id));
+  document.querySelectorAll('.scr').forEach(s=>s.classList.toggle('on', s.id===id));
+  if(id==='brk'){ drawWires(); setTimeout(drawWires,0); setTimeout(drawWires,120); }
+}
+btns.forEach(b=>b.addEventListener('click',()=>show(b.dataset.go)));
+document.querySelectorAll('[data-go]:not(.index button)').forEach(b=>
+  b.addEventListener('click',()=>show(b.dataset.go)));
+
+/* ───────── линии сетки ───────── */
+const DIM='#2B3140';
+const LINKS=[['u1','s1','#5AC8FA'],['u2','s1','#FF9F6B'],['u3','s2','#FFD03B'],['u4','s2','#C77DFF'],
+             ['s1','uf',DIM],['s2','uf','#FFD03B'],['uf','gf',DIM],
+             ['l1','l3','#8B7FFF'],['l2','l3','#22D3EE'],['l3','l4',DIM],['l4','l5',DIM],['l5','gf',DIM]];
+function drawWires(){
+  const box=document.querySelector('.bracket');
+  if(!box||box.clientWidth===0) return;
+  let svg=document.getElementById('wires');
+  if(!svg){svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.id='wires';box.prepend(svg);}
+  const b=box.getBoundingClientRect(), W=box.scrollWidth, H=box.scrollHeight;
+  svg.setAttribute('width',W);svg.setAttribute('height',H);svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const at=id=>{const r=document.getElementById(id).getBoundingClientRect();
+    return{l:r.left-b.left+box.scrollLeft,r:r.right-b.left+box.scrollLeft,y:r.top-b.top+box.scrollTop+34};};
+  svg.innerHTML=LINKS.map(([f,t,c])=>{
+    const A=at(f),B=at(t),mx=A.r+26,live=c!==DIM,d=B.y>A.y?8:-8;
+    return `<path d="M${A.r} ${A.y} H${mx} Q${mx+8} ${A.y} ${mx+8} ${A.y+d} V${B.y-d} Q${mx+8} ${B.y} ${mx+16} ${B.y} H${B.l}"
+      fill="none" stroke="${c}" stroke-width="${live?1.8:1.2}" opacity="${live?.85:.45}" stroke-linecap="round"
+      ${live?`filter="url(#g)"`:''}/>`;
+  }).join('') + `<defs><filter id="g" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+}
+addEventListener('resize',drawWires);
+</script>
+</body>
+</html>

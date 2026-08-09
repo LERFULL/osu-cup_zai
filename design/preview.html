@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>osu!cup — превью интерфейса</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ───────────────────────────── ТОКЕНЫ ───────────────────────────── */
+:root{
+  --bg:#0E1015;
+  --card:#171A21;
+  --card2:#1D212B;
+  --line:#242936;
+  --txt:#F4F5F8;
+  --txt2:#8A91A3;
+  --txt3:#575E70;
+  --accent:#FF6FB1;
+
+  /* цвета модов — из референса */
+  --nm:#E9ECF2; --hd:#FFD03B; --hr:#FF6B6B;
+  --dt:#5BC8F5; --fm:#C77DFF; --tb:#7ED957;
+
+  --pa:#5AC8FA; --pb:#FF9F6B;
+
+  --f:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+
+  --r:12px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg);color:var(--txt);font-family:var(--f);font-size:14px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#272C39;border-radius:6px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#343A4A;background-clip:content-box}
+
+.eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ───────────────── переключатель экранов (только превью) ───────────────── */
+.chrome{
+  position:fixed;inset:0 0 auto 0;height:44px;z-index:60;display:flex;align-items:center;gap:4px;
+  padding:0 16px;background:rgba(14,16,21,.85);backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(255,255,255,.05);
+}
+.chrome .logo{display:flex;align-items:center;gap:9px;margin-right:20px}
+.chrome .logo b{font-weight:800;font-size:13px;letter-spacing:-.01em}
+.chrome .logo b i{color:var(--accent);font-style:normal}
+.tab{height:28px;padding:0 14px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--txt3)}
+.tab:hover{color:var(--txt2);background:rgba(255,255,255,.04)}
+.tab[aria-selected="true"]{color:var(--txt);background:rgba(255,111,177,.14)}
+.chrome .note{margin-left:auto;font-size:11.5px;color:var(--txt3)}
+
+.stage{position:absolute;inset:44px 0 0 0;overflow:hidden}
+.screen{display:none;height:100%}
+.screen.on{display:flex}
+
+/* ───────────────── знак ───────────────── */
+.mark{width:26px;height:26px;position:relative;flex:0 0 26px}
+.mark i{
+  position:absolute;inset:0;border:2.5px solid var(--accent);border-radius:50%;
+  clip-path:polygon(0 0,100% 0,100% 78%,50% 78%,50% 100%,0 100%);
+}
+.mark u{position:absolute;inset:7px;border-radius:50%;background:var(--accent);opacity:.55}
+
+/* ══════════════════════════ СТРОКА КАРТЫ ══════════════════════════ */
+.pool{display:flex;flex-direction:column;gap:5px}
+.grp{display:flex;flex-direction:column;gap:5px}
+.grp + .grp{margin-top:13px}
+
+.row{
+  position:relative;display:flex;align-items:center;gap:14px;
+  height:56px;border-radius:var(--r);background:var(--card);overflow:hidden;
+  padding:0 12px 0 20px;
+  box-shadow:0 1px 0 rgba(255,255,255,.035) inset, 0 2px 10px rgba(0,0,0,.25);
+  transition:transform .16s cubic-bezier(.2,.7,.3,1), box-shadow .16s ease;
+}
+.cover{position:absolute;right:0;top:0;bottom:0;width:66%;pointer-events:none}
+.cover img{width:100%;height:100%;object-fit:cover;object-position:center 30%;opacity:.42}
+.cover::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,var(--card) 2%,rgba(23,26,33,.72) 42%,rgba(23,26,33,.42) 100%);
+}
+.tint{
+  position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(90deg,transparent 38%,color-mix(in srgb,var(--mod) 20%,transparent) 100%);
+}
+
+.info{position:relative;z-index:2;flex:1;min-width:0}
+.info .t{
+  font-size:14.5px;font-weight:700;letter-spacing:-.012em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.info .d{font-size:11.5px;color:var(--txt2);margin-top:1px;font-weight:500}
+.info .d span{color:var(--txt3);font-weight:400}
+
+.end{
+  position:relative;z-index:2;flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;
+  min-width:112px;font-family:var(--mono);font-size:11.5px;color:var(--txt2);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.end .sr{color:var(--txt);font-weight:500}
+
+.hex{
+  position:relative;z-index:2;flex:0 0 64px;width:64px;height:40px;
+  display:grid;place-items:center;background:var(--mod);
+  clip-path:polygon(15% 0,85% 0,100% 50%,85% 100%,15% 100%,0 50%);
+  font-weight:800;font-size:12.5px;letter-spacing:.01em;color:#11131A;
+}
+
+/* — состояния — */
+.row[data-s="free"]:hover{transform:translateY(-1px);box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 6px 18px rgba(0,0,0,.4)}
+
+.row[data-s="ban"]{background:#131519;box-shadow:none}
+.row[data-s="ban"] .cover img{filter:grayscale(1) brightness(.45);opacity:.3}
+.row[data-s="ban"] .cover::after{background:linear-gradient(90deg,#131519 2%,rgba(19,21,25,.8) 42%,rgba(19,21,25,.6) 100%)}
+.row[data-s="ban"] .tint{opacity:.16}
+.row[data-s="ban"] .info .t{color:#5C6270;text-decoration:line-through;text-decoration-color:#3B4150}
+.row[data-s="ban"] .info .d{color:#454B58}
+.row[data-s="ban"] .hex{filter:grayscale(1) brightness(.5)}
+.banx{display:inline-flex;align-items:center;gap:6px;color:#A05A5A;font-weight:500}
+
+.row[data-s="live"]{
+  background:var(--card2);
+  box-shadow:0 0 0 1.5px rgba(126,217,87,.5),0 6px 22px rgba(0,0,0,.45);
+}
+.nowtag{display:inline-flex;align-items:center;gap:7px;color:#7ED957;font-weight:700;font-family:var(--f);font-size:11.5px}
+.nowtag em{width:6px;height:6px;border-radius:50%;background:#7ED957;animation:pulse 1.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.75)}}
+
+.row[data-s="done"] .cover img{opacity:.2;filter:saturate(.5)}
+.row[data-s="done"] .info .t{color:#B6BCC9;font-weight:600}
+.row[data-s="done"] .hex{opacity:.5}
+.won{display:inline-flex;align-items:center;gap:8px;font-family:var(--f);font-weight:700;font-size:12.5px;color:var(--txt)}
+.won em{width:7px;height:7px;border-radius:50%;background:var(--c);flex:0 0 7px}
+.won i{font-style:normal;color:#FFD03B;font-size:12px}
+
+.row[data-s="lock"]{background:#131519;box-shadow:none}
+.row[data-s="lock"] .cover img{opacity:.14;filter:grayscale(.7)}
+.row[data-s="lock"] .info .t{color:#5C6270}
+.row[data-s="lock"] .hex{opacity:.38}
+.lockt{color:var(--txt3);font-family:var(--f);font-size:11.5px;font-weight:500}
+
+/* выбор победителя по наведению */
+.winpick{
+  position:absolute;left:0;right:76px;top:0;bottom:0;z-index:5;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  background:rgba(18,21,27,.6);backdrop-filter:blur(8px);
+  opacity:0;pointer-events:none;transition:opacity .18s ease;
+}
+.row[data-s="live"]:hover .winpick{opacity:1;pointer-events:auto;transition-delay:.3s}
+.wbtn{
+  height:32px;padding:0 20px;border-radius:9px;background:rgba(255,255,255,.08);
+  display:flex;align-items:center;gap:9px;font-weight:700;font-size:12.5px;
+  border:1px solid rgba(255,255,255,.09);
+}
+.wbtn em{width:7px;height:7px;border-radius:50%;background:var(--c)}
+.wbtn:hover{background:rgba(255,255,255,.15)}
+
+/* ══════════════════════════ ЭКРАН МАТЧА ══════════════════════════ */
+#match{justify-content:center}
+.mwrap{
+  position:relative;width:100%;max-width:800px;height:100%;
+  display:flex;flex-direction:column;padding:18px 20px 22px;overflow:auto;
+}
+.mhead{flex:0 0 auto;text-align:center;padding:6px 0 16px}
+.mhead .eyebrow{margin-bottom:12px}
+.sb{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:22px}
+.sb .pl{display:flex;align-items:center;gap:11px;font-weight:800;font-size:22px;letter-spacing:-.02em}
+.sb .pl.a{justify-content:flex-end}
+.sb .pl em{width:10px;height:10px;border-radius:50%;background:var(--c);flex:0 0 10px}
+.sb .nums{display:flex;align-items:center;gap:12px;font-weight:800;font-size:34px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.sb .nums s{text-decoration:none;color:#333949;font-weight:500}
+.mp{
+  font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--accent);
+  background:rgba(255,111,177,.12);border-radius:6px;padding:3px 7px;
+}
+.tpill{
+  display:inline-flex;align-items:center;gap:9px;margin-top:14px;
+  height:32px;padding:0 16px;border-radius:16px;
+  background:rgba(255,111,177,.11);color:#FFC2DE;font-size:12.5px;font-weight:600;
+}
+.tpill em{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 1.5s ease-in-out infinite}
+.tpill b{color:#fff;font-weight:800}
+
+.tools{position:absolute;right:20px;top:20px;display:flex;gap:6px;z-index:20}
+.ic{
+  width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.05);
+  display:grid;place-items:center;font-size:14px;color:var(--txt2);
+}
+.ic:hover{background:rgba(255,255,255,.1);color:var(--txt)}
+.ic.done{width:auto;padding:0 16px;background:var(--accent);color:#1A0A11;font-weight:700;font-size:12.5px}
+.ic.done:hover{background:#ff85bd}
+
+/* ══════════════════════════ РЕЙЛ ══════════════════════════ */
+.rail{
+  width:200px;flex:0 0 200px;padding:16px 12px;display:flex;flex-direction:column;gap:2px;
+  border-right:1px solid rgba(255,255,255,.045);
+}
+.rail .logo{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+.rail .logo b{font-weight:800;font-size:14px}
+.rail .logo b i{color:var(--accent);font-style:normal}
+.rail a{
+  display:flex;align-items:center;gap:11px;height:36px;padding:0 12px;border-radius:9px;
+  color:var(--txt2);text-decoration:none;font-size:13px;font-weight:600;
+}
+.rail a:hover{background:rgba(255,255,255,.045);color:var(--txt)}
+.rail a.sel{background:rgba(255,255,255,.07);color:var(--txt)}
+.rail a span{width:16px;text-align:center;opacity:.8}
+.rail .grow{flex:1}
+.rail .hint{padding:10px 12px;font-size:11px;color:var(--txt3);line-height:1.5}
+.rail .hint b{color:var(--txt2);font-weight:600}
+
+.work{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.topbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:18px 26px 14px;
+}
+.topbar h1{font-size:19px;font-weight:800;letter-spacing:-.022em;margin:0;white-space:nowrap}
+.topbar .sub{font-size:11.5px;color:var(--txt3);font-family:var(--mono);white-space:nowrap}
+.topbar .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{
+  height:34px;padding:0 15px;border-radius:10px;background:rgba(255,255,255,.055);
+  font-size:12.5px;font-weight:600;color:var(--txt);display:inline-flex;align-items:center;gap:8px;
+  white-space:nowrap;
+}
+.btn:hover{background:rgba(255,255,255,.1)}
+.btn.primary{background:var(--accent);color:#1A0A11;font-weight:700}
+.btn.primary:hover{background:#ff85bd}
+.btn.quiet{color:var(--txt2);background:transparent}
+.btn.quiet:hover{background:rgba(255,255,255,.05);color:var(--txt)}
+
+/* ══════════════════════════ РЕДАКТОР ══════════════════════════ */
+.scrollarea{flex:1;overflow:auto;padding:0 26px 30px}
+.centercol{width:100%;max-width:800px;margin:0 auto}
+.rowtools{
+  position:absolute;z-index:6;right:86px;top:50%;transform:translateY(-50%);
+  display:flex;gap:5px;opacity:0;transition:opacity .15s ease;
+}
+.row:hover .rowtools{opacity:1}
+.rt{
+  width:30px;height:30px;border-radius:9px;background:rgba(10,12,16,.72);backdrop-filter:blur(6px);
+  display:grid;place-items:center;font-size:13px;color:var(--txt2);
+  border:1px solid rgba(255,255,255,.08);
+}
+.rt:hover{background:rgba(255,255,255,.16);color:#fff}
+.rt.on{color:#FFD03B;background:rgba(255,208,59,.14);border-color:rgba(255,208,59,.3)}
+.pinned{color:#FFD03B;font-size:12px}
+
+.pop{
+  position:absolute;right:26px;top:64px;width:290px;z-index:30;
+  background:#1B1F29;border:1px solid rgba(255,255,255,.08);border-radius:14px;
+  box-shadow:0 20px 50px rgba(0,0,0,.55);padding:16px;
+}
+.pop h4{margin:0 0 12px;font-size:12.5px;font-weight:700}
+.slotline{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12px;color:var(--txt2)}
+.slotline b{
+  width:38px;height:22px;border-radius:6px;background:var(--mod);color:#11131A;
+  display:grid;place-items:center;font-size:10.5px;font-weight:800;flex:0 0 38px;
+}
+.slotline .rng{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--txt3)}
+.pop .sep{height:1px;background:rgba(255,255,255,.07);margin:12px 0}
+.sw{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12.5px;color:var(--txt2);cursor:pointer}
+.sw i{
+  width:32px;height:18px;border-radius:10px;background:#2A2F3C;position:relative;flex:0 0 32px;transition:background .15s;
+}
+.sw i::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#767E90;transition:.15s}
+.sw.on{color:var(--txt)}
+.sw.on i{background:rgba(255,111,177,.35)}
+.sw.on i::after{left:16px;background:var(--accent)}
+
+/* ══════════════════════════ БИБЛИОТЕКА ══════════════════════════ */
+.filters{display:flex;align-items:center;gap:7px;padding:0 26px 14px;flex-wrap:wrap}
+.search{
+  flex:0 0 260px;height:34px;border-radius:10px;background:rgba(255,255,255,.05);
+  display:flex;align-items:center;gap:9px;padding:0 13px;font-size:12.5px;color:var(--txt3);
+}
+.chip{
+  height:30px;padding:0 12px;border-radius:15px;background:rgba(255,255,255,.05);
+  font-size:12px;font-weight:600;color:var(--txt2);display:inline-flex;align-items:center;gap:7px;
+}
+.chip:hover{background:rgba(255,255,255,.1);color:var(--txt)}
+.chip em{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.chip.on{background:rgba(255,111,177,.15);color:#FFC2DE}
+.rng2{
+  height:30px;padding:0 13px;border-radius:15px;background:rgba(255,255,255,.05);
+  display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--txt2);
+}
+.rng2 u{width:64px;height:3px;border-radius:2px;background:#2C3140;position:relative;text-decoration:none}
+.rng2 u b{position:absolute;left:20%;right:26%;top:0;bottom:0;background:var(--accent);border-radius:2px}
+
+.lrow{
+  display:flex;align-items:center;gap:14px;height:58px;padding:0 14px 0 12px;border-radius:var(--r);
+}
+.lrow:hover{background:rgba(255,255,255,.04)}
+.lrow .th{position:relative;width:76px;height:40px;flex:0 0 76px;border-radius:8px;overflow:hidden;background:#20242E}
+.lrow .th img{width:100%;height:100%;object-fit:cover}
+.lrow .th u{
+  position:absolute;inset:0;display:grid;place-items:center;background:rgba(8,10,14,.55);
+  opacity:0;transition:.14s;font-size:13px;color:#fff;text-decoration:none;
+}
+.lrow:hover .th u{opacity:1}
+.lrow .nm{flex:1;min-width:0}
+.lrow .nm .t{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .nm .s{font-size:11.5px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mods{display:flex;gap:4px;flex:0 0 auto}
+.mh{
+  width:38px;height:22px;display:grid;place-items:center;background:var(--c);color:#11131A;
+  clip-path:polygon(15% 0,85% 0,100% 50%,85% 100%,15% 100%,0 50%);
+  font-size:9.5px;font-weight:800;
+}
+.mh.off{background:#242936;color:#4E5566}
+.tags{display:flex;gap:5px;flex:0 0 200px}
+.tg{font-size:10.5px;font-weight:600;color:#79819A;background:rgba(255,255,255,.045);border-radius:6px;padding:2px 7px}
+.tg.a{color:#8E9BC4}
+.lrow .n2{font-family:var(--mono);font-size:11.5px;color:var(--txt2);flex:0 0 auto;font-variant-numeric:tabular-nums}
+.lrow .n2 b{color:var(--txt);font-weight:500}
+
+.colls{display:flex;flex-direction:column;gap:2px}
+.colls a{
+  display:flex;align-items:center;gap:10px;height:32px;padding:0 12px;border-radius:9px;
+  color:var(--txt2);text-decoration:none;font-size:12.5px;font-weight:600;white-space:nowrap;
+}
+.colls a:hover{background:rgba(255,255,255,.045);color:var(--txt)}
+.colls a.sel{background:rgba(255,255,255,.07);color:var(--txt)}
+.colls a u{width:8px;height:8px;border-radius:3px;background:var(--c);flex:0 0 8px;text-decoration:none}
+.colls a .lbl{flex:1;overflow:hidden;text-overflow:ellipsis}
+.colls a .cnt{font-family:var(--mono);font-size:10.5px;color:var(--txt3);font-weight:400}
+
+/* ══════════════════════════ СЕТКА ══════════════════════════ */
+.bracket{flex:1;overflow:auto;padding:6px 26px 40px;position:relative}
+#wires{position:absolute;left:0;top:0;pointer-events:none;z-index:0}
+.lane{margin-bottom:30px}
+.lanetitle{display:flex;align-items:baseline;gap:11px;margin-bottom:16px}
+.lanetitle h2{margin:0;font-size:14px;font-weight:800;letter-spacing:-.01em}
+.lanetitle span{font-size:11.5px;color:var(--txt3)}
+.cols{display:flex;gap:52px;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:16px;min-width:222px}
+.col .eyebrow{margin-bottom:0}
+.pair{display:flex;flex-direction:column;gap:16px}
+.col.r2 .pair{gap:96px;margin-top:40px}
+.col.r3 .m{margin-top:120px}
+.col.gfc .m{margin-top:120px}
+
+.m{
+  position:relative;z-index:1;border-radius:12px;background:var(--card);overflow:hidden;
+  box-shadow:0 1px 0 rgba(255,255,255,.035) inset,0 2px 12px rgba(0,0,0,.3);
+}
+.m .p{display:flex;align-items:center;gap:10px;height:33px;padding:0 13px;font-size:13px;font-weight:600}
+.m .p em{width:7px;height:7px;border-radius:50%;background:var(--c);flex:0 0 7px}
+.m .p .n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m .p .sc{font-family:var(--mono);font-size:12.5px;color:var(--txt2);font-variant-numeric:tabular-nums}
+.m .p.w{background:linear-gradient(90deg,color-mix(in srgb,var(--c) 14%,transparent),transparent 70%)}
+.m .p.w .n{font-weight:800}
+.m .p.w .sc{color:var(--txt);font-weight:500}
+.m .p.w::before{content:"";position:absolute;left:0;width:3px;height:33px;background:var(--c)}
+.m .p.l{opacity:.38}
+.m .p.l .drop{font-size:10px;color:var(--txt3);margin-left:-4px}
+.m .p.tbd{color:var(--txt3);font-weight:500}
+.m .p.tbd em{background:#2A2F3C}
+.m.now{box-shadow:0 0 0 1.5px var(--accent),0 6px 24px rgba(255,111,177,.16)}
+.m.now .live{
+  position:absolute;right:10px;top:-9px;font-size:9px;font-weight:800;letter-spacing:.1em;
+  text-transform:uppercase;background:var(--accent);color:#1A0A11;padding:3px 8px;border-radius:7px;z-index:3;
+}
+.m.gf{background:linear-gradient(180deg,#25201A,#181B23 70%);box-shadow:0 0 0 1px rgba(255,208,59,.22),0 8px 26px rgba(0,0,0,.4)}
+.m .foot{padding:7px 13px 9px;font-size:10.5px;color:var(--txt3)}
+
+/* ══════════════════════════ ПЕРВЫЙ ЗАПУСК ══════════════════════════ */
+.onb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 40px;overflow:auto}
+.dots{display:flex;align-items:center;gap:8px;margin-bottom:34px}
+.dots i{width:7px;height:7px;border-radius:50%;background:#2A2F3C;font-style:normal}
+.dots i.done{background:#3E4657}
+.dots i.now{width:24px;border-radius:4px;background:var(--accent)}
+.onb h1{font-size:29px;font-weight:800;letter-spacing:-.03em;margin:0 0 10px;text-align:center}
+.onb .lead{color:var(--txt2);font-size:14px;margin:0 0 32px;text-align:center;max-width:480px;line-height:1.55}
+.cards{display:flex;gap:14px}
+.card{
+  width:236px;border-radius:16px;background:var(--card);padding:22px 20px 18px;
+  display:flex;flex-direction:column;gap:8px;position:relative;cursor:pointer;
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 4px 18px rgba(0,0,0,.3);
+  transition:transform .16s cubic-bezier(.2,.7,.3,1),box-shadow .16s;
+}
+.card:hover{transform:translateY(-3px);box-shadow:0 1px 0 rgba(255,255,255,.07) inset,0 12px 30px rgba(0,0,0,.45)}
+.card.rec{box-shadow:0 0 0 1.5px rgba(255,111,177,.45),0 8px 26px rgba(0,0,0,.4)}
+.card .ico{
+  width:38px;height:38px;border-radius:11px;background:rgba(255,255,255,.06);
+  display:grid;place-items:center;font-size:17px;margin-bottom:4px;
+}
+.card .h{font-size:15px;font-weight:800;letter-spacing:-.015em}
+.card .d{font-size:12.5px;color:var(--txt2);line-height:1.5;flex:1}
+.card .pick{
+  margin-top:6px;height:32px;border-radius:9px;background:rgba(255,255,255,.05);
+  display:flex;align-items:center;justify-content:space-between;padding:0 12px;
+  font-size:11.5px;color:var(--txt2);font-weight:600;
+}
+.prog{
+  margin-top:28px;width:400px;border-radius:12px;background:var(--card);padding:14px 16px;
+  display:flex;flex-direction:column;gap:9px;
+}
+.prog .l{display:flex;justify-content:space-between;font-size:12px;color:var(--txt2);font-weight:600}
+.prog .l b{font-family:var(--mono);color:var(--txt);font-weight:500}
+.prog u{display:block;height:4px;border-radius:3px;background:#242936;overflow:hidden;text-decoration:none}
+.prog u b{display:block;height:100%;width:28%;background:var(--accent);border-radius:3px}
+.skip{margin-top:26px;font-size:12.5px;color:var(--txt3)}
+.skip u{cursor:pointer;text-underline-offset:3px}
+.skip u:hover{color:var(--txt2)}
+</style>
+</head>
+<body>
+
+<nav class="chrome">
+  <span class="logo"><span class="mark"><i></i><u></u></span><b>osu<i>!</i>cup</b></span>
+  <button class="tab" aria-selected="true" data-go="match">Матч</button>
+  <button class="tab" data-go="pool">Маппул</button>
+  <button class="tab" data-go="lib">Библиотека</button>
+  <button class="tab" data-go="brk">Сетка</button>
+  <button class="tab" data-go="onb">Первый запуск</button>
+  <span class="note">наведи на зелёную строку в «Матче» и на любую строку в «Маппуле»</span>
+</nav>
+
+<div class="stage">
+
+<!-- ═════════════════════════ МАТЧ ═════════════════════════ -->
+<section class="screen on" id="match">
+  <div class="mwrap">
+
+    <div class="tools">
+      <button class="ic" title="Отменить последнее действие">↶</button>
+      <button class="ic" title="Скопировать маппул картинкой">⧉</button>
+      <button class="ic" title="Ещё">⋯</button>
+    </div>
+
+    <header class="mhead">
+      <div class="eyebrow">Осенний кубок · полуфинал</div>
+      <div class="sb">
+        <div class="pl a" style="--c:var(--pa)"><span class="mp">матчпоинт</span>NAGISA<em></em></div>
+        <div class="nums">3<s>—</s>2</div>
+        <div class="pl b" style="--c:var(--pb)"><em></em>KIRA</div>
+      </div>
+      <div class="tpill"><em></em>Ход <b>NAGISA</b> — кто выиграл <b>NM3</b>?</div>
+    </header>
+
+    <div class="pool">
+
+      <div class="grp">
+        <div class="row" data-s="done" style="--mod:var(--nm)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1001507/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">ZUTOMAYO — Kan Saete Kuyashiiwa</div><div class="d"><span>difficulty</span> Extra</div></div>
+          <div class="end"><span class="won" style="--c:var(--pa)"><i>♛</i><em></em>NAGISA</span></div>
+          <div class="hex">NM1</div>
+        </div>
+        <div class="row" data-s="done" style="--mod:var(--nm)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1010865/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">SHK — Violet Perfume</div><div class="d"><span>difficulty</span> Insane</div></div>
+          <div class="end"><span class="won" style="--c:var(--pa)"><i>♛</i><em></em>NAGISA</span></div>
+          <div class="hex">NM2</div>
+        </div>
+        <div class="row" data-s="live" style="--mod:var(--nm)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1195045/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">awfuless — Redemption</div><div class="d"><span>difficulty</span> Expert</div></div>
+          <div class="end"><span class="nowtag"><em></em>идёт</span></div>
+          <div class="hex">NM3</div>
+          <div class="winpick">
+            <button class="wbtn" style="--c:var(--pa)"><em></em>NAGISA</button>
+            <button class="wbtn" style="--c:var(--pb)"><em></em>KIRA</button>
+          </div>
+        </div>
+        <div class="row" data-s="ban" style="--mod:var(--nm)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1900000/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">Wargack — WARCORA</div><div class="d"><span>difficulty</span> Collab Extra</div></div>
+          <div class="end"><span class="banx">✕ бан 3</span></div>
+          <div class="hex">NM4</div>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="row" data-s="done" style="--mod:var(--hd)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1521928/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">Minase Inori — HELLO HORIZON (TV Size)</div><div class="d"><span>difficulty</span> Extra</div></div>
+          <div class="end"><span class="won" style="--c:var(--pa)"><i>♛</i><em></em>NAGISA</span></div>
+          <div class="hex">HD1</div>
+        </div>
+        <div class="row" data-s="ban" style="--mod:var(--hd)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/900000/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">Chito &amp; Yuuri — Ugoku, Ugoku</div><div class="d"><span>difficulty</span> Another</div></div>
+          <div class="end"><span class="banx">✕ бан 4</span></div>
+          <div class="hex">HD2</div>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="row" data-s="free" style="--mod:var(--hr)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/2000000/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">LIL DARKIE — RAP MUSIC</div><div class="d"><span>difficulty</span> Nightmare</div></div>
+          <div class="end"><span class="sr">6.44★</span>&nbsp;·&nbsp;2:47</div>
+          <div class="hex">HR1</div>
+        </div>
+        <div class="row" data-s="ban" style="--mod:var(--hr)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/2100000/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">S_YOUSEi — JOURNEY</div><div class="d"><span>difficulty</span> Odyssey</div></div>
+          <div class="end"><span class="banx">✕ бан 1</span></div>
+          <div class="hex">HR2</div>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="row" data-s="done" style="--mod:var(--dt)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1500000/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">VSNS — Levan Polkka (Nightcore Mix)</div><div class="d"><span>difficulty</span> Hyper</div></div>
+          <div class="end"><span class="won" style="--c:var(--pb)"><i>♛</i><em></em>KIRA</span></div>
+          <div class="hex">DT1</div>
+        </div>
+        <div class="row" data-s="ban" style="--mod:var(--dt)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/41823/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">The Quick Brown Fox — The Big Black</div><div class="d"><span>difficulty</span> WHO'S AFRAID OF THE BIG BLACK</div></div>
+          <div class="end"><span class="banx">✕ бан 2</span></div>
+          <div class="hex">DT2</div>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="row" data-s="done" style="--mod:var(--fm)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/292301/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">xi — Blue Zenith</div><div class="d"><span>difficulty</span> FOUR DIMENSIONS</div></div>
+          <div class="end"><span class="won" style="--c:var(--pb)"><i>♛</i><em></em>KIRA</span></div>
+          <div class="hex">FM1</div>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="row" data-s="lock" style="--mod:var(--tb)">
+          <div class="cover"><img src="https://assets.ppy.sh/beatmaps/39804/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+          <div class="tint"></div>
+          <div class="info"><div class="t">xi — FREEDOM DiVE</div><div class="d"><span>difficulty</span> FOUR DIMENSIONS</div></div>
+          <div class="end"><span class="lockt">откроется при 3:3</span></div>
+          <div class="hex">TB</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ МАППУЛ ═════════════════════════ -->
+<section class="screen" id="pool">
+  <aside class="rail">
+    <div class="logo"><span class="mark"><i></i><u></u></span><b>osu<i>!</i>cup</b></div>
+    <a href="#"><span>◆</span>Турниры</a>
+    <a href="#" class="sel"><span>▤</span>Маппулы</a>
+    <a href="#"><span>♪</span>Карты</a>
+    <a href="#"><span>☺</span>Игроки</a>
+    <a href="#"><span>⏱</span>История</a>
+    <div class="grow"></div>
+    <a href="#"><span>⚙</span>Настройки</a>
+  </aside>
+
+  <div class="work">
+    <div class="topbar">
+      <h1>Осенний кубок · Тир 2</h1>
+      <span class="sub">12 карт · средние 6.31★</span>
+      <span class="right">
+        <button class="btn quiet">⧉ Картинкой</button>
+        <button class="btn">Правила ▾</button>
+        <button class="btn primary">↻ Скатать</button>
+      </span>
+    </div>
+
+    <div class="pop">
+      <h4>Шаблон «Стандарт 1v1»</h4>
+      <div class="slotline" style="--mod:var(--nm)"><b>NM</b>×4<span class="rng">5.2–6.0★</span></div>
+      <div class="slotline" style="--mod:var(--hd)"><b>HD</b>×2<span class="rng">5.4–6.0★</span></div>
+      <div class="slotline" style="--mod:var(--hr)"><b>HR</b>×2<span class="rng">6.0–6.6★</span></div>
+      <div class="slotline" style="--mod:var(--dt)"><b>DT</b>×2<span class="rng">6.8–7.5★</span></div>
+      <div class="slotline" style="--mod:var(--fm)"><b>FM</b>×1<span class="rng">6.8–7.4★</span></div>
+      <div class="slotline" style="--mod:var(--tb)"><b>TB</b>×1<span class="rng">7.6–8.2★</span></div>
+      <div class="sep"></div>
+      <div class="sw on"><i></i>Не повторять маппера</div>
+      <div class="sw on"><i></i>Не брать карты из прошлого пула</div>
+      <div class="sw"><i></i>Только ranked</div>
+    </div>
+
+    <div class="scrollarea">
+      <div class="centercol">
+        <div class="pool">
+          <div class="grp">
+            <div class="row" data-s="free" style="--mod:var(--nm)">
+              <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1001507/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+              <div class="tint"></div>
+              <div class="info"><div class="t">ZUTOMAYO — Kan Saete Kuyashiiwa</div><div class="d"><span>difficulty</span> Extra · aim, consistency</div></div>
+              <div class="end"><span class="pinned">📌</span>&nbsp;&nbsp;<span class="sr">5.42★</span>&nbsp;·&nbsp;3:24</div>
+              <div class="hex">NM1</div>
+              <div class="rowtools">
+                <button class="rt on" title="Открепить">📌</button>
+                <button class="rt" title="Перекатить">↻</button>
+                <button class="rt" title="Заменить вручную">⋯</button>
+              </div>
+            </div>
+            <div class="row" data-s="free" style="--mod:var(--nm)">
+              <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1010865/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+              <div class="tint"></div>
+              <div class="info"><div class="t">SHK — Violet Perfume</div><div class="d"><span>difficulty</span> Insane · stream, stamina</div></div>
+              <div class="end"><span class="sr">5.61★</span>&nbsp;·&nbsp;4:12</div>
+              <div class="hex">NM2</div>
+              <div class="rowtools">
+                <button class="rt" title="Закрепить">📌</button>
+                <button class="rt" title="Перекатить">↻</button>
+                <button class="rt" title="Заменить вручную">⋯</button>
+              </div>
+            </div>
+            <div class="row" data-s="free" style="--mod:var(--nm)">
+              <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1195045/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+              <div class="tint"></div>
+              <div class="info"><div class="t">awfuless — Redemption</div><div class="d"><span>difficulty</span> Expert · aim, tech</div></div>
+              <div class="end"><span class="sr">5.78★</span>&nbsp;·&nbsp;2:51</div>
+              <div class="hex">NM3</div>
+              <div class="rowtools">
+                <button class="rt" title="Закрепить">📌</button>
+                <button class="rt" title="Перекатить">↻</button>
+                <button class="rt" title="Заменить вручную">⋯</button>
+              </div>
+            </div>
+            <div class="row" data-s="free" style="--mod:var(--nm)">
+              <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1900000/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+              <div class="tint"></div>
+              <div class="info"><div class="t">Wargack — WARCORA</div><div class="d"><span>difficulty</span> Collab Extra · jump</div></div>
+              <div class="end"><span class="sr">5.90★</span>&nbsp;·&nbsp;3:38</div>
+              <div class="hex">NM4</div>
+              <div class="rowtools">
+                <button class="rt" title="Закрепить">📌</button>
+                <button class="rt" title="Перекатить">↻</button>
+                <button class="rt" title="Заменить вручную">⋯</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grp">
+            <div class="row" data-s="free" style="--mod:var(--hd)">
+              <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1521928/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+              <div class="tint"></div>
+              <div class="info"><div class="t">Minase Inori — HELLO HORIZON (TV Size)</div><div class="d"><span>difficulty</span> Extra · aim</div></div>
+              <div class="end"><span class="sr">5.55★</span>&nbsp;·&nbsp;1:29</div>
+              <div class="hex">HD1</div>
+              <div class="rowtools">
+                <button class="rt" title="Закрепить">📌</button>
+                <button class="rt" title="Перекатить">↻</button>
+                <button class="rt" title="Заменить вручную">⋯</button>
+              </div>
+            </div>
+            <div class="row" data-s="free" style="--mod:var(--hd)">
+              <div class="cover"><img src="https://assets.ppy.sh/beatmaps/900000/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+              <div class="tint"></div>
+              <div class="info"><div class="t">Chito &amp; Yuuri — Ugoku, Ugoku</div><div class="d"><span>difficulty</span> Another · consistency</div></div>
+              <div class="end"><span class="sr">5.71★</span>&nbsp;·&nbsp;2:05</div>
+              <div class="hex">HD2</div>
+              <div class="rowtools">
+                <button class="rt" title="Закрепить">📌</button>
+                <button class="rt" title="Перекатить">↻</button>
+                <button class="rt" title="Заменить вручную">⋯</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grp">
+            <div class="row" data-s="free" style="--mod:var(--dt)">
+              <div class="cover"><img src="https://assets.ppy.sh/beatmaps/1500000/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+              <div class="tint"></div>
+              <div class="info"><div class="t">VSNS — Levan Polkka (Nightcore Mix)</div><div class="d"><span>difficulty</span> Hyper · speed, finger control</div></div>
+              <div class="end"><span class="pinned">📌</span>&nbsp;&nbsp;<span class="sr">7.02★</span>&nbsp;·&nbsp;1:48</div>
+              <div class="hex">DT1</div>
+              <div class="rowtools">
+                <button class="rt on" title="Открепить">📌</button>
+                <button class="rt" title="Перекатить">↻</button>
+                <button class="rt" title="Заменить вручную">⋯</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="grp">
+            <div class="row" data-s="lock" style="--mod:var(--tb)">
+              <div class="cover"><img src="https://assets.ppy.sh/beatmaps/39804/covers/cover@2x.jpg" alt="" onerror="this.remove()"></div>
+              <div class="tint"></div>
+              <div class="info"><div class="t">xi — FREEDOM DiVE</div><div class="d"><span>difficulty</span> FOUR DIMENSIONS</div></div>
+              <div class="end"><span class="lockt">всегда последний</span></div>
+              <div class="hex">TB</div>
+            </div>
+          </div>
+        </div>
+        <div style="padding:14px 4px;font-size:11.5px;color:var(--txt3)">показаны 8 строк из 12</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ БИБЛИОТЕКА ═════════════════════════ -->
+<section class="screen" id="lib">
+  <aside class="rail">
+    <div class="logo"><span class="mark"><i></i><u></u></span><b>osu<i>!</i>cup</b></div>
+    <div class="eyebrow" style="padding:0 12px 8px">Коллекции</div>
+    <div class="colls">
+      <a href="#" class="sel"><u style="--c:#4A9EFF"></u><span class="lbl">Все карты</span><span class="cnt">2418</span></a>
+      <a href="#"><u style="--c:#7ED957"></u><span class="lbl">Тир 1 — новички</span><span class="cnt">184</span></a>
+      <a href="#"><u style="--c:#FFD03B"></u><span class="lbl">Тир 2</span><span class="cnt">312</span></a>
+      <a href="#"><u style="--c:#FF6B6B"></u><span class="lbl">Тир 3 — топы</span><span class="cnt">96</span></a>
+      <a href="#"><u style="--c:#C77DFF"></u><span class="lbl">DT-база</span><span class="cnt">207</span></a>
+    </div>
+    <div class="eyebrow" style="padding:14px 12px 8px">Умные</div>
+    <div class="colls">
+      <a href="#"><u style="--c:var(--accent)"></u><span class="lbl">Короткие NM</span><span class="cnt">143</span></a>
+      <a href="#"><u style="--c:var(--accent)"></u><span class="lbl">Давно не играли</span><span class="cnt">890</span></a>
+    </div>
+    <div class="grow"></div>
+    <div class="hint"><b>Загружаю карты</b><br>34 из 120 · osu! World Cup</div>
+  </aside>
+
+  <div class="work">
+    <div class="topbar">
+      <h1>Карты</h1>
+      <span class="sub">2418 карт</span>
+      <span class="right">
+        <button class="btn quiet">Импорт</button>
+        <button class="btn primary">+ По ссылке</button>
+      </span>
+    </div>
+
+    <div class="filters">
+      <div class="search">⌕&nbsp; название, артист, маппер</div>
+      <span class="chip on"><em style="--c:var(--nm)"></em>NM</span>
+      <span class="chip"><em style="--c:var(--hd)"></em>HD</span>
+      <span class="chip on"><em style="--c:var(--hr)"></em>HR</span>
+      <span class="chip"><em style="--c:var(--dt)"></em>DT</span>
+      <span class="chip"><em style="--c:var(--fm)"></em>FM</span>
+      <span class="rng2">5.0 <u><b></b></u> 7.0★</span>
+      <span class="chip on">stream</span>
+      <span class="chip">aim</span>
+      <span class="chip">tech</span>
+    </div>
+
+    <div class="scrollarea" style="padding-top:0">
+      <div class="lrow">
+        <div class="th"><img src="https://assets.ppy.sh/beatmaps/292301/covers/list@2x.jpg" alt="" onerror="this.remove()"><u>▶</u></div>
+        <div class="nm"><div class="t">xi — Blue Zenith</div><div class="s">FOUR DIMENSIONS · Asphyxia</div></div>
+        <div class="mods"><span class="mh" style="--c:var(--nm)">NM</span><span class="mh" style="--c:var(--hd)">HD</span><span class="mh" style="--c:var(--hr)">HR</span><span class="mh off">DT</span><span class="mh" style="--c:var(--fm)">FM</span></div>
+        <div class="tags"><span class="tg a">stream</span><span class="tg a">stamina</span><span class="tg">классика</span></div>
+        <div class="n2"><b>7.16★</b> · 4:20</div>
+      </div>
+      <div class="lrow">
+        <div class="th"><img src="https://assets.ppy.sh/beatmaps/39804/covers/list@2x.jpg" alt="" onerror="this.remove()"><u>▶</u></div>
+        <div class="nm"><div class="t">xi — FREEDOM DiVE</div><div class="s">FOUR DIMENSIONS · Nakagawa-Kanon</div></div>
+        <div class="mods"><span class="mh" style="--c:var(--nm)">NM</span><span class="mh off">HD</span><span class="mh off">HR</span><span class="mh off">DT</span><span class="mh" style="--c:var(--tb)">TB</span></div>
+        <div class="tags"><span class="tg a">stream</span><span class="tg a">speed</span><span class="tg">тайбрейк</span></div>
+        <div class="n2"><b>7.95★</b> · 4:19</div>
+      </div>
+      <div class="lrow">
+        <div class="th"><img src="https://assets.ppy.sh/beatmaps/1001507/covers/list@2x.jpg" alt="" onerror="this.remove()"><u>▶</u></div>
+        <div class="nm"><div class="t">ZUTOMAYO — Kan Saete Kuyashiiwa</div><div class="s">Extra · Nathan</div></div>
+        <div class="mods"><span class="mh" style="--c:var(--nm)">NM</span><span class="mh" style="--c:var(--hd)">HD</span><span class="mh" style="--c:var(--hr)">HR</span><span class="mh off">DT</span><span class="mh off">FM</span></div>
+        <div class="tags"><span class="tg a">aim</span><span class="tg a">consistency</span></div>
+        <div class="n2"><b>5.42★</b> · 3:24</div>
+      </div>
+      <div class="lrow">
+        <div class="th"><img src="https://assets.ppy.sh/beatmaps/41823/covers/list@2x.jpg" alt="" onerror="this.remove()"><u>▶</u></div>
+        <div class="nm"><div class="t">The Quick Brown Fox — The Big Black</div><div class="s">WHO'S AFRAID OF THE BIG BLACK · Blue Dragon</div></div>
+        <div class="mods"><span class="mh" style="--c:var(--nm)">NM</span><span class="mh off">HD</span><span class="mh off">HR</span><span class="mh" style="--c:var(--dt)">DT</span><span class="mh off">FM</span></div>
+        <div class="tags"><span class="tg a">speed</span><span class="tg a">stream</span><span class="tg">мем</span></div>
+        <div class="n2"><b>4.90★</b> · 2:19</div>
+      </div>
+      <div class="lrow">
+        <div class="th"><img src="https://assets.ppy.sh/beatmaps/1195045/covers/list@2x.jpg" alt="" onerror="this.remove()"><u>▶</u></div>
+        <div class="nm"><div class="t">awfuless — Redemption</div><div class="s">Expert · Mismagius</div></div>
+        <div class="mods"><span class="mh" style="--c:var(--nm)">NM</span><span class="mh" style="--c:var(--hd)">HD</span><span class="mh off">HR</span><span class="mh off">DT</span><span class="mh" style="--c:var(--fm)">FM</span></div>
+        <div class="tags"><span class="tg a">aim</span><span class="tg a">tech</span></div>
+        <div class="n2"><b>5.78★</b> · 2:51</div>
+      </div>
+      <div class="lrow">
+        <div class="th"><img src="https://assets.ppy.sh/beatmaps/1010865/covers/list@2x.jpg" alt="" onerror="this.remove()"><u>▶</u></div>
+        <div class="nm"><div class="t">SHK — Violet Perfume</div><div class="s">Insane · Sotarks</div></div>
+        <div class="mods"><span class="mh" style="--c:var(--nm)">NM</span><span class="mh" style="--c:var(--hd)">HD</span><span class="mh" style="--c:var(--hr)">HR</span><span class="mh off">DT</span><span class="mh off">FM</span></div>
+        <div class="tags"><span class="tg a">stream</span><span class="tg a">stamina</span></div>
+        <div class="n2"><b>5.61★</b> · 4:12</div>
+      </div>
+      <div class="lrow">
+        <div class="th"><img src="https://assets.ppy.sh/beatmaps/1521928/covers/list@2x.jpg" alt="" onerror="this.remove()"><u>▶</u></div>
+        <div class="nm"><div class="t">Minase Inori — HELLO HORIZON (TV Size)</div><div class="s">Extra · Nao Tomori</div></div>
+        <div class="mods"><span class="mh" style="--c:var(--nm)">NM</span><span class="mh" style="--c:var(--hd)">HD</span><span class="mh off">HR</span><span class="mh" style="--c:var(--dt)">DT</span><span class="mh off">FM</span></div>
+        <div class="tags"><span class="tg a">aim</span><span class="tg">короткая</span></div>
+        <div class="n2"><b>5.55★</b> · 1:29</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ СЕТКА ═════════════════════════ -->
+<section class="screen" id="brk">
+  <aside class="rail">
+    <div class="logo"><span class="mark"><i></i><u></u></span><b>osu<i>!</i>cup</b></div>
+    <a href="#" class="sel"><span>◆</span>Турниры</a>
+    <a href="#"><span>▤</span>Маппулы</a>
+    <a href="#"><span>♪</span>Карты</a>
+    <a href="#"><span>☺</span>Игроки</a>
+    <a href="#"><span>⏱</span>История</a>
+    <div class="grow"></div>
+    <a href="#"><span>⚙</span>Настройки</a>
+  </aside>
+
+  <div class="work">
+    <div class="topbar">
+      <h1>Осенний кубок</h1>
+      <span class="sub">8 игроков · до 4 побед</span>
+      <span class="right">
+        <button class="btn quiet">Перемешать</button>
+        <button class="btn">⧉ Картинкой</button>
+      </span>
+    </div>
+
+    <div class="bracket">
+      <div class="lane">
+        <div class="lanetitle"><h2>Верхняя сетка</h2><span>линия показывает, кто прошёл дальше</span></div>
+        <div class="cols">
+          <div class="col r1">
+            <div class="eyebrow">1/4 финала</div>
+            <div class="pair">
+              <div class="m" id="u1">
+                <div class="p w" style="--c:#5AC8FA"><em></em><span class="n">NAGISA</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#8B7FFF"><em></em><span class="n">RYU</span><span class="drop">↓</span><span class="sc">1</span></div>
+              </div>
+              <div class="m" id="u2">
+                <div class="p w" style="--c:#FF9F6B"><em></em><span class="n">KIRA</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#7ED957"><em></em><span class="n">MELON</span><span class="drop">↓</span><span class="sc">3</span></div>
+              </div>
+            </div>
+            <div class="pair">
+              <div class="m" id="u3">
+                <div class="p w" style="--c:#FFD03B"><em></em><span class="n">SEVEN</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#FF6B6B"><em></em><span class="n">AKARI</span><span class="drop">↓</span><span class="sc">0</span></div>
+              </div>
+              <div class="m" id="u4">
+                <div class="p w" style="--c:#C77DFF"><em></em><span class="n">VOID</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#22D3EE"><em></em><span class="n">POLARIS</span><span class="drop">↓</span><span class="sc">2</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col r2">
+            <div class="eyebrow">1/2 финала</div>
+            <div class="pair">
+              <div class="m now" id="s1">
+                <span class="live">идёт</span>
+                <div class="p" style="--c:#5AC8FA"><em></em><span class="n">NAGISA</span><span class="sc">3</span></div>
+                <div class="p" style="--c:#FF9F6B"><em></em><span class="n">KIRA</span><span class="sc">2</span></div>
+              </div>
+              <div class="m" id="s2">
+                <div class="p w" style="--c:#FFD03B"><em></em><span class="n">SEVEN</span><span class="sc">4</span></div>
+                <div class="p l" style="--c:#C77DFF"><em></em><span class="n">VOID</span><span class="drop">↓</span><span class="sc">2</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col r3">
+            <div class="eyebrow">Финал верхней</div>
+            <div class="m" id="uf">
+              <div class="p tbd"><em></em><span class="n">победитель 1/2</span><span class="sc">—</span></div>
+              <div class="p" style="--c:#FFD03B"><em></em><span class="n">SEVEN</span><span class="sc">—</span></div>
+            </div>
+          </div>
+
+          <div class="col gfc">
+            <div class="eyebrow">Гранд-финал</div>
+            <div class="m gf" id="gf">
+              <div class="p tbd"><em></em><span class="n">из верхней</span><span class="sc">—</span></div>
+              <div class="p tbd"><em></em><span class="n">из нижней</span><span class="sc">—</span></div>
+              <div class="foot">преимущество сетки: 1 победа</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lane">
+        <div class="lanetitle"><h2>Нижняя сетка</h2><span>второе поражение — вылет</span></div>
+        <div class="cols">
+          <div class="col">
+            <div class="eyebrow">Раунд 1</div>
+            <div class="m" id="l1">
+              <div class="p w" style="--c:#8B7FFF"><em></em><span class="n">RYU</span><span class="sc">4</span></div>
+              <div class="p l" style="--c:#7ED957"><em></em><span class="n">MELON</span><span class="sc">2</span></div>
+            </div>
+            <div class="m" id="l2">
+              <div class="p l" style="--c:#FF6B6B"><em></em><span class="n">AKARI</span><span class="sc">1</span></div>
+              <div class="p w" style="--c:#22D3EE"><em></em><span class="n">POLARIS</span><span class="sc">4</span></div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="eyebrow">Раунд 2</div>
+            <div class="m" id="l3" style="margin-top:40px">
+              <div class="p" style="--c:#8B7FFF"><em></em><span class="n">RYU</span><span class="sc">—</span></div>
+              <div class="p" style="--c:#22D3EE"><em></em><span class="n">POLARIS</span><span class="sc">—</span></div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="eyebrow">Раунд 3</div>
+            <div class="m" id="l4" style="margin-top:40px">
+              <div class="p" style="--c:#C77DFF"><em></em><span class="n">VOID</span><span class="sc">—</span></div>
+              <div class="p tbd"><em></em><span class="n">победитель раунда 2</span><span class="sc">—</span></div>
+            </div>
+          </div>
+          <div class="col">
+            <div class="eyebrow">Финал нижней</div>
+            <div class="m" id="l5" style="margin-top:40px">
+              <div class="p tbd"><em></em><span class="n">из верхней</span><span class="sc">—</span></div>
+              <div class="p tbd"><em></em><span class="n">победитель раунда 3</span><span class="sc">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════════ ПЕРВЫЙ ЗАПУСК ═════════════════════════ -->
+<section class="screen" id="onb">
+  <div class="onb">
+    <div class="dots"><i class="done"></i><i class="now"></i><i></i><i></i></div>
+    <h1>Откуда взять карты</h1>
+    <p class="lead">Выбери любой способ — потом можно добавить ещё. Всё, что загрузится, останется в библиотеке.</p>
+    <div class="cards">
+      <div class="card rec">
+        <div class="ico">🏆</div>
+        <div class="h">Турнирный пак</div>
+        <div class="d">Готовые пулы официальных турниров osu!. Быстрее всего.</div>
+        <div class="pick">osu! World Cup 2026 <span>▾</span></div>
+      </div>
+      <div class="card">
+        <div class="ico">🔗</div>
+        <div class="h">Ссылки на карты</div>
+        <div class="d">Вставь список ссылок. Названия, звёзды и обложки подтянутся сами.</div>
+        <div class="pick">Вставить из буфера <span>Ctrl V</span></div>
+      </div>
+      <div class="card">
+        <div class="ico">📄</div>
+        <div class="h">Файл JSON</div>
+        <div class="d">Если пул уже собран в другом месте.</div>
+        <div class="pick">Выбрать файл <span>…</span></div>
+      </div>
+    </div>
+    <div class="prog">
+      <div class="l"><span>Загружаю карты из пака</span><b>34 / 120</b></div>
+      <u><b></b></u>
+      <div class="l" style="color:var(--txt3);font-size:11px;font-weight:400"><span>можно свернуть и продолжить</span><span>~40 сек</span></div>
+    </div>
+    <div class="skip">Уже разобрался? <u>Пропустить</u></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.setAttribute('aria-selected','false'));
+    t.setAttribute('aria-selected','true');
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+    document.getElementById(t.dataset.go).classList.add('on');
+    if (t.dataset.go === 'brk') requestAnimationFrame(drawWires);
+  }));
+
+  // линии сетки: цвет = тот, кто прошёл дальше
+  const DIM = '#2B3140';
+  const LINKS = [
+    ['u1','s1','#5AC8FA'], ['u2','s1','#FF9F6B'],
+    ['u3','s2','#FFD03B'], ['u4','s2','#C77DFF'],
+    ['s1','uf',DIM],       ['s2','uf','#FFD03B'],
+    ['uf','gf',DIM],
+    ['l1','l3','#8B7FFF'], ['l2','l3','#22D3EE'],
+    ['l3','l4',DIM],       ['l4','l5',DIM], ['l5','gf',DIM],
+  ];
+  function drawWires(){
+    const box = document.querySelector('.bracket');
+    if (!box || !box.offsetParent) return;
+    let svg = document.getElementById('wires');
+    if (!svg){
+      svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.id = 'wires'; box.prepend(svg);
+    }
+    const b = box.getBoundingClientRect();
+    const W = box.scrollWidth, H = box.scrollHeight;
+    svg.setAttribute('width',W); svg.setAttribute('height',H);
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    const at = id => {
+      const r = document.getElementById(id).getBoundingClientRect();
+      return {l:r.left-b.left+box.scrollLeft, r:r.right-b.left+box.scrollLeft,
+              y:r.top-b.top+box.scrollTop+33};
+    };
+    svg.innerHTML = LINKS.map(([f,t,c])=>{
+      const A=at(f), B=at(t), mx=A.r+26, live=c!==DIM;
+      return `<path d="M${A.r} ${A.y} H${mx} Q${mx+8} ${A.y} ${mx+8} ${A.y+(B.y>A.y?8:-8)}
+               V${B.y-(B.y>A.y?8:-8)} Q${mx+8} ${B.y} ${mx+16} ${B.y} H${B.l}"
+               fill="none" stroke="${c}" stroke-width="${live?1.6:1.2}"
+               opacity="${live?.75:.5}" stroke-linecap="round"/>`;
+    }).join('');
+  }
+  addEventListener('resize',drawWires);
+</script>
+</body>
+</html>

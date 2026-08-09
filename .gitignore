@@ -1,0 +1,35 @@
+# Tauri
+src-tauri/target/
+src-tauri/WixTools/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# App data
+*.db
+*.db-shm
+*.db-wal
+cache/
+config.json
+
+# Env
+.env
+.env.local

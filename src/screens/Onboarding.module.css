@@ -1,0 +1,113 @@
+.screen {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.card {
+  width: 100%;
+  max-width: 520px;
+  padding: 30px 34px 32px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(22, 25, 34, 0.85);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 22px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--pink);
+  box-shadow: 0 0 12px rgba(255, 111, 177, 0.7);
+}
+
+.h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.lead {
+  margin: 0 0 18px;
+  color: var(--txt2);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.steps {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  color: var(--txt2);
+  font-size: 13px;
+  line-height: 1.85;
+}
+
+.steps li::marker {
+  color: var(--txt3);
+  font-weight: 700;
+}
+
+.link {
+  margin-bottom: 22px;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.result {
+  margin-top: 14px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ok {
+  border-color: rgba(126, 217, 87, 0.4);
+  background: rgba(126, 217, 87, 0.1);
+  color: var(--green);
+}
+
+.invalid {
+  border-color: rgba(255, 107, 107, 0.4);
+  background: rgba(255, 107, 107, 0.08);
+  color: var(--red);
+}
+
+.offline {
+  border-color: rgba(255, 208, 59, 0.35);
+  background: rgba(255, 208, 59, 0.08);
+  color: var(--gold);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.next {
+  margin-top: 12px;
+}

@@ -1,0 +1,74 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.18s, color 0.15s,
+    transform 0.08s;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+}
+
+.sm {
+  height: 29px;
+  padding: 0 11px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.icon {
+  display: inline-flex;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Главная кнопка: розовая заливка и внешнее свечение, усиливается по наведению. */
+.primary {
+  background: var(--pink);
+  color: #170b11;
+  box-shadow: 0 0 18px rgba(255, 111, 177, 0.3);
+}
+
+.primary:hover:not(:disabled) {
+  background: #ff85be;
+  box-shadow: 0 0 26px rgba(255, 111, 177, 0.5);
+}
+
+.ghost {
+  background: var(--card2);
+  border-color: var(--line);
+  color: var(--txt);
+}
+
+.ghost:hover:not(:disabled) {
+  background: #232838;
+  border-color: #2e3549;
+}
+
+.danger {
+  background: transparent;
+  border-color: rgba(255, 107, 107, 0.35);
+  color: var(--red);
+}
+
+.danger:hover:not(:disabled) {
+  background: rgba(255, 107, 107, 0.1);
+  border-color: rgba(255, 107, 107, 0.6);
+}

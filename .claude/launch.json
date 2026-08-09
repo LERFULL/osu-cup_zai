@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "app",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "port": 5180
+    },
+    {
+      "name": "design-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5177", "--directory", "design"],
+      "port": 5177
+    }
+  ]
+}
