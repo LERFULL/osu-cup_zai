@@ -8,11 +8,14 @@ use crate::db::{beatmaps, collections, labels};
 use crate::model::{Beatmap, BeatmapAttributes, LibraryFilter, Range, SkillsetTag};
 
 const SCHEMA: &str = include_str!("schema.sql");
+const BUILTIN_TEMPLATES: &str = include_str!("migrations/002_builtin_templates.sql");
 
 fn db() -> Connection {
     let conn = Connection::open_in_memory().expect("база в памяти");
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     conn.execute_batch(SCHEMA).expect("схема применилась");
+    conn.execute_batch(BUILTIN_TEMPLATES)
+        .expect("шаблоны из коробки применились");
     conn
 }
 
@@ -454,4 +457,441 @@ fn attributes_round_trip() {
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].mods, "DT");
     assert_eq!(got[0].star_rating, Some(7.4));
+}
+
+// ───────────────────────────────────────── шаблоны и генерация маппулов
+
+use crate::db::{generate, pools, templates};
+use crate::model::{GenRules, TemplateSlotInput};
+
+fn slot_in(mod_tag: &str, count: i64, source: Option<i64>) -> TemplateSlotInput {
+    TemplateSlotInput {
+        mod_tag: mod_tag.into(),
+        count,
+        star_min: None,
+        star_max: None,
+        source_collection_id: source,
+        required_skillsets: vec![],
+    }
+}
+
+/// Карта с нужными мод-тегами: без них слот шаблона её не увидит.
+fn tagged(conn: &Connection, id: i64, mapper: &str, bpm: f64, mods: &[&str]) {
+    let mut m = map(id, "Artist", &format!("Map {id}"), 6.0);
+    m.creator = Some(mapper.into());
+    m.bpm = Some(bpm);
+    m.mods = mods.iter().map(|s| s.to_string()).collect();
+    beatmaps::upsert(conn, &m).unwrap();
+}
+
+#[test]
+fn builtin_templates_are_seeded_once() {
+    let conn = db();
+    // Миграция идемпотентна: повторный запуск не должен удваивать шаблоны.
+    conn.execute_batch(BUILTIN_TEMPLATES).unwrap();
+
+    let list = templates::list(&conn).unwrap();
+    assert_eq!(list.len(), 2);
+
+    let standard = list.iter().find(|t| t.name == "Стандарт 1v1").unwrap();
+    assert_eq!(standard.slots.iter().map(|s| s.count).sum::<i64>(), 12);
+
+    let short = list.iter().find(|t| t.name == "Короткий").unwrap();
+    assert_eq!(short.slots.iter().map(|s| s.count).sum::<i64>(), 7);
+}
+
+#[test]
+fn template_slots_are_replaced_wholesale() {
+    let conn = db();
+    let t = templates::create(&conn, "Свой").unwrap();
+
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None), slot_in("TB", 1, None)]).unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("HD", 1, None)]).unwrap();
+
+    let got = templates::get(&conn, t.id).unwrap();
+    assert_eq!(got.slots.len(), 1);
+    assert_eq!(got.slots[0].mod_tag, "HD");
+    assert_eq!(got.slots[0].position, 0);
+}
+
+#[test]
+fn template_supply_counts_maps_per_slot() {
+    let conn = db();
+    for id in 1..=3 {
+        tagged(&conn, id, "mapper", 180.0, &["NM"]);
+    }
+    tagged(&conn, 10, "other", 180.0, &["HD"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 4, None), slot_in("HD", 1, None)]).unwrap();
+
+    let supply = templates::supply(&conn, t.id).unwrap();
+    assert_eq!(supply[0].need, 4);
+    assert_eq!(supply[0].available, 3);
+    assert_eq!(supply[1].available, 1);
+}
+
+#[test]
+fn generated_pool_fills_every_slot_without_repeats() {
+    let conn = db();
+    for id in 1..=6 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM", "TB"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 4, None), slot_in("TB", 1, None)]).unwrap();
+
+    let report = generate::generate(&conn, t.id, "Тир 2").unwrap();
+    assert!(
+        report.notes.is_empty(),
+        "заметок быть не должно: {:?}",
+        report.notes
+    );
+    assert_eq!(report.pool.slots.len(), 5);
+    assert!(report.pool.slots.iter().all(|s| s.beatmap_id.is_some()));
+
+    // Одна карта — один слот.
+    let ids: Vec<i64> = report
+        .pool
+        .slots
+        .iter()
+        .filter_map(|s| s.beatmap_id)
+        .collect();
+    let unique: std::collections::HashSet<i64> = ids.iter().copied().collect();
+    assert_eq!(ids.len(), unique.len());
+
+    // TB всегда последний и ровно один.
+    assert_eq!(report.pool.slots.last().unwrap().slot_label, "TB");
+    assert_eq!(
+        report
+            .pool
+            .slots
+            .iter()
+            .filter(|s| s.mod_tag == "TB")
+            .count(),
+        1
+    );
+    assert_eq!(report.pool.slots[0].slot_label, "NM1");
+    assert_eq!(report.pool.slots[3].slot_label, "NM4");
+}
+
+#[test]
+fn generation_reports_when_maps_run_out() {
+    let conn = db();
+    tagged(&conn, 1, "mapper", 180.0, &["NM"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 3, None)]).unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    // Молча отдать пул с дырками нельзя — пользователь должен узнать причину.
+    assert_eq!(report.notes.len(), 1);
+    assert!(report.notes[0].contains("NM2"));
+    assert!(report.pool.slots[0].beatmap_id.is_some());
+    assert!(report.pool.slots[1].beatmap_id.is_none());
+}
+
+#[test]
+fn no_repeat_mapper_limits_one_map_per_mapper() {
+    let conn = db();
+    // Четыре карты, но мапперов двое.
+    tagged(&conn, 1, "alice", 180.0, &["NM"]);
+    tagged(&conn, 2, "alice", 180.0, &["NM"]);
+    tagged(&conn, 3, "bob", 180.0, &["NM"]);
+    tagged(&conn, 4, "bob", 180.0, &["NM"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 4, None)]).unwrap();
+    templates::set_rules(
+        &conn,
+        t.id,
+        &GenRules {
+            no_repeat_mapper: true,
+            ..GenRules::default()
+        },
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    let filled = report
+        .pool
+        .slots
+        .iter()
+        .filter(|s| s.beatmap_id.is_some())
+        .count();
+    assert_eq!(filled, 2, "маппер не должен повторяться");
+    assert!(!report.notes.is_empty());
+}
+
+#[test]
+fn no_repeat_from_pools_excludes_played_maps() {
+    let conn = db();
+    for id in 1..=4 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    // Прошлый маппул турнира: карты 1 и 2 уже игрались.
+    let old = pools::create(&conn, "Прошлый", None).unwrap();
+    pools::add_slot(&conn, old, "NM").unwrap();
+    pools::add_slot(&conn, old, "NM").unwrap();
+    let slots = pools::get(&conn, old).unwrap().slots;
+    pools::set_slot_beatmap(&conn, slots[0].id, Some(1)).unwrap();
+    pools::set_slot_beatmap(&conn, slots[1].id, Some(2)).unwrap();
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None)]).unwrap();
+    templates::set_rules(
+        &conn,
+        t.id,
+        &GenRules {
+            no_repeat_from_pools: vec![old],
+            ..GenRules::default()
+        },
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Новый").unwrap();
+    let ids: Vec<i64> = report
+        .pool
+        .slots
+        .iter()
+        .filter_map(|s| s.beatmap_id)
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.iter().all(|id| *id == 3 || *id == 4));
+}
+
+#[test]
+fn min_bpm_spread_pulls_tempos_apart() {
+    let conn = db();
+    // Три карты рядом по темпу и одна далеко: разброс достижим только с ней.
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+    tagged(&conn, 2, "b", 182.0, &["NM"]);
+    tagged(&conn, 3, "c", 184.0, &["NM"]);
+    tagged(&conn, 4, "d", 240.0, &["NM"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None)]).unwrap();
+    templates::set_rules(
+        &conn,
+        t.id,
+        &GenRules {
+            min_bpm_spread: Some(50.0),
+            ..GenRules::default()
+        },
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    let ids: Vec<i64> = report
+        .pool
+        .slots
+        .iter()
+        .filter_map(|s| s.beatmap_id)
+        .collect();
+    assert!(ids.contains(&4), "быстрая карта должна попасть в пул: {ids:?}");
+    assert!(
+        report.notes.is_empty(),
+        "разброс достижим: {:?}",
+        report.notes
+    );
+}
+
+#[test]
+fn unreachable_bpm_spread_is_reported_not_hidden() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+    tagged(&conn, 2, "b", 182.0, &["NM"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None)]).unwrap();
+    templates::set_rules(
+        &conn,
+        t.id,
+        &GenRules {
+            min_bpm_spread: Some(100.0),
+            ..GenRules::default()
+        },
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    assert!(report.notes.iter().any(|n| n.contains("Разброс BPM")));
+}
+
+#[test]
+fn reroll_keeps_pinned_slots() {
+    let conn = db();
+    for id in 1..=8 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 3, None)]).unwrap();
+
+    let first = generate::generate(&conn, t.id, "Пул").unwrap().pool;
+    let pinned_map = first.slots[0].beatmap_id;
+    pools::set_slot_pinned(&conn, first.slots[0].id, true).unwrap();
+
+    let after = generate::reroll(&conn, first.id, true).unwrap().pool;
+    assert_eq!(after.slots[0].beatmap_id, pinned_map);
+    assert!(after.slots[0].pinned);
+}
+
+#[test]
+fn reroll_slot_touches_only_that_slot() {
+    let conn = db();
+    for id in 1..=8 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 3, None)]).unwrap();
+
+    let before = generate::generate(&conn, t.id, "Пул").unwrap().pool;
+    let untouched: Vec<Option<i64>> = before.slots[1..].iter().map(|s| s.beatmap_id).collect();
+
+    let after = generate::reroll_slot(&conn, before.id, before.slots[0].id)
+        .unwrap()
+        .pool;
+
+    let still: Vec<Option<i64>> = after.slots[1..].iter().map(|s| s.beatmap_id).collect();
+    assert_eq!(untouched, still, "остальные слоты меняться не должны");
+    assert!(after.slots[0].beatmap_id.is_some());
+}
+
+#[test]
+fn editing_played_pool_makes_a_new_version() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+
+    let id = pools::create(&conn, "Финал", None).unwrap();
+    pools::add_slot(&conn, id, "NM").unwrap();
+    let slot = pools::get(&conn, id).unwrap().slots[0].id;
+    pools::set_slot_beatmap(&conn, slot, Some(1)).unwrap();
+
+    // Замок ставит матч, в котором пул сыграли.
+    conn.execute("UPDATE pools SET is_locked = 1 WHERE id = ?1", [id])
+        .unwrap();
+
+    let target = pools::writable(&conn, id).unwrap();
+    assert_ne!(target, id, "сыгранный пул должен копироваться, а не меняться");
+
+    let copy = pools::get(&conn, target).unwrap();
+    assert_eq!(copy.version, 2);
+    assert_eq!(copy.parent_pool_id, Some(id));
+    assert_eq!(copy.name, "Финал");
+    assert!(!copy.is_locked);
+
+    // Оригинал остался нетронутым.
+    let original = pools::get(&conn, id).unwrap();
+    assert_eq!(original.slots[0].beatmap_id, Some(1));
+    assert_eq!(original.version, 1);
+}
+
+#[test]
+fn slot_labels_renumber_after_removal() {
+    let conn = db();
+    let id = pools::create(&conn, "Пул", None).unwrap();
+    for _ in 0..3 {
+        pools::add_slot(&conn, id, "NM").unwrap();
+    }
+    pools::add_slot(&conn, id, "TB").unwrap();
+
+    let labels: Vec<String> = pools::get(&conn, id)
+        .unwrap()
+        .slots
+        .iter()
+        .map(|s| s.slot_label.clone())
+        .collect();
+    assert_eq!(labels, vec!["NM1", "NM2", "NM3", "TB"]);
+
+    // Убрали средний — номера не должны оставить дырку.
+    pools::remove_slot(&conn, id, 1).unwrap();
+    let labels: Vec<String> = pools::get(&conn, id)
+        .unwrap()
+        .slots
+        .iter()
+        .map(|s| s.slot_label.clone())
+        .collect();
+    assert_eq!(labels, vec!["NM1", "NM2", "TB"]);
+}
+
+#[test]
+fn tiebreaker_stays_last_after_reorder() {
+    let conn = db();
+    let id = pools::create(&conn, "Пул", None).unwrap();
+    pools::add_slot(&conn, id, "NM").unwrap();
+    pools::add_slot(&conn, id, "TB").unwrap();
+    pools::add_slot(&conn, id, "HD").unwrap();
+
+    // Пробуем утащить TB в начало.
+    pools::reorder(&conn, id, &[1, 0, 2]).unwrap();
+
+    let labels: Vec<String> = pools::get(&conn, id)
+        .unwrap()
+        .slots
+        .iter()
+        .map(|s| s.slot_label.clone())
+        .collect();
+    assert_eq!(labels.last().unwrap(), "TB");
+}
+
+#[test]
+fn pool_warnings_catch_duplicates_and_wrong_mod() {
+    let conn = db();
+    tagged(&conn, 1, "alice", 180.0, &["NM"]);
+    tagged(&conn, 2, "alice", 180.0, &["NM"]);
+
+    let id = pools::create(&conn, "Пул", None).unwrap();
+    pools::add_slot(&conn, id, "NM").unwrap();
+    pools::add_slot(&conn, id, "NM").unwrap();
+    pools::add_slot(&conn, id, "HD").unwrap();
+
+    let slots = pools::get(&conn, id).unwrap().slots;
+    pools::set_slot_beatmap(&conn, slots[0].id, Some(1)).unwrap();
+    pools::set_slot_beatmap(&conn, slots[1].id, Some(1)).unwrap();
+    pools::set_slot_beatmap(&conn, slots[2].id, Some(2)).unwrap();
+
+    let pool = pools::get(&conn, id).unwrap();
+    assert!(pool.slots[0]
+        .warnings
+        .iter()
+        .any(|w| w.contains("другом слоте")));
+    // Карта 2 разрешена только в NM, а стоит в слоте HD.
+    assert!(pool.slots[2].warnings.iter().any(|w| w.contains("HD")));
+    // Маппер один на все три слота.
+    assert!(pool.slots[2].warnings.iter().any(|w| w.contains("маппер")));
+}
+
+#[test]
+fn smart_collection_works_as_slot_source() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+    tagged(&conn, 2, "b", 180.0, &["NM"]);
+    let mut hard = map(3, "Artist", "Hard", 9.0);
+    hard.creator = Some("c".into());
+    hard.mods = vec!["NM".into()];
+    beatmaps::upsert(&conn, &hard).unwrap();
+
+    // Умная коллекция «от 8★» — состав задан фильтром, а не таблицей связей.
+    let smart = collections::create_smart(
+        &conn,
+        "Топ",
+        None,
+        &LibraryFilter {
+            stars: Range {
+                min: Some(8.0),
+                max: None,
+            },
+            ..LibraryFilter::default()
+        },
+    )
+    .unwrap();
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, Some(smart.id))]).unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    assert_eq!(report.pool.slots[0].beatmap_id, Some(3));
 }

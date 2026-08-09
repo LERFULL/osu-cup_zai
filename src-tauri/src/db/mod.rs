@@ -3,7 +3,10 @@
 
 pub mod beatmaps;
 pub mod collections;
+pub mod generate;
 pub mod labels;
+pub mod pools;
+pub mod templates;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -16,12 +19,16 @@ use crate::error::{AppError, Result};
 /// поэтому повторное применение безопасно.
 const SCHEMA_V1: &str = include_str!("schema.sql");
 
-/// Миграции по возрастанию версии. Чтобы добавить версию 2, допиши пару
-/// `(2, include_str!("migrations/002_...sql"))` — цикл применит её сам.
-const MIGRATIONS: &[(i64, &str)] = &[(1, SCHEMA_V1)];
+/// Шаблоны из коробки. Отдельной версией, а не частью схемы: у того, кто уже
+/// запускал приложение, схема применена, а шаблонов ещё нет.
+const BUILTIN_TEMPLATES: &str = include_str!("migrations/002_builtin_templates.sql");
+
+/// Миграции по возрастанию версии. Чтобы добавить версию 3, допиши пару
+/// `(3, include_str!("migrations/003_...sql"))` — цикл применит её сам.
+const MIGRATIONS: &[(i64, &str)] = &[(1, SCHEMA_V1), (2, BUILTIN_TEMPLATES)];
 
 /// Версия схемы, которую ожидает текущий код.
-const TARGET_VERSION: i64 = 1;
+const TARGET_VERSION: i64 = 2;
 
 pub struct Db {
     conn: Mutex<Connection>,

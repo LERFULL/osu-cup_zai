@@ -257,3 +257,122 @@ pub struct QueueStatus {
     pub budget: i64,
     pub active_batch: Option<String>,
 }
+
+// ──────────────────────────────────────────── шаблоны маппулов
+
+/// Правила генерации. Все поля с `default`, поэтому старый шаблон
+/// с неполным JSON читается без ошибки.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenRules {
+    #[serde(default)]
+    pub no_repeat_mapper: bool,
+    #[serde(default)]
+    pub no_repeat_from_pools: Vec<i64>,
+    #[serde(default)]
+    pub min_bpm_spread: Option<f64>,
+    #[serde(default)]
+    pub ranked_only: bool,
+    #[serde(default)]
+    pub balance_skillsets: bool,
+    #[serde(default)]
+    pub length_max: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateSlot {
+    pub id: i64,
+    /// Мод-тег слота. `mod` — ключевое слово Rust, поэтому поле названо иначе.
+    #[serde(rename = "mod")]
+    pub mod_tag: String,
+    pub count: i64,
+    pub star_min: Option<f64>,
+    pub star_max: Option<f64>,
+    pub source_collection_id: Option<i64>,
+    pub required_skillsets: Vec<String>,
+    pub position: i64,
+}
+
+/// Слот, каким его присылает редактор: без id и позиции — порядок задаётся
+/// самим списком, а id раздаются при сохранении.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateSlotInput {
+    #[serde(rename = "mod")]
+    pub mod_tag: String,
+    pub count: i64,
+    #[serde(default)]
+    pub star_min: Option<f64>,
+    #[serde(default)]
+    pub star_max: Option<f64>,
+    #[serde(default)]
+    pub source_collection_id: Option<i64>,
+    #[serde(default)]
+    pub required_skillsets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolTemplate {
+    pub id: i64,
+    pub name: String,
+    pub rules: GenRules,
+    pub created_at: String,
+    pub slots: Vec<TemplateSlot>,
+}
+
+/// Сколько карт нужно под слот и сколько нашлось в его источнике.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotSupply {
+    pub position: i64,
+    #[serde(rename = "mod")]
+    pub mod_tag: String,
+    pub need: i64,
+    pub available: i64,
+}
+
+// ────────────────────────────────────────────────────────── маппулы
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolSlot {
+    pub id: i64,
+    pub slot_label: String,
+    #[serde(rename = "mod")]
+    pub mod_tag: String,
+    pub beatmap_id: Option<i64>,
+    pub pinned: bool,
+    pub star_rating_with_mods: Option<f64>,
+    pub fm_mods: Vec<String>,
+    pub position: i64,
+    /// Заполняется только при чтении одного пула — в списке карты не нужны.
+    pub beatmap: Option<Beatmap>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pool {
+    pub id: i64,
+    pub name: String,
+    pub template_id: Option<i64>,
+    pub template_name: Option<String>,
+    pub folder_id: Option<i64>,
+    pub status: String,
+    pub version: i64,
+    pub parent_pool_id: Option<i64>,
+    pub display_fields: Vec<String>,
+    pub is_locked: bool,
+    pub created_at: String,
+    pub slots: Vec<PoolSlot>,
+}
+
+/// Итог генерации: сам пул и то, что не получилось выдержать.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenReport {
+    pub pool: Pool,
+    pub notes: Vec<String>,
+}

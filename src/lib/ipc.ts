@@ -9,14 +9,22 @@ import type {
   Collection,
   CredentialsCheck,
   Folder,
+  GenReport,
+  GenRules,
   ImportProgress,
   Label,
   LibraryFilter,
   ModTag,
   Page,
   ParsedLinks,
+  Pool,
+  PoolField,
+  PoolStatus,
+  PoolTemplate,
   QueueStatus,
   Skillset,
+  SlotSupply,
+  TemplateSlotInput,
 } from './types';
 
 // ─────────────────────────────────────────────────── состояние приложения
@@ -111,6 +119,82 @@ export const removeFromCollection = (collectionId: number, beatmapIds: number[])
 export const createFolder = (name: string) => invoke<Folder>('create_folder', { name });
 export const renameFolder = (id: number, name: string) => invoke<void>('rename_folder', { id, name });
 export const deleteFolder = (id: number) => invoke<void>('delete_folder', { id });
+
+// ───────────────────────────────────────────────── шаблоны маппулов
+
+export const listTemplates = () => invoke<PoolTemplate[]>('list_templates');
+export const getTemplate = (id: number) => invoke<PoolTemplate>('get_template', { id });
+export const createTemplate = (name: string) => invoke<PoolTemplate>('create_template', { name });
+
+/** Редактор сохраняется целиком — имя, правила и слоты одной транзакцией. */
+export const saveTemplate = (
+  id: number,
+  name: string,
+  rules: GenRules,
+  slots: TemplateSlotInput[],
+) => invoke<PoolTemplate>('save_template', { id, name, rules, slots });
+
+export const duplicateTemplate = (id: number) => invoke<PoolTemplate>('duplicate_template', { id });
+export const deleteTemplate = (id: number) => invoke<void>('delete_template', { id });
+
+/** Сколько карт нужно под каждый слот и сколько нашлось в источнике. */
+export const templateSupply = (id: number) => invoke<SlotSupply[]>('template_supply', { id });
+
+// ────────────────────────────────────────────────────────── маппулы
+
+export const listPools = () => invoke<Pool[]>('list_pools');
+export const getPool = (id: number) => invoke<Pool>('get_pool', { id });
+export const createPool = (name: string) => invoke<Pool>('create_pool', { name });
+
+/** Возвращает id пула, в который ушла правка: у сыгранного он будет новым. */
+export const renamePool = (id: number, name: string) => invoke<number>('rename_pool', { id, name });
+
+export const setPoolStatus = (id: number, status: PoolStatus) =>
+  invoke<void>('set_pool_status', { id, status });
+
+export const setPoolDisplayFields = (id: number, fields: PoolField[]) =>
+  invoke<void>('set_pool_display_fields', { id, fields });
+
+export const duplicatePool = (id: number) => invoke<Pool>('duplicate_pool', { id });
+export const deletePool = (id: number) => invoke<void>('delete_pool', { id });
+
+// Слоты адресуются позицией, а не id: правка сыгранного пула уходит в копию,
+// где id другие, а порядок тот же. Ответ — пул целиком, с его настоящим id.
+
+export const setSlotBeatmap = (poolId: number, position: number, beatmapId: number | null) =>
+  invoke<Pool>('set_slot_beatmap', { poolId, position, beatmapId });
+
+export const setSlotPinned = (poolId: number, position: number, pinned: boolean) =>
+  invoke<Pool>('set_slot_pinned', { poolId, position, pinned });
+
+export const setSlotFmMods = (poolId: number, position: number, mods: string[]) =>
+  invoke<Pool>('set_slot_fm_mods', { poolId, position, mods });
+
+export const setSlotMod = (poolId: number, position: number, mod: ModTag) =>
+  invoke<Pool>('set_slot_mod', { poolId, position, mod });
+
+export const addPoolSlot = (poolId: number, mod: ModTag) =>
+  invoke<Pool>('add_pool_slot', { poolId, mod });
+
+export const removePoolSlot = (poolId: number, position: number) =>
+  invoke<Pool>('remove_pool_slot', { poolId, position });
+
+/** Новый порядок задаётся списком нынешних позиций. */
+export const reorderPoolSlots = (poolId: number, order: number[]) =>
+  invoke<Pool>('reorder_pool_slots', { poolId, order });
+
+/** Фильтр библиотеки, суженный под слот: тот же, по которому шла генерация. */
+export const getSlotFilter = (poolId: number, position: number) =>
+  invoke<LibraryFilter>('slot_filter', { poolId, position });
+
+export const generatePool = (templateId: number, name: string) =>
+  invoke<GenReport>('generate_pool', { templateId, name });
+
+export const rerollPool = (poolId: number, keepPinned: boolean) =>
+  invoke<GenReport>('reroll_pool', { poolId, keepPinned });
+
+export const rerollSlot = (poolId: number, position: number) =>
+  invoke<GenReport>('reroll_slot', { poolId, position });
 
 // ────────────────────────────────────────────────────────────── импорт
 

@@ -3,4 +3,5 @@
 pub mod collections;
 pub mod imports;
 pub mod library;
+pub mod pools;
 pub mod system;

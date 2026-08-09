@@ -12,6 +12,8 @@ interface Seed {
   artist: string;
   title: string;
   version: string;
+  /** Маппер. У каждой карты свой: правило «не повторять маппера» иначе нечем проверить. */
+  by: string;
   stars: number;
   bpm: number;
   len: number;
@@ -20,19 +22,25 @@ interface Seed {
   skills: string[];
 }
 
+// Мод-тегов у карты обычно несколько — карта, годная под NM, часто годится
+// и под HD. С одним тегом на карту генерация пула была бы невозможна.
 const SEEDS: Seed[] = [
-  { id: 1, set: 1084284, artist: 'Zutomayo', title: 'Kan Saete Kuyashiiwa', version: 'Rampage', stars: 6.24, bpm: 190, len: 232, ar: 9.6, mods: ['NM'], skills: ['stream', 'stamina'] },
-  { id: 2, set: 1148951, artist: 'Shikata Akiko', title: 'Kokuu no Kyouen', version: 'Feast', stars: 6.81, bpm: 176, len: 301, ar: 9.4, mods: ['HD'], skills: ['reading', 'stamina'] },
-  { id: 3, set: 1521113, artist: 'REDALiCE', title: 'Mahoroba', version: 'Utopia', stars: 6.05, bpm: 200, len: 154, ar: 9.3, mods: ['HR'], skills: ['jump', 'aim'] },
-  { id: 4, set: 774965, artist: 'warcooler', title: 'Hyper Kinetic', version: 'Overdrive', stars: 5.42, bpm: 145, len: 118, ar: 9.0, mods: ['DT'], skills: ['speed', 'alt'] },
-  { id: 5, set: 1023011, artist: 'Camellia', title: 'Hellcrusher', version: 'Annihilation', stars: 7.12, bpm: 220, len: 268, ar: 9.8, mods: ['NM'], skills: ['stream', 'consistency'] },
-  { id: 6, set: 936891, artist: 'Umbrella', title: 'Ugoku, Ugoku', version: 'Motion', stars: 5.88, bpm: 168, len: 142, ar: 9.2, mods: ['FM'], skills: ['tech', 'finger control'] },
-  { id: 7, set: 1195835, artist: 'Rapsodie', title: 'Sunset Drive', version: 'Cruise', stars: 6.44, bpm: 182, len: 205, ar: 9.5, mods: ['NM'], skills: ['aim', 'alt'] },
-  { id: 8, set: 1305043, artist: 'YUC\'e', title: 'Future Cake', version: 'Sweet', stars: 5.31, bpm: 174, len: 129, ar: 8.9, mods: ['NM'], skills: ['jump'] },
-  { id: 9, set: 1441077, artist: 'Kobaryo', title: 'Levitating', version: 'Ascend', stars: 6.97, bpm: 195, len: 187, ar: 9.7, mods: ['HD'], skills: ['stream', 'speed'] },
-  { id: 10, set: 1013891, artist: 'Big Black', title: 'Baldnoise', version: 'Chaos', stars: 7.55, bpm: 210, len: 244, ar: 10.0, mods: ['TB'], skills: ['tech', 'stamina', 'stream'] },
-  { id: 11, set: 1112283, artist: 'Zenith', title: 'Aurora Skies', version: 'Dawn', stars: 4.92, bpm: 160, len: 165, ar: 8.7, mods: ['NM'], skills: ['reading'] },
-  { id: 12, set: 1273412, artist: 'Freedom', title: 'Open Road', version: 'Highway', stars: 6.18, bpm: 188, len: 198, ar: 9.4, mods: ['FM'], skills: ['alt', 'consistency'] },
+  { id: 1, set: 1084284, artist: 'Zutomayo', title: 'Kan Saete Kuyashiiwa', version: 'Rampage', by: 'Nathan', stars: 6.24, bpm: 190, len: 232, ar: 9.6, mods: ['NM', 'HD'], skills: ['stream', 'stamina'] },
+  { id: 2, set: 1148951, artist: 'Shikata Akiko', title: 'Kokuu no Kyouen', version: 'Feast', by: 'Sotarks', stars: 6.81, bpm: 176, len: 301, ar: 9.4, mods: ['HD', 'HR'], skills: ['reading', 'stamina'] },
+  { id: 3, set: 1521113, artist: 'REDALiCE', title: 'Mahoroba', version: 'Utopia', by: 'Mismagius', stars: 6.05, bpm: 200, len: 154, ar: 9.3, mods: ['HR', 'NM'], skills: ['jump', 'aim'] },
+  { id: 4, set: 774965, artist: 'warcooler', title: 'Hyper Kinetic', version: 'Overdrive', by: 'Kalibe', stars: 5.42, bpm: 145, len: 118, ar: 9.0, mods: ['DT', 'NM'], skills: ['speed', 'alt'] },
+  { id: 5, set: 1023011, artist: 'Camellia', title: 'Hellcrusher', version: 'Annihilation', by: 'Monstrata', stars: 7.12, bpm: 220, len: 268, ar: 9.8, mods: ['NM', 'TB'], skills: ['stream', 'consistency'] },
+  { id: 6, set: 936891, artist: 'Umbrella', title: 'Ugoku, Ugoku', version: 'Motion', by: 'Ephemeral', stars: 5.88, bpm: 168, len: 142, ar: 9.2, mods: ['FM', 'HD'], skills: ['tech', 'finger control'] },
+  { id: 7, set: 1195835, artist: 'Rapsodie', title: 'Sunset Drive', version: 'Cruise', by: 'Nifty', stars: 6.44, bpm: 182, len: 205, ar: 9.5, mods: ['NM', 'HR'], skills: ['aim', 'alt'] },
+  { id: 8, set: 1305043, artist: 'YUC\'e', title: 'Future Cake', version: 'Sweet', by: 'Akitoshi', stars: 5.31, bpm: 174, len: 129, ar: 8.9, mods: ['NM', 'DT'], skills: ['jump'] },
+  { id: 9, set: 1441077, artist: 'Kobaryo', title: 'Levitating', version: 'Ascend', by: 'Doormat', stars: 6.97, bpm: 195, len: 187, ar: 9.7, mods: ['HD', 'DT'], skills: ['stream', 'speed'] },
+  { id: 10, set: 1013891, artist: 'Big Black', title: 'Baldnoise', version: 'Chaos', by: 'Gero', stars: 7.55, bpm: 210, len: 244, ar: 10.0, mods: ['TB', 'NM'], skills: ['tech', 'stamina', 'stream'] },
+  { id: 11, set: 1112283, artist: 'Zenith', title: 'Aurora Skies', version: 'Dawn', by: 'Skystar', stars: 4.92, bpm: 160, len: 165, ar: 8.7, mods: ['NM', 'FM'], skills: ['reading'] },
+  { id: 12, set: 1273412, artist: 'Freedom', title: 'Open Road', version: 'Highway', by: 'Lasse', stars: 6.18, bpm: 188, len: 198, ar: 9.4, mods: ['FM', 'HR'], skills: ['alt', 'consistency'] },
+  { id: 13, set: 1189741, artist: 'Nekomata Master', title: 'Far East Nightbird', version: 'Kuroi Ushi', by: 'Kroytz', stars: 6.62, bpm: 172, len: 176, ar: 9.5, mods: ['HR', 'DT'], skills: ['aim', 'jump'] },
+  { id: 14, set: 1329901, artist: 'DragonForce', title: 'Through the Fire', version: 'Flames', by: 'Halgoh', stars: 7.31, bpm: 200, len: 428, ar: 9.9, mods: ['DT', 'TB'], skills: ['stamina', 'stream'] },
+  { id: 15, set: 1402387, artist: 'sakuzyo', title: 'Altale', version: 'Starlight', by: 'Fii', stars: 5.74, bpm: 128, len: 151, ar: 9.1, mods: ['NM', 'HD'], skills: ['reading', 'tech'] },
+  { id: 16, set: 1476620, artist: 'Feint', title: 'Snake Eyes', version: 'Venom', by: 'Sing', stars: 6.36, bpm: 174, len: 213, ar: 9.4, mods: ['HD', 'FM'], skills: ['alt', 'speed'] },
 ];
 
 function toBeatmap(s: Seed, i: number): Beatmap {
@@ -45,7 +53,7 @@ function toBeatmap(s: Seed, i: number): Beatmap {
     title: s.title,
     titleUnicode: null,
     version: s.version,
-    creator: 'mapper',
+    creator: s.by,
     creatorId: 100 + i,
     difficultyRating: s.stars,
     bpm: s.bpm,

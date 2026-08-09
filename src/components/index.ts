@@ -27,3 +27,12 @@ export type { FieldProps, AreaProps } from './Field';
 
 export { Empty } from './Empty';
 export type { EmptyProps } from './Empty';
+
+export { Switch } from './Switch';
+export type { SwitchProps } from './Switch';
+
+export { Tabs } from './Tabs';
+export type { TabsProps } from './Tabs';
+
+export { SlotLine } from './SlotLine';
+export type { SlotLineProps } from './SlotLine';

@@ -247,3 +247,108 @@ export interface QueueStatus {
   budget: number;
   activeBatch: string | null;
 }
+
+// ─────────────────────────────────────────────── шаблоны маппулов
+
+export interface GenRules {
+  noRepeatMapper: boolean;
+  /** Маппулы, карты из которых брать нельзя. */
+  noRepeatFromPools: number[];
+  minBpmSpread: number | null;
+  rankedOnly: boolean;
+  balanceSkillsets: boolean;
+  lengthMax: number | null;
+}
+
+export const EMPTY_RULES: GenRules = {
+  noRepeatMapper: false,
+  noRepeatFromPools: [],
+  minBpmSpread: null,
+  rankedOnly: false,
+  balanceSkillsets: false,
+  lengthMax: null,
+};
+
+export interface TemplateSlot {
+  id: number;
+  mod: ModTag;
+  count: number;
+  starMin: number | null;
+  starMax: number | null;
+  sourceCollectionId: number | null;
+  requiredSkillsets: Skillset[];
+  position: number;
+}
+
+/** Слот, каким его отправляет редактор: порядок задаёт сам список. */
+export type TemplateSlotInput = Omit<TemplateSlot, 'id' | 'position'>;
+
+export interface PoolTemplate {
+  id: number;
+  name: string;
+  rules: GenRules;
+  createdAt: string;
+  slots: TemplateSlot[];
+}
+
+/** Сколько карт нужно под слот и сколько нашлось в его источнике. */
+export interface SlotSupply {
+  position: number;
+  mod: ModTag;
+  need: number;
+  available: number;
+}
+
+// ────────────────────────────────────────────────────────── маппулы
+
+export type PoolStatus = 'draft' | 'ready' | 'archived';
+
+/** Что показывать в строке пула. Наследуется картинкой при экспорте. */
+export const POOL_FIELDS = [
+  'stars',
+  'length',
+  'bpm',
+  'ar',
+  'od',
+  'cs',
+  'hp',
+  'mapper',
+  'skillsets',
+] as const;
+export type PoolField = (typeof POOL_FIELDS)[number];
+
+export interface PoolSlot {
+  id: number;
+  slotLabel: string;
+  mod: ModTag;
+  beatmapId: number | null;
+  pinned: boolean;
+  starRatingWithMods: number | null;
+  fmMods: string[];
+  position: number;
+  /** Есть только при чтении одного пула — в списке карты не нужны. */
+  beatmap: Beatmap | null;
+  warnings: string[];
+}
+
+export interface Pool {
+  id: number;
+  name: string;
+  templateId: number | null;
+  templateName: string | null;
+  folderId: number | null;
+  status: PoolStatus;
+  version: number;
+  parentPoolId: number | null;
+  displayFields: PoolField[];
+  /** Сыгранный пул неизменяем: правка уводит в свежую копию. */
+  isLocked: boolean;
+  createdAt: string;
+  slots: PoolSlot[];
+}
+
+/** Итог генерации: сам пул и то, что не получилось выдержать. */
+export interface GenReport {
+  pool: Pool;
+  notes: string[];
+}

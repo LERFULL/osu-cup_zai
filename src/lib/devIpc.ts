@@ -6,8 +6,20 @@
 // состава коллекций ведут себя так же, как в приложении. При перезагрузке
 // страницы всё возвращается к началу — настоящей базы здесь нет.
 
-import type { Beatmap, Collection, LibraryFilter, ModTag, Skillset } from './types';
+import type {
+  Beatmap,
+  Collection,
+  GenRules,
+  LibraryFilter,
+  ModTag,
+  Pool,
+  PoolSlot,
+  PoolTemplate,
+  Skillset,
+  TemplateSlot,
+} from './types';
 import { COLLECTIONS, LABELS, MAPS } from './mock';
+import { EMPTY_FILTER, EMPTY_RULES } from './types';
 
 type Args = Record<string, unknown>;
 
@@ -86,6 +98,205 @@ function edit(id: unknown, patch: (m: Beatmap) => void): undefined {
   const m = maps.find((x) => x.beatmapId === id);
   if (m) patch(m);
   return undefined;
+}
+
+// ─────────────────────────────────────── шаблоны и маппулы
+
+const templates: PoolTemplate[] = [
+  {
+    id: 1,
+    name: 'Стандарт 1v1',
+    rules: { ...EMPTY_RULES, noRepeatMapper: true },
+    createdAt: '2026-01-01T00:00:00Z',
+    slots: (
+      [
+        ['NM', 4],
+        ['HD', 2],
+        ['HR', 2],
+        ['DT', 2],
+        ['FM', 1],
+        ['TB', 1],
+      ] as [ModTag, number][]
+    ).map(([mod, count], i) => ({
+      id: 10 + i,
+      mod,
+      count,
+      starMin: null,
+      starMax: null,
+      sourceCollectionId: null,
+      requiredSkillsets: [],
+      position: i,
+    })),
+  },
+  {
+    id: 2,
+    name: 'Короткий',
+    rules: { ...EMPTY_RULES, noRepeatMapper: true },
+    createdAt: '2026-01-01T00:00:00Z',
+    slots: (
+      [
+        ['NM', 3],
+        ['HD', 1],
+        ['HR', 1],
+        ['DT', 1],
+        ['TB', 1],
+      ] as [ModTag, number][]
+    ).map(([mod, count], i) => ({
+      id: 20 + i,
+      mod,
+      count,
+      starMin: null,
+      starMax: null,
+      sourceCollectionId: null,
+      requiredSkillsets: [],
+      position: i,
+    })),
+  },
+];
+
+const pools: Pool[] = [];
+
+function template(id: unknown): PoolTemplate {
+  const found = templates.find((t) => t.id === id);
+  if (!found) throw new Error('Шаблон не найден');
+  return found;
+}
+
+function pool(id: unknown): Pool {
+  const found = pools.find((p) => p.id === id);
+  if (!found) throw new Error('Маппул не найден');
+  return withMaps(found);
+}
+
+function at(p: Pool, position: unknown): PoolSlot {
+  const found = p.slots.find((x) => x.position === position);
+  if (!found) throw new Error('Слот не найден');
+  return found;
+}
+
+function blankSlot(mod: ModTag, position: number): PoolSlot {
+  return {
+    id: nextId++,
+    slotLabel: '',
+    mod,
+    beatmapId: null,
+    pinned: false,
+    starRatingWithMods: null,
+    fmMods: [],
+    position,
+    beatmap: null,
+    warnings: [],
+  };
+}
+
+/** TB всегда последний, номера идут подряд — как в relabel на Rust. */
+function relabel(p: Pool): void {
+  p.slots.sort((a, b) => Number(a.mod === 'TB') - Number(b.mod === 'TB') || a.position - b.position);
+  const seen = new Map<string, number>();
+  p.slots.forEach((slot, i) => {
+    const n = seen.get(slot.mod) ?? 0;
+    slot.slotLabel = slot.mod === 'TB' ? 'TB' : `${slot.mod}${n + 1}`;
+    seen.set(slot.mod, n + 1);
+    slot.position = i;
+  });
+}
+
+/** Карты и предупреждения доливаются при каждом чтении — как в pools::get. */
+function withMaps(p: Pool): Pool {
+  const counts = new Map<number, number>();
+  const mappers = new Map<string, number>();
+
+  for (const slot of p.slots) {
+    slot.beatmap = maps.find((m) => m.beatmapId === slot.beatmapId) ?? null;
+    if (slot.beatmapId !== null) counts.set(slot.beatmapId, (counts.get(slot.beatmapId) ?? 0) + 1);
+    const creator = slot.beatmap?.creator;
+    if (creator) mappers.set(creator, (mappers.get(creator) ?? 0) + 1);
+  }
+
+  for (const slot of p.slots) {
+    const warnings: string[] = [];
+    if (slot.beatmapId !== null && (counts.get(slot.beatmapId) ?? 0) > 1) {
+      warnings.push('карта уже есть в другом слоте');
+    }
+    if (slot.beatmap && !slot.beatmap.mods.includes(slot.mod)) {
+      warnings.push(`у карты не разрешён ${slot.mod}`);
+    }
+    const creator = slot.beatmap?.creator;
+    if (creator && (mappers.get(creator) ?? 0) > 1) warnings.push('маппер повторяется');
+    slot.warnings = warnings;
+  }
+  return p;
+}
+
+/** Карты, подходящие под слот шаблона. */
+function candidates(slot: TemplateSlot): Beatmap[] {
+  return maps.filter((m) => {
+    if (!m.mods.includes(slot.mod)) return false;
+    if (slot.starMin !== null && m.difficultyRating < slot.starMin) return false;
+    if (slot.starMax !== null && m.difficultyRating > slot.starMax) return false;
+    if (slot.requiredSkillsets.length > 0) {
+      const own = m.skillsets.map((k) => k.skillset);
+      if (!slot.requiredSkillsets.every((k) => own.includes(k))) return false;
+    }
+    if (slot.sourceCollectionId !== null) {
+      const own = new Set(members.get(slot.sourceCollectionId) ?? []);
+      if (!own.has(m.beatmapId)) return false;
+    }
+    return true;
+  });
+}
+
+/** Набор пула по шаблону. Заглушка берёт карты по порядку, без случайности. */
+function fill(p: Pool, t: PoolTemplate, keepPinned: boolean): { pool: Pool; notes: string[] } {
+  const kept = keepPinned ? p.slots.filter((x) => x.pinned) : [];
+  const used = new Set(kept.map((x) => x.beatmapId));
+  const mappers = new Set(kept.map((x) => x.beatmap?.creator).filter(Boolean));
+
+  const built: PoolSlot[] = [];
+  const empty: string[] = [];
+  const ordered = [...t.slots].sort((a, b) => Number(a.mod === 'TB') - Number(b.mod === 'TB'));
+
+  for (const from of ordered) {
+    const fit = candidates(from);
+    for (let n = 0; n < (from.mod === 'TB' ? 1 : from.count); n++) {
+      const label = from.mod === 'TB' ? 'TB' : `${from.mod}${n + 1}`;
+      const pinned = kept.find((x) => x.slotLabel === label);
+      if (pinned) {
+        built.push({ ...pinned, position: built.length });
+        continue;
+      }
+
+      const pick = fit.find(
+        (m) =>
+          !used.has(m.beatmapId) &&
+          (!t.rules.noRepeatMapper || !mappers.has(m.creator ?? '')),
+      );
+      if (pick) {
+        used.add(pick.beatmapId);
+        if (pick.creator) mappers.add(pick.creator);
+      } else {
+        empty.push(label);
+      }
+
+      built.push({
+        ...blankSlot(from.mod, built.length),
+        slotLabel: label,
+        beatmapId: pick?.beatmapId ?? null,
+      });
+    }
+  }
+
+  p.slots = built;
+  p.templateId = t.id;
+  p.templateName = t.name;
+
+  const notes =
+    empty.length > 0
+      ? [
+          `Карт не хватило на ${empty.join(', ')}. Расширь диапазон звёзд или добавь карт в источник.`,
+        ]
+      : [];
+  return { pool: withMaps(p), notes };
 }
 
 const HANDLERS: Record<string, (a: Args) => unknown> = {
@@ -257,6 +468,202 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
   create_folder: (a) => ({ id: nextId++, name: String(a['name']), position: 0 }),
   rename_folder: () => undefined,
   delete_folder: () => undefined,
+
+  // ─────────────────────────────────── шаблоны и маппулы
+
+  list_templates: () => templates,
+  get_template: (a) => template(a['id']),
+  create_template: (a) => {
+    const made: PoolTemplate = {
+      id: nextId++,
+      name: String(a['name']),
+      rules: { ...EMPTY_RULES },
+      createdAt: '2026-08-09T00:00:00Z',
+      slots: [],
+    };
+    templates.push(made);
+    return made;
+  },
+  save_template: (a) => {
+    const t = template(a['id']);
+    t.name = String(a['name']);
+    t.rules = a['rules'] as GenRules;
+    const slots = Array.isArray(a['slots']) ? (a['slots'] as TemplateSlot[]) : [];
+    t.slots = slots.map((x, i) => ({ ...x, id: nextId++, position: i }));
+    return t;
+  },
+  duplicate_template: (a) => {
+    const src = template(a['id']);
+    const copy: PoolTemplate = {
+      ...src,
+      id: nextId++,
+      name: `${src.name} — копия`,
+      slots: src.slots.map((x) => ({ ...x, id: nextId++ })),
+    };
+    templates.push(copy);
+    return copy;
+  },
+  delete_template: (a) => {
+    const i = templates.findIndex((x) => x.id === a['id']);
+    if (i >= 0) templates.splice(i, 1);
+    return undefined;
+  },
+  template_supply: (a) =>
+    template(a['id']).slots.map((slot) => ({
+      position: slot.position,
+      mod: slot.mod,
+      need: slot.count,
+      available: candidates(slot).length,
+    })),
+
+  list_pools: () => pools,
+  get_pool: (a) => pool(a['id']),
+  create_pool: (a) => {
+    const made: Pool = {
+      id: nextId++,
+      name: String(a['name']),
+      templateId: null,
+      templateName: null,
+      folderId: null,
+      status: 'draft',
+      version: 1,
+      parentPoolId: null,
+      displayFields: ['stars', 'length', 'bpm'],
+      isLocked: false,
+      createdAt: '2026-08-09T00:00:00Z',
+      slots: [],
+    };
+    pools.push(made);
+    return made;
+  },
+  rename_pool: (a) => {
+    const p = pool(a['id']);
+    p.name = String(a['name']);
+    return p.id;
+  },
+  set_pool_status: (a) => {
+    pool(a['id']).status = a['status'] as Pool['status'];
+    return undefined;
+  },
+  set_pool_display_fields: (a) => {
+    pool(a['id']).displayFields = strings(a, 'fields') as Pool['displayFields'];
+    return undefined;
+  },
+  duplicate_pool: (a) => {
+    const src = pool(a['id']);
+    const copy: Pool = {
+      ...src,
+      id: nextId++,
+      name: `${src.name} — копия`,
+      slots: src.slots.map((x) => ({ ...x, id: nextId++ })),
+    };
+    pools.push(copy);
+    return copy;
+  },
+  delete_pool: (a) => {
+    const i = pools.findIndex((x) => x.id === a['id']);
+    if (i >= 0) pools.splice(i, 1);
+    return undefined;
+  },
+
+  set_slot_beatmap: (a) => {
+    const p = pool(a['poolId']);
+    const slot = at(p, a['position']);
+    slot.beatmapId = typeof a['beatmapId'] === 'number' ? a['beatmapId'] : null;
+    return withMaps(p);
+  },
+  set_slot_pinned: (a) => {
+    const p = pool(a['poolId']);
+    at(p, a['position']).pinned = a['pinned'] === true;
+    return withMaps(p);
+  },
+  set_slot_fm_mods: (a) => {
+    const p = pool(a['poolId']);
+    at(p, a['position']).fmMods = strings(a, 'mods');
+    return withMaps(p);
+  },
+  set_slot_mod: (a) => {
+    const p = pool(a['poolId']);
+    at(p, a['position']).mod = String(a['mod']) as ModTag;
+    relabel(p);
+    return withMaps(p);
+  },
+  add_pool_slot: (a) => {
+    const p = pool(a['poolId']);
+    p.slots.push(blankSlot(String(a['mod']) as ModTag, p.slots.length));
+    relabel(p);
+    return withMaps(p);
+  },
+  remove_pool_slot: (a) => {
+    const p = pool(a['poolId']);
+    p.slots = p.slots.filter((x) => x.position !== a['position']);
+    relabel(p);
+    return withMaps(p);
+  },
+  reorder_pool_slots: (a) => {
+    const p = pool(a['poolId']);
+    const order = ids(a, 'order');
+    const moved = order
+      .map((position) => p.slots.find((x) => x.position === position))
+      .filter((x): x is PoolSlot => x !== undefined);
+    for (const slot of p.slots) if (!order.includes(slot.position)) moved.push(slot);
+    p.slots = moved;
+    relabel(p);
+    return withMaps(p);
+  },
+  slot_filter: (a) => {
+    const p = pool(a['poolId']);
+    const slot = at(p, a['position']);
+    const t = templates.find((x) => x.id === p.templateId);
+    const from = t?.slots.find((x) => x.mod === slot.mod);
+    if (!from) return { ...EMPTY_FILTER, mods: [slot.mod] };
+    return {
+      ...EMPTY_FILTER,
+      mods: [from.mod],
+      skillsets: from.requiredSkillsets,
+      stars: { min: from.starMin, max: from.starMax },
+      collectionId: from.sourceCollectionId,
+    };
+  },
+
+  generate_pool: (a) => {
+    const t = template(a['templateId']);
+    const made: Pool = {
+      id: nextId++,
+      name: String(a['name']),
+      templateId: t.id,
+      templateName: t.name,
+      folderId: null,
+      status: 'draft',
+      version: 1,
+      parentPoolId: null,
+      displayFields: ['stars', 'length', 'bpm'],
+      isLocked: false,
+      createdAt: '2026-08-09T00:00:00Z',
+      slots: [],
+    };
+    pools.push(made);
+    return fill(made, t, false);
+  },
+  reroll_pool: (a) => {
+    const p = pool(a['poolId']);
+    const t = templates.find((x) => x.id === p.templateId);
+    if (!t) throw new Error('Этот маппул собран вручную — скатывать его не по чему');
+    return fill(p, t, a['keepPinned'] === true);
+  },
+  reroll_slot: (a) => {
+    const p = pool(a['poolId']);
+    const t = templates.find((x) => x.id === p.templateId);
+    if (!t) throw new Error('Этот маппул собран вручную — скатывать его не по чему');
+    const slot = at(p, a['position']);
+    const used = new Set(
+      p.slots.filter((x) => x !== slot).map((x) => x.beatmapId),
+    );
+    const from = t.slots.find((x) => x.mod === slot.mod);
+    const pick = from ? candidates(from).find((m) => !used.has(m.beatmapId)) : undefined;
+    slot.beatmapId = pick?.beatmapId ?? null;
+    return { pool: withMaps(p), notes: [] };
+  },
 
   parse_links: (a) => {
     const raw = text(a, 'text');

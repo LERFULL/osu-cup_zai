@@ -616,6 +616,57 @@ pub fn list(conn: &Connection, f: &LibraryFilter, offset: i64, limit: i64) -> Re
     })
 }
 
+/// Карты по списку id, в порядке самого списка. Пропавшие id просто выпадают.
+pub fn by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<Beatmap>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut found: Vec<Beatmap> = Vec::new();
+    for chunk in ids.chunks(CHUNK) {
+        let sql = format!(
+            "SELECT {COLS} FROM beatmaps b WHERE b.beatmap_id IN ({})",
+            placeholders(chunk.len())
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(chunk.iter()), map_row)?;
+        for row in rows {
+            found.push(row?);
+        }
+    }
+    attach(conn, &mut found)?;
+
+    // Порядок задаёт вызывающий: слоты маппула идут не по id.
+    let mut by_id: HashMap<i64, Beatmap> = found.into_iter().map(|m| (m.beatmap_id, m)).collect();
+    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
+}
+
+/// Все id карт под фильтром, без страниц. Нужно там, где состав важен целиком:
+/// источник слота шаблона может быть и умной коллекцией, а её состав — это
+/// фильтр, а не таблица связей.
+pub fn ids_for(conn: &Connection, f: &LibraryFilter) -> Result<Vec<i64>> {
+    let w = build_where(conn, f)?;
+    let where_sql = if w.conds.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", w.conds.join(" AND "))
+    };
+    let sql = format!(
+        "SELECT b.beatmap_id FROM beatmaps b{joins}{where_sql}",
+        joins = w.joins
+    );
+
+    let refs: Vec<&dyn ToSql> = w.args.iter().map(|a| a.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(refs.as_slice(), |r| r.get::<_, i64>(0))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
 // ───────────────────────────────────────────── пользовательские поля
 
 fn replace_tags(conn: &Connection, table: &str, id: i64, values: &[String]) -> Result<()> {
