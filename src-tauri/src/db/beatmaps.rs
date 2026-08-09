@@ -72,6 +72,7 @@ fn map_row(row: &Row) -> rusqlite::Result<Beatmap> {
         fm_mods: Vec::new(),
         skillsets: Vec::new(),
         labels: Vec::new(),
+        set_count: None,
     })
 }
 
@@ -549,14 +550,16 @@ fn build_where(conn: &Connection, f: &LibraryFilter) -> Result<Where> {
     Ok(w)
 }
 
-fn order_by(f: &LibraryFilter) -> String {
+/// Ключ сортировки. Префикс нужен потому, что при схлопывании наборов внешний
+/// запрос читает уже готовый подзапрос, где алиаса `b` нет.
+fn sort_key(f: &LibraryFilter, prefix: &str) -> String {
     let col = match f.sort.as_str() {
-        "stars" => "b.difficulty_rating",
-        "bpm" => "b.bpm",
-        "length" => "b.total_length",
-        "title" => "b.title COLLATE NOCASE",
-        "artist" => "b.artist COLLATE NOCASE",
-        _ => "b.added_at",
+        "stars" => "difficulty_rating",
+        "bpm" => "bpm",
+        "length" => "total_length",
+        "title" => "title COLLATE NOCASE",
+        "artist" => "artist COLLATE NOCASE",
+        _ => "added_at",
     };
     let dir = if f.dir.eq_ignore_ascii_case("asc") {
         "ASC"
@@ -564,7 +567,11 @@ fn order_by(f: &LibraryFilter) -> String {
         "DESC"
     };
     // Второй ключ обязателен: на равных значениях пагинация иначе поедет.
-    format!("ORDER BY {col} {dir}, b.beatmap_id {dir}")
+    format!("{prefix}{col} {dir}, {prefix}beatmap_id {dir}")
+}
+
+fn order_by(f: &LibraryFilter) -> String {
+    format!("ORDER BY {}", sort_key(f, "b."))
 }
 
 /// Страница библиотеки. Фильтрация и срез целиком на стороне SQL —
@@ -577,9 +584,18 @@ pub fn list(conn: &Connection, f: &LibraryFilter, offset: i64, limit: i64) -> Re
         format!(" WHERE {}", w.conds.join(" AND "))
     };
 
+    // Ручные карты набора не имеют. Партиция по отрицательному id держит их
+    // порознь: иначе все они схлопнулись бы в один «набор без номера».
+    const SET_KEY: &str = "COALESCE(b.beatmapset_id, -b.beatmap_id)";
+
     let total: i64 = {
+        let what = if f.group_sets {
+            format!("COUNT(DISTINCT {SET_KEY})")
+        } else {
+            "COUNT(*)".to_string()
+        };
         let sql = format!(
-            "SELECT COUNT(*) FROM beatmaps b{joins}{where_sql}",
+            "SELECT {what} FROM beatmaps b{joins}{where_sql}",
             joins = w.joins
         );
         let args: Vec<&dyn ToSql> = w.args.iter().map(|a| a.as_ref()).collect();
@@ -589,11 +605,28 @@ pub fn list(conn: &Connection, f: &LibraryFilter, offset: i64, limit: i64) -> Re
     let limit = limit.clamp(1, 500);
     let offset = offset.max(0);
 
-    let sql = format!(
-        "SELECT {COLS} FROM beatmaps b{joins}{where_sql} {order} LIMIT ? OFFSET ?",
-        joins = w.joins,
-        order = order_by(f),
-    );
+    // В схлопнутом виде от набора остаётся одна строка — та, что первой идёт
+    // по текущей сортировке. Считаем и сколько сложностей за ней стоит,
+    // чтобы строка могла показать «ещё 4».
+    let sql = if f.group_sets {
+        format!(
+            "SELECT * FROM (
+               SELECT {COLS},
+                      COUNT(*) OVER (PARTITION BY {SET_KEY}) AS set_count,
+                      ROW_NUMBER() OVER (PARTITION BY {SET_KEY} ORDER BY {inner}) AS rn
+               FROM beatmaps b{joins}{where_sql}
+             ) WHERE rn = 1 ORDER BY {outer} LIMIT ? OFFSET ?",
+            joins = w.joins,
+            inner = sort_key(f, "b."),
+            outer = sort_key(f, ""),
+        )
+    } else {
+        format!(
+            "SELECT {COLS} FROM beatmaps b{joins}{where_sql} {order} LIMIT ? OFFSET ?",
+            joins = w.joins,
+            order = order_by(f),
+        )
+    };
 
     let mut args: Vec<Box<dyn ToSql>> = w.args;
     args.push(Box::new(limit));
@@ -601,7 +634,14 @@ pub fn list(conn: &Connection, f: &LibraryFilter, offset: i64, limit: i64) -> Re
     let refs: Vec<&dyn ToSql> = args.iter().map(|a| a.as_ref()).collect();
 
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(refs.as_slice(), map_row)?;
+    let group = f.group_sets;
+    let rows = stmt.query_map(refs.as_slice(), move |r| {
+        let mut m = map_row(r)?;
+        if group {
+            m.set_count = Some(r.get("set_count")?);
+        }
+        Ok(m)
+    })?;
 
     let mut items = Vec::new();
     for row in rows {
@@ -699,6 +739,22 @@ pub fn set_skillsets(conn: &Connection, id: i64, skillsets: &[String]) -> Result
     )?;
     let mut stmt = conn.prepare(
         "INSERT OR IGNORE INTO beatmap_skillsets (beatmap_id, skillset, suggested) VALUES (?1, ?2, 0)",
+    )?;
+    for s in skillsets {
+        stmt.execute(params![id, s])?;
+    }
+    Ok(())
+}
+
+/// Предложенные скилсеты из атрибутов. Проставленное руками не задевает:
+/// то, что уже стоит подтверждённым, остаётся подтверждённым.
+pub fn suggest_skillsets(conn: &Connection, id: i64, skillsets: &[String]) -> Result<()> {
+    conn.execute(
+        "DELETE FROM beatmap_skillsets WHERE beatmap_id = ?1 AND suggested = 1",
+        params![id],
+    )?;
+    let mut stmt = conn.prepare(
+        "INSERT OR IGNORE INTO beatmap_skillsets (beatmap_id, skillset, suggested) VALUES (?1, ?2, 1)",
     )?;
     for s in skillsets {
         stmt.execute(params![id, s])?;

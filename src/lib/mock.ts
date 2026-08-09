@@ -41,6 +41,10 @@ const SEEDS: Seed[] = [
   { id: 14, set: 1329901, artist: 'DragonForce', title: 'Through the Fire', version: 'Flames', by: 'Halgoh', stars: 7.31, bpm: 200, len: 428, ar: 9.9, mods: ['DT', 'TB'], skills: ['stamina', 'stream'] },
   { id: 15, set: 1402387, artist: 'sakuzyo', title: 'Altale', version: 'Starlight', by: 'Fii', stars: 5.74, bpm: 128, len: 151, ar: 9.1, mods: ['NM', 'HD'], skills: ['reading', 'tech'] },
   { id: 16, set: 1476620, artist: 'Feint', title: 'Snake Eyes', version: 'Venom', by: 'Sing', stars: 6.36, bpm: 174, len: 213, ar: 9.4, mods: ['HD', 'FM'], skills: ['alt', 'speed'] },
+  // Сложности одного набора с id 1 — на них видно схлопывание в одну строку.
+  { id: 17, set: 1084284, artist: 'Zutomayo', title: 'Kan Saete Kuyashiiwa', version: 'Insane', by: 'Nathan', stars: 4.88, bpm: 190, len: 232, ar: 9.0, mods: ['NM'], skills: ['stream'] },
+  { id: 18, set: 1084284, artist: 'Zutomayo', title: 'Kan Saete Kuyashiiwa', version: 'Hard', by: 'Nathan', stars: 3.61, bpm: 190, len: 232, ar: 8.4, mods: ['NM'], skills: ['alt'] },
+  { id: 19, set: 1084284, artist: 'Zutomayo', title: 'Kan Saete Kuyashiiwa', version: 'Normal', by: 'Nathan', stars: 2.44, bpm: 190, len: 232, ar: 7.0, mods: ['NM'], skills: [] },
 ];
 
 function toBeatmap(s: Seed, i: number): Beatmap {

@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent, MouseEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import type { ModTag } from '@/lib/types';
 import { Hex } from './Hex';
 import { Button } from './Button';
@@ -33,11 +33,23 @@ export interface MapRowBase {
   /** Метка слота маппула, например NM1. Без неё в шестиугольнике сам мод. */
   slot?: string;
   mod: ModTag;
+  /** Отмечена галочкой — попадёт под массовое действие. */
   selected?: boolean;
+  /** Открыта в боковой панели. Подсвечивается рамкой, галочку не ставит:
+   *  посмотреть карту и выбрать её для удаления — разные намерения. */
+  opened?: boolean;
   onClick?: () => void;
   /** Показать чекбокс. С обработчиком он кликается отдельно от строки. */
   checkbox?: boolean;
   onToggleSelect?: (shift: boolean) => void;
+  /** Ручка перетаскивания слева. Тянется только она, а не вся строка:
+   *  иначе нажатие на любую кнопку внутри начинало бы перетаскивание. */
+  grip?: boolean;
+  /** Сколько ещё сложностей в наборе. Кнопка видна всегда, а не по наведению:
+   *  иначе о свёрнутых сложностях нельзя догадаться, не поводив мышью. */
+  expand?: { count: number; open: boolean; onToggle: () => void };
+  /** Кнопки слота. Занимают своё место в строке, ничего не загораживая. */
+  tools?: ReactNode;
   className?: string;
 }
 
@@ -68,9 +80,13 @@ export function MapRow(props: MapRowProps) {
     slot,
     mod,
     selected,
+    opened,
     onClick,
     checkbox,
     onToggleSelect,
+    grip,
+    expand,
+    tools,
     className,
   } = props;
 
@@ -84,7 +100,9 @@ export function MapRow(props: MapRowProps) {
     s.row,
     STATE_CLASS[props.kind],
     selected ? s.selected : null,
+    opened ? s.opened : null,
     onClick ? s.clickable : null,
+    tools !== undefined ? s.withTools : null,
     className,
   ]
     .filter(Boolean)
@@ -105,7 +123,13 @@ export function MapRow(props: MapRowProps) {
       className={cls}
       style={style}
       {...(onClick
-        ? { onClick, onKeyDown: keyDown, role: 'button', tabIndex: 0, 'aria-pressed': !!selected }
+        ? {
+            onClick,
+            onKeyDown: keyDown,
+            role: 'button',
+            tabIndex: 0,
+            'aria-current': opened === true,
+          }
         : {})}
     >
       {cover !== null && (
@@ -113,6 +137,22 @@ export function MapRow(props: MapRowProps) {
       )}
       <div className={s.shade} aria-hidden />
       <div className={s.tint} aria-hidden />
+
+      {grip === true ? (
+        <span
+          className={s.grip}
+          draggable
+          title="Потянуть, чтобы переставить"
+          onClick={stop}
+          onDragStart={(e) => {
+            // Без данных в переносе браузер отменяет перетаскивание сразу же.
+            e.dataTransfer.setData('text/plain', '');
+            e.dataTransfer.effectAllowed = 'move';
+          }}
+        >
+          ⠿
+        </span>
+      ) : null}
 
       {checkbox === true ? (
         onToggleSelect ? (
@@ -139,6 +179,24 @@ export function MapRow(props: MapRowProps) {
         <div className={s.title}>{artist !== undefined ? `${artist} — ${title}` : title}</div>
         <div className={s.sub}>{version}</div>
       </div>
+
+      {expand !== undefined ? (
+        <button
+          className={[s.expand, expand.open ? s.expandOpen : null].filter(Boolean).join(' ')}
+          type="button"
+          aria-expanded={expand.open}
+          title={expand.open ? 'Свернуть сложности' : 'Показать все сложности набора'}
+          onClick={(e) => {
+            stop(e);
+            expand.onToggle();
+          }}
+        >
+          <span className={s.expandArrow} aria-hidden>
+            ▸
+          </span>
+          {expand.count}
+        </button>
+      ) : null}
 
       <div className={s.end}>
         {props.kind === 'plain' && (
@@ -183,6 +241,14 @@ export function MapRow(props: MapRowProps) {
           </Button>
         )}
       </div>
+
+      {tools !== undefined ? (
+        // Кнопки внутри строки, а строка кликается целиком: без этого нажатие
+        // на любую из них заодно открывало бы карту.
+        <div className={s.tools} onClick={stop} onKeyDown={(e) => e.stopPropagation()}>
+          {tools}
+        </div>
+      ) : null}
 
       <span className={s.hexslot}>
         <Hex mod={mod} glow={glow} dim={muted} {...(slot !== undefined ? { label: slot } : {})} />

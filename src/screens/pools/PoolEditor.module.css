@@ -114,33 +114,12 @@
   margin-bottom: 4px;
 }
 
-/* Инструменты держатся справа поверх строки и всплывают по наведению. */
-.tools {
-  position: absolute;
-  top: 50%;
-  right: 62px;
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 9px;
-  background: rgba(12, 14, 19, 0.86);
-  opacity: 0;
-  transform: translateY(-50%);
-  transition: opacity 0.13s;
-  pointer-events: none;
-}
-
-.slot:hover .tools,
-.slot:focus-within .tools {
-  opacity: 1;
-  pointer-events: auto;
-}
-
+/* Кнопки слота живут внутри строки — место под них освобождает сама строка. */
 .tool {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.05);
@@ -170,12 +149,81 @@
   color: #ff8a8a;
 }
 
+/* Выбор модов для FM живёт в меню слота: мод и что на нём разрешено —
+   один и тот же вопрос, разносить их по разным местам незачем. */
+.fm {
+  padding: 8px 11px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.fmLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--txt3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fmChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* Пустой слот: ручка, приглашение и те же кнопки — все в одну строку. */
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.emptyGrip {
+  flex: 0 0 12px;
+  color: var(--txt3);
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.13s, color 0.13s;
+}
+
+.empty:hover .emptyGrip {
+  opacity: 1;
+}
+
+.emptyGrip:hover {
+  color: var(--txt2);
+}
+
+.emptyGrip:active {
+  cursor: grabbing;
+}
+
+.emptyTools {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.13s;
+}
+
+.slot:hover .emptyTools,
+.slot:focus-within .emptyTools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* Пустой слот — не карточка, а приглашение выбрать карту. */
 .emptySlot {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 12px;
-  width: 100%;
+  min-width: 0;
   height: 52px;
   padding: 0 14px;
   border: 1px dashed rgba(255, 255, 255, 0.12);

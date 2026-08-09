@@ -70,6 +70,9 @@ export function derive(map: Beatmap, mods: string): Derived {
 /** Моды, под которыми имеет смысл смотреть карту в карточке. */
 export const CARD_MODS: readonly ModTag[] = ['NM', 'HD', 'HR', 'DT', 'EZ'];
 
+/** Что можно разрешить на FM-карте. DT в фримоде не дают: он меняет длину матча. */
+export const FM_CHOICES = ['HD', 'HR', 'EZ', 'FL'] as const;
+
 /** Мод-тег -> строка модов для расчёта. HD и FM скорость не меняют. */
 export function modsFor(tag: ModTag): string {
   switch (tag) {

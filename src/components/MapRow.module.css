@@ -66,6 +66,37 @@
   );
 }
 
+/* ── ручка перетаскивания ── */
+/* Тянется только она. Место под неё занято всегда, поэтому по наведению
+   строка не дёргается. */
+
+.grip {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 12px;
+  margin: 0 -7px 0 -13px;
+  color: var(--txt3);
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.13s, color 0.13s;
+}
+
+.row:hover .grip,
+.row:focus-within .grip {
+  opacity: 1;
+}
+
+.grip:hover {
+  color: var(--txt2);
+}
+
+.grip:active {
+  cursor: grabbing;
+}
+
 /* ── чекбокс ── */
 
 .cb {
@@ -120,6 +151,47 @@
   text-overflow: ellipsis;
 }
 
+/* ── развернуть набор ── */
+/* Видна всегда: о свёрнутых сложностях иначе не догадаться. */
+
+.expand {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.04);
+  color: var(--txt2);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 0.13s, color 0.13s, background 0.13s;
+}
+
+.expand:hover {
+  border-color: rgb(91 200 245 / 0.5);
+  background: rgb(91 200 245 / 0.1);
+  color: var(--txt);
+}
+
+.expandArrow {
+  display: inline-block;
+  font-size: 9px;
+  line-height: 1;
+  transition: transform 0.13s;
+}
+
+.expandOpen .expandArrow {
+  transform: rotate(90deg);
+}
+
 /* ── правая часть ── */
 
 .end {
@@ -147,6 +219,38 @@
   z-index: 2;
 }
 
+/* ── кнопки слота ── */
+/* Встают на место статистики, а не поверх неё: по наведению цифры уступают
+   место кнопкам, поэтому читать что-либо сквозь них не приходится. */
+
+.tools {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: 62px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+  transition: opacity 0.13s;
+}
+
+.withTools:hover .tools,
+.withTools:focus-within .tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.withTools .end {
+  transition: opacity 0.13s;
+}
+
+.withTools:hover .end,
+.withTools:focus-within .end {
+  opacity: 0;
+}
+
 /* ── выбрана ── */
 
 .selected {
@@ -159,6 +263,21 @@
   border-color: var(--pink);
   color: #1b0a12;
   box-shadow: 0 0 10px rgb(255 111 177 / 0.5);
+}
+
+/* ── открыта в панели ── */
+/* Только рамка: карточка открыта, но карта не отмечена под массовое действие. */
+
+.opened {
+  box-shadow:
+    0 0 0 1.5px rgb(91 200 245 / 0.5),
+    0 2px 10px rgb(0 0 0 / 0.3);
+}
+
+.opened.clickable:hover {
+  box-shadow:
+    0 0 0 1.5px rgb(91 200 245 / 0.7),
+    0 6px 20px rgb(0 0 0 / 0.45);
 }
 
 /* ── бан ── */

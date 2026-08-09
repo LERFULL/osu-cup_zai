@@ -317,7 +317,27 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     const f = a['filter'] as LibraryFilter;
     const offset = (a['offset'] as number) ?? 0;
     const limit = (a['limit'] as number) ?? 100;
-    const all = filtered(f);
+    let all = filtered(f);
+
+    // Схлопывание наборов — как в базе: от набора остаётся первая строка,
+    // а счётчик говорит, сколько за ней сложностей.
+    if (f.groupSets) {
+      const seen = new Map<number, Beatmap>();
+      const order: number[] = [];
+      for (const m of all) {
+        // Ручные карты набора не имеют — каждая сама себе набор.
+        const key = m.beatmapsetId ?? -m.beatmapId;
+        const known = seen.get(key);
+        if (known === undefined) {
+          seen.set(key, { ...m, setCount: 1 });
+          order.push(key);
+        } else {
+          known.setCount = (known.setCount ?? 1) + 1;
+        }
+      }
+      all = order.map((k) => seen.get(k)).filter((m): m is Beatmap => m !== undefined);
+    }
+
     return { items: all.slice(offset, offset + limit), total: all.length, offset };
   },
   get_beatmap: (a) => maps.find((m) => m.beatmapId === a['beatmapId']) ?? null,

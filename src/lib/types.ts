@@ -76,6 +76,9 @@ export interface Beatmap {
   fmMods: string[];
   skillsets: SkillsetTag[];
   labels: Label[];
+
+  /** Сколько сложностей у набора. Есть только в схлопнутом списке. */
+  setCount?: number | null;
 }
 
 export interface Failtimes {
@@ -158,6 +161,8 @@ export interface LibraryFilter {
   bpm: Range;
   length: Range;
   collectionId: number | null;
+  /** Схлопывать сложности одного набора в одну строку. */
+  groupSets: boolean;
   sort: SortKey;
   dir: SortDir;
 }
@@ -172,6 +177,7 @@ export const EMPTY_FILTER: LibraryFilter = {
   bpm: { min: null, max: null },
   length: { min: null, max: null },
   collectionId: null,
+  groupSets: false,
   sort: 'added',
   dir: 'desc',
 };

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Empty, MapRow, Menu, MenuItem, MenuSeparator } from '@/components';
+import { Button, Chip, Empty, MapRow, Menu, MenuItem, MenuSeparator } from '@/components';
 import {
   MOD_TAGS,
   POOL_FIELDS,
@@ -9,7 +9,7 @@ import {
   type PoolSlot,
 } from '@/lib/types';
 import { coverUrl, formatLength, poolAverageStars } from '@/lib/format';
-import { derive } from '@/lib/derive';
+import { FM_CHOICES, derive } from '@/lib/derive';
 import * as ipc from '@/lib/ipc';
 import { Import } from '../library/Import';
 import { Picker } from './Picker';
@@ -46,6 +46,9 @@ export function PoolEditor({ id, notes, onClose }: Props) {
   const [busy, setBusy] = useState(false);
 
   const drag = useRef<number | null>(null);
+  // Пока слот тянут, порядок переставляется только на экране. В базу он уходит
+  // один раз, на отпускании: иначе каждое движение мыши слало бы свой запрос.
+  const [order, setOrder] = useState<PoolSlot[] | null>(null);
 
   const load = useCallback(async (poolId: number) => {
     try {
@@ -63,6 +66,7 @@ export function PoolEditor({ id, notes, onClose }: Props) {
   /** Ответ команды — пул целиком, вместе с его настоящим id. */
   function accept(next: Pool) {
     setPool(next);
+    setOrder(null);
     if (next.id !== current) setCurrent(next.id);
   }
 
@@ -134,17 +138,35 @@ export function PoolEditor({ id, notes, onClose }: Props) {
     void ipc.setPoolDisplayFields(p.id, next);
   }
 
-  async function moveSlot(to: number) {
+  function dragStart(from: number) {
+    drag.current = from;
+    setOrder(p.slots);
+  }
+
+  function dragOver(to: number) {
     const from = drag.current;
     if (from === null || from === to) return;
     drag.current = to;
+    setOrder((prev) => {
+      const next = [...(prev ?? p.slots)];
+      const [moved] = next.splice(from, 1);
+      if (moved) next.splice(to, 0, moved);
+      return next;
+    });
+  }
 
-    const order = p.slots.map((x) => x.position);
-    const [moved] = order.splice(from, 1);
-    if (moved === undefined) return;
-    order.splice(to, 0, moved);
+  /** Отпустили — записываем новый порядок. Пустую перестановку не шлём. */
+  async function dragEnd() {
+    const next = order;
+    drag.current = null;
+    if (next === null) return;
 
-    await guard(async () => accept(await ipc.reorderPoolSlots(p.id, order)));
+    const positions = next.map((x) => x.position);
+    if (positions.every((v, i) => v === p.slots[i]?.position)) {
+      setOrder(null);
+      return;
+    }
+    await guard(async () => accept(await ipc.reorderPoolSlots(p.id, positions)));
   }
 
   /** Правая часть строки: то, что выбрано в «Поля». */
@@ -168,6 +190,65 @@ export function PoolEditor({ id, notes, onClose }: Props) {
       }
     }
     return [map.version, ...out].join(' · ');
+  }
+
+  /** Кнопки слота. Одинаковые и для подобранной карты, и для пустого слота. */
+  function slotTools(x: PoolSlot) {
+    return (
+      <>
+        <button
+          className={[s.tool, x.pinned ? s.on : null].filter(Boolean).join(' ')}
+          onClick={() =>
+            void guard(async () => accept(await ipc.setSlotPinned(p.id, x.position, !x.pinned)))
+          }
+          type="button"
+          title={x.pinned ? 'Открепить' : 'Закрепить — не меняется при перекате'}
+        >
+          📌
+        </button>
+
+        {p.templateId !== null ? (
+          <button
+            className={s.tool}
+            onClick={() => void rerollOne(x.position)}
+            type="button"
+            title="Перекатить слот"
+            disabled={busy}
+          >
+            ↻
+          </button>
+        ) : null}
+
+        <button
+          className={s.tool}
+          onClick={() => setMenu(menu === `m${x.position}` ? null : `m${x.position}`)}
+          type="button"
+          title={x.mod === 'FM' ? 'Мод слота и что разрешено на FM' : 'Сменить мод'}
+        >
+          ◇
+        </button>
+
+        <button
+          className={s.tool}
+          onClick={() => setPicking(x.position)}
+          type="button"
+          title="Заменить вручную"
+        >
+          ⋯
+        </button>
+
+        <button
+          className={[s.tool, s.danger].join(' ')}
+          onClick={() =>
+            void guard(async () => accept(await ipc.removePoolSlot(p.id, x.position)))
+          }
+          type="button"
+          title="Убрать слот из пула"
+        >
+          ✕
+        </button>
+      </>
+    );
   }
 
   return (
@@ -283,20 +364,20 @@ export function PoolEditor({ id, notes, onClose }: Props) {
               />
             ) : null}
 
-            {p.slots.map((x, i) => (
+            {(order ?? p.slots).map((x, i) => (
               <div
                 key={x.id}
                 className={s.slot}
-                draggable
-                onDragStart={() => (drag.current = i)}
+                onDragStart={() => dragStart(i)}
                 onDragOver={(e) => {
                   e.preventDefault();
-                  void moveSlot(i);
+                  dragOver(i);
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
-                  drag.current = null;
+                  void dragEnd();
                 }}
+                onDragEnd={() => void dragEnd()}
               >
                 {x.beatmap !== null ? (
                   <MapRow
@@ -307,102 +388,90 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                     version={details(x)}
                     mod={x.mod}
                     slot={x.slotLabel}
+                    grip
+                    tools={slotTools(x)}
                     onClick={() => setPicking(x.position)}
                   />
                 ) : (
-                  <button
-                    className={s.emptySlot}
-                    onClick={() => setPicking(x.position)}
-                    type="button"
-                  >
-                    <span className={s.emptyLabel} data-mod={x.mod}>
-                      {x.slotLabel}
+                  <div className={s.empty}>
+                    <span
+                      className={s.emptyGrip}
+                      draggable
+                      title="Потянуть, чтобы переставить"
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', '');
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                    >
+                      ⠿
                     </span>
-                    <span className={s.emptyText}>карта не подобрана — выбрать</span>
-                  </button>
+                    <button
+                      className={s.emptySlot}
+                      onClick={() => setPicking(x.position)}
+                      type="button"
+                    >
+                      <span className={s.emptyLabel} data-mod={x.mod}>
+                        {x.slotLabel}
+                      </span>
+                      <span className={s.emptyText}>карта не подобрана — выбрать</span>
+                    </button>
+                    <div className={s.emptyTools}>{slotTools(x)}</div>
+                  </div>
                 )}
 
-                <div className={s.tools}>
-                  <button
-                    className={[s.tool, x.pinned ? s.on : null].filter(Boolean).join(' ')}
-                    onClick={() =>
-                      void guard(async () =>
-                        accept(await ipc.setSlotPinned(p.id, x.position, !x.pinned)),
-                      )
-                    }
-                    type="button"
-                    title={x.pinned ? 'Открепить' : 'Закрепить — не меняется при перекате'}
-                  >
-                    📌
-                  </button>
-
-                  {p.templateId !== null ? (
-                    <button
-                      className={s.tool}
-                      onClick={() => void rerollOne(x.position)}
-                      type="button"
-                      title="Перекатить слот"
-                      disabled={busy}
+                <Menu
+                  open={menu === `m${x.position}`}
+                  onClose={() => setMenu(null)}
+                  align="right"
+                >
+                  {MOD_TAGS.map((m) => (
+                    <MenuItem
+                      key={m}
+                      onClick={() => {
+                        setMenu(null);
+                        void guard(async () =>
+                          accept(await ipc.setSlotMod(p.id, x.position, m)),
+                        );
+                      }}
+                      disabled={m === 'TB' && p.slots.some((y) => y.mod === 'TB')}
+                      {...(x.beatmap !== null && !x.beatmap.mods.includes(m)
+                        ? { note: 'У карты нет этого тега' }
+                        : {})}
                     >
-                      ↻
-                    </button>
+                      {m === x.mod ? '✓ ' : '   '}
+                      {m}
+                    </MenuItem>
+                  ))}
+
+                  {x.mod === 'FM' ? (
+                    <div className={s.fm}>
+                      <span className={s.fmLabel}>Разрешено на FM</span>
+                      <div className={s.fmChips}>
+                        {FM_CHOICES.map((m) => (
+                          <Chip
+                            key={m}
+                            active={x.fmMods.includes(m)}
+                            onClick={() =>
+                              void guard(async () =>
+                                accept(
+                                  await ipc.setSlotFmMods(
+                                    p.id,
+                                    x.position,
+                                    x.fmMods.includes(m)
+                                      ? x.fmMods.filter((y) => y !== m)
+                                      : [...x.fmMods, m],
+                                  ),
+                                ),
+                              )
+                            }
+                          >
+                            {m}
+                          </Chip>
+                        ))}
+                      </div>
+                    </div>
                   ) : null}
-
-                  <button
-                    className={s.tool}
-                    onClick={() => setMenu(menu === `m${x.position}` ? null : `m${x.position}`)}
-                    type="button"
-                    title="Сменить мод"
-                  >
-                    ◇
-                  </button>
-                  <Menu
-                    open={menu === `m${x.position}`}
-                    onClose={() => setMenu(null)}
-                    align="right"
-                  >
-                    {MOD_TAGS.map((m) => (
-                      <MenuItem
-                        key={m}
-                        onClick={() => {
-                          setMenu(null);
-                          void guard(async () =>
-                            accept(await ipc.setSlotMod(p.id, x.position, m)),
-                          );
-                        }}
-                        disabled={m === 'TB' && p.slots.some((y) => y.mod === 'TB')}
-                        {...(x.beatmap !== null && !x.beatmap.mods.includes(m)
-                          ? { note: 'У карты нет этого тега' }
-                          : {})}
-                      >
-                        {m === x.mod ? '✓ ' : '   '}
-                        {m}
-                      </MenuItem>
-                    ))}
-                  </Menu>
-
-                  <button
-                    className={s.tool}
-                    onClick={() => setPicking(x.position)}
-                    type="button"
-                    title="Заменить вручную"
-                  >
-                    ⋯
-                  </button>
-
-                  <button
-                    className={[s.tool, s.danger].join(' ')}
-                    onClick={() =>
-                      void guard(async () =>
-                        accept(await ipc.removePoolSlot(p.id, x.position)),
-                      )
-                    }
-                    type="button"
-                    title="Убрать слот из пула"
-                  >
-                    ✕
-                  </button>
-                </div>
+                </Menu>
 
                 {x.warnings.length > 0 ? (
                   <div className={s.warnings}>

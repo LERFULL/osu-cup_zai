@@ -150,9 +150,7 @@
 .diffRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 10px;
+  gap: 2px;
   border-radius: 8px;
   background: var(--card);
   font-size: 12.5px;
@@ -160,6 +158,52 @@
 
 .diffOn {
   background: rgba(255, 111, 177, 0.12);
+}
+
+/* Вся строка — кнопка перехода на сложность. У открытой переходить некуда,
+   поэтому она просто текст. */
+.diffOpen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 4px 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.diffOpen:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.diffOpen:disabled {
+  cursor: default;
+}
+
+.diffX {
+  flex: 0 0 24px;
+  height: 24px;
+  margin-right: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--txt3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.diffX:hover {
+  background: rgba(255, 107, 107, 0.16);
+  color: #ff8b8b;
 }
 
 .diffName {
@@ -213,5 +257,8 @@
 }
 
 .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 18px;
 }

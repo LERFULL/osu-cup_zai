@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button, Chip, Hex, Panel } from '@/components';
 import { MOD_TAGS, SKILLSETS, type Beatmap, type ModTag, type Skillset } from '@/lib/types';
-import { CARD_MODS, derive, modsFor } from '@/lib/derive';
+import { CARD_MODS, FM_CHOICES, derive, modsFor } from '@/lib/derive';
 import { coverUrl, formatLength, formatStars } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import s from './Card.module.css';
@@ -11,10 +11,14 @@ interface Props {
   beatmapId: number;
   onClose: () => void;
   onChanged: (map: Beatmap) => void;
+  /** Карты убраны из библиотеки — список наверху пересобирается. */
+  onDeleted: (beatmapIds: number[]) => void;
+  /** Открыть другую сложность того же набора. */
+  onOpen: (beatmapId: number) => void;
 }
 
 /** Карточка карты: всё, что о ней известно, и всё, что в ней можно править. */
-export function Card({ beatmapId, onClose, onChanged }: Props) {
+export function Card({ beatmapId, onClose, onChanged, onDeleted, onOpen }: Props) {
   const [map, setMap] = useState<Beatmap | null>(null);
   const [siblings, setSiblings] = useState<Beatmap[]>([]);
   const [mod, setMod] = useState<ModTag>('NM');
@@ -98,6 +102,16 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
     );
   }
 
+  function toggleFm(m: string) {
+    apply(
+      (cur) => ({
+        ...cur,
+        fmMods: cur.fmMods.includes(m) ? cur.fmMods.filter((x) => x !== m) : [...cur.fmMods, m],
+      }),
+      (cur) => ipc.setBeatmapFmMods(cur.beatmapId, cur.fmMods),
+    );
+  }
+
   function toggleSkill(k: Skillset) {
     apply(
       (cur) => {
@@ -108,6 +122,31 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
       },
       (cur) => ipc.setBeatmapSkillsets(cur.beatmapId, cur.skillsets.map((x) => x.skillset)),
     );
+  }
+
+  /** Убрать эту карту. Карточке после этого показывать нечего — она закрывается. */
+  async function removeThis() {
+    if (!window.confirm(`Убрать «${map?.version}» из библиотеки?`)) return;
+    try {
+      await ipc.deleteBeatmaps([beatmapId]);
+      onDeleted([beatmapId]);
+      onClose();
+    } catch (e) {
+      setFailed(String(e));
+    }
+  }
+
+  /** Убрать одну сложность набора. Если это открытая карта — закрываем панель. */
+  async function removeSibling(x: Beatmap) {
+    if (!window.confirm(`Убрать сложность «${x.version}» из библиотеки?`)) return;
+    try {
+      await ipc.deleteBeatmaps([x.beatmapId]);
+      setSiblings((prev) => prev.filter((y) => y.beatmapId !== x.beatmapId));
+      onDeleted([x.beatmapId]);
+      if (x.beatmapId === beatmapId) onClose();
+    } catch (e) {
+      setFailed(String(e));
+    }
   }
 
   function saveNote() {
@@ -167,6 +206,23 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
         </div>
       </Section>
 
+      {map.mods.includes('FM') ? (
+        <Section title="Разрешено на FM">
+          <div className={s.chips}>
+            {FM_CHOICES.map((m) => (
+              <Chip key={m} active={map.fmMods.includes(m)} onClick={() => toggleFm(m)}>
+                {m}
+              </Chip>
+            ))}
+          </div>
+          <div className={s.hint}>
+            {map.fmMods.length === 0
+              ? 'Ничего не отмечено — на этой карте можно брать любой мод.'
+              : `Игрок выбирает из отмеченных: ${map.fmMods.join(', ')}.`}
+          </div>
+        </Section>
+      ) : null}
+
       <Section title="Скилсеты">
         <div className={s.chips}>
           {SKILLSETS.map((k) => {
@@ -197,8 +253,24 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
                   .filter(Boolean)
                   .join(' ')}
               >
-                <span className={s.diffName}>{x.version}</span>
-                <span className={s.diffStars}>{formatStars(x.difficultyRating)}★</span>
+                <button
+                  className={s.diffOpen}
+                  onClick={() => onOpen(x.beatmapId)}
+                  type="button"
+                  disabled={x.beatmapId === map.beatmapId}
+                >
+                  <span className={s.diffName}>{x.version}</span>
+                  <span className={s.diffStars}>{formatStars(x.difficultyRating)}★</span>
+                </button>
+                <button
+                  className={s.diffX}
+                  onClick={() => void removeSibling(x)}
+                  type="button"
+                  aria-label={`Убрать сложность ${x.version}`}
+                  title="Убрать из библиотеки"
+                >
+                  ✕
+                </button>
               </div>
             ))}
           </div>
@@ -221,6 +293,9 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
       <div className={s.actions}>
         <Button onClick={() => void openUrl(`https://osu.ppy.sh/b/${map.beatmapId}`)}>
           Открыть на osu! ↗
+        </Button>
+        <Button variant="danger" onClick={() => void removeThis()}>
+          Убрать из библиотеки
         </Button>
       </div>
     </Panel>

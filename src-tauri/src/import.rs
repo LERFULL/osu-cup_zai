@@ -169,6 +169,41 @@ async fn run_import(app: AppHandle, batch_id: String, parsed: ParsedLinks) -> Re
     p.inner.skipped = skipped;
     p.emit();
 
+    // ── скилсеты: считаются по атрибутам, а те приходят по запросу на карту.
+    // Это самая долгая часть импорта, поэтому она идёт после того, как карты
+    // уже видны в библиотеке: скилсеты просто дозаполнятся позже.
+    p.stage("skillsets");
+    p.inner.done = 0;
+    p.inner.total = fresh.len() as i64;
+    p.emit();
+
+    for map in &fresh {
+        if state.batches.is_cancelled(&batch_id).await {
+            break;
+        }
+
+        state.limiter.acquire().await;
+        // Атрибуты без модов: скилсет — свойство самой карты, а не сочетания.
+        let attr = match state.osu.attributes(&creds, map.beatmap_id, 0).await {
+            Ok(a) => a,
+            // Одна карта без атрибутов — не повод останавливать пачку: скилсеты
+            // всегда можно проставить руками.
+            Err(_) => {
+                p.advance(1, 0, 0);
+                continue;
+            }
+        };
+
+        let guessed = crate::db::beatmaps::auto_skillsets(map, &attr);
+        let id = map.beatmap_id;
+        let _ = state.db.with_tx(|tx| {
+            crate::db::beatmaps::put_attributes(tx, &attr)?;
+            crate::db::beatmaps::suggest_skillsets(tx, id, &guessed)
+        });
+
+        p.advance(1, 0, 0);
+    }
+
     // ── обложки: качаются после того, как карты уже видны в библиотеке
     p.stage("covers");
     let mut sets: Vec<i64> = fresh.iter().filter_map(|m| m.beatmapset_id).collect();

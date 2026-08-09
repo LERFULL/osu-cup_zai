@@ -48,7 +48,6 @@ export function SlotLine({
     <div
       className={[s.line, dragging ? s.dragging : null, className].filter(Boolean).join(' ')}
       style={style}
-      draggable={draggable}
       {...(draggable
         ? {
             onDragStart: () => onDragStart(),
@@ -64,7 +63,16 @@ export function SlotLine({
         : {})}
     >
       {draggable ? (
-        <span className={s.grip} aria-hidden>
+        <span
+          className={s.grip}
+          draggable
+          title="Потянуть, чтобы переставить"
+          onDragStart={(e) => {
+            // Без данных в переносе браузер отменяет перетаскивание сразу же.
+            e.dataTransfer.setData('text/plain', '');
+            e.dataTransfer.effectAllowed = 'move';
+          }}
+        >
           ⠿
         </span>
       ) : null}

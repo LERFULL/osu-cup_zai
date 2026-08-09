@@ -61,6 +61,7 @@ fn map(id: i64, artist: &str, title: &str, stars: f64) -> Beatmap {
         fm_mods: vec![],
         skillsets: vec![],
         labels: vec![],
+        set_count: None,
     }
 }
 
@@ -107,6 +108,98 @@ fn get_returns_mods_and_skillsets() {
     assert_eq!(got.mods.len(), 2);
     assert_eq!(got.skillsets.len(), 1);
     assert!(got.skillsets[0].suggested);
+}
+
+#[test]
+fn group_sets_counts_only_what_passed_the_filter() {
+    let conn = db();
+    // Один набор, три сложности, но под фильтр звёзд проходят только две.
+    for (id, ver, stars) in [(1, "Easy", 2.0), (2, "Hard", 5.0), (3, "Extra", 6.0)] {
+        let mut m = map(id, "A", "Song", stars);
+        m.beatmapset_id = Some(555);
+        m.version = ver.into();
+        beatmaps::upsert(&conn, &m).unwrap();
+    }
+
+    let f = LibraryFilter {
+        group_sets: true,
+        stars: crate::model::Range {
+            min: Some(4.0),
+            max: None,
+        },
+        ..Default::default()
+    };
+
+    let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    assert_eq!(page.items.len(), 1);
+    // Счётчик обещает то, что раскроется по клику, а не всё содержимое набора.
+    assert_eq!(page.items[0].set_count, Some(2));
+}
+
+#[test]
+fn group_sets_collapses_difficulties_into_one_row() {
+    let conn = db();
+    // Три сложности одного набора и одна чужая.
+    for (id, ver, stars) in [(1, "Easy", 2.0), (2, "Hard", 4.0), (3, "Extra", 6.0)] {
+        let mut m = map(id, "A", "Song", stars);
+        m.beatmapset_id = Some(777);
+        m.version = ver.into();
+        beatmaps::upsert(&conn, &m).unwrap();
+    }
+    beatmaps::upsert(&conn, &map(9, "B", "Other", 5.0)).unwrap();
+
+    let mut f = LibraryFilter {
+        group_sets: true,
+        sort: "stars".into(),
+        dir: "desc".into(),
+        ..Default::default()
+    };
+
+    let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    assert_eq!(page.total, 2, "два набора, а не четыре сложности");
+    assert_eq!(page.items.len(), 2);
+
+    let song = page
+        .items
+        .iter()
+        .find(|m| m.beatmapset_id == Some(777))
+        .expect("набор в списке");
+    // Показываем ту сложность, что первой идёт по сортировке — самую высокую.
+    assert_eq!(song.version, "Extra");
+    assert_eq!(song.set_count, Some(3));
+
+    let other = page
+        .items
+        .iter()
+        .find(|m| m.beatmap_id == 9)
+        .expect("чужая карта");
+    assert_eq!(other.set_count, Some(1));
+
+    // Без схлопывания — по строке на сложность, и счётчика нет.
+    f.group_sets = false;
+    let flat = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    assert_eq!(flat.total, 4);
+    assert!(flat.items.iter().all(|m| m.set_count.is_none()));
+}
+
+#[test]
+fn group_sets_keeps_manual_maps_apart() {
+    let conn = db();
+    // У ручных карт набора нет: они не должны слиться в одну строку.
+    for id in 1..=3 {
+        let mut m = map(id, "A", &format!("Manual {id}"), id as f64);
+        m.beatmapset_id = None;
+        m.is_manual = true;
+        beatmaps::upsert(&conn, &m).unwrap();
+    }
+
+    let f = LibraryFilter {
+        group_sets: true,
+        ..Default::default()
+    };
+    let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    assert_eq!(page.total, 3);
+    assert!(page.items.iter().all(|m| m.set_count == Some(1)));
 }
 
 #[test]

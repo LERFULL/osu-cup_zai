@@ -15,6 +15,12 @@ import s from './Library.module.css';
 /** Высота строки плюс зазор — шаг виртуального списка. */
 const STEP = 56;
 
+/** Строка списка: сам набор или его сложность под ним. */
+interface Row {
+  map: Beatmap;
+  child: boolean;
+}
+
 export default function Library() {
   const { filter, setFilter, resetFilter, collections, refreshCollections } = useApp();
   const [importing, setImporting] = useState(false);
@@ -26,9 +32,29 @@ export default function Library() {
 
   const { items, total, loading, error, loadMore, patch, drop, reload } = useBeatmapPages(filter);
 
+  // Развёрнутые наборы и их сложности. Сложности тянутся один раз на набор:
+  // в схлопнутом списке их нет, а лезть за ними при каждом рендере незачем.
+  const [spread, setSpread] = useState<ReadonlySet<number>>(new Set());
+  const [kids, setKids] = useState<Readonly<Record<number, Beatmap[]>>>({});
+
+  // Плоский список строк: сложности развёрнутого набора встают сразу под ним.
+  // Виртуализатору нужен именно плоский, иначе он не посчитает высоту.
+  const shown = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    for (const m of items) {
+      out.push({ map: m, child: false });
+      const set = m.beatmapsetId;
+      if (set === null || !spread.has(set)) continue;
+      for (const k of kids[set] ?? []) {
+        if (k.beatmapId !== m.beatmapId) out.push({ map: k, child: true });
+      }
+    }
+    return out;
+  }, [items, spread, kids]);
+
   // В DOM живут только видимые строки: библиотека рассчитана на десятки тысяч карт.
   const rows = useVirtualizer({
-    count: items.length,
+    count: shown.length,
     getScrollElement: () => listRef.current,
     estimateSize: () => STEP,
     overscan: 10,
@@ -39,13 +65,14 @@ export default function Library() {
 
   // Следующая страница подтягивается, когда до конца осталось меньше экрана.
   useEffect(() => {
-    if (lastIndex >= 0 && lastIndex >= items.length - 20) void loadMore();
-  }, [lastIndex, items.length, loadMore]);
+    if (lastIndex >= 0 && lastIndex >= shown.length - 20) void loadMore();
+  }, [lastIndex, shown.length, loadMore]);
 
   // Сменили фильтр — выделение сбрасывается: держать выбранными карты,
   // которых на экране больше нет, значит удалить их не глядя.
   useEffect(() => {
     setPicked(new Set());
+    setSpread(new Set());
     anchor.current = null;
   }, [filter]);
 
@@ -89,8 +116,8 @@ export default function Library() {
       if (shift && from !== null) {
         const [a, b] = from < index ? [from, index] : [index, from];
         for (let i = a; i <= b; i++) {
-          const m = items[i];
-          if (m) next.add(m.beatmapId);
+          const r = shown[i];
+          if (r) next.add(r.map.beatmapId);
         }
         return next;
       }
@@ -115,6 +142,47 @@ export default function Library() {
   function clearPicked() {
     setPicked(new Set());
     anchor.current = null;
+  }
+
+  /** Развернуть или свернуть набор. Сложности догружаются при первом раскрытии. */
+  async function toggleSpread(setId: number) {
+    if (spread.has(setId)) {
+      setSpread((prev) => {
+        const next = new Set(prev);
+        next.delete(setId);
+        return next;
+      });
+      return;
+    }
+
+    if (kids[setId] === undefined) {
+      const list = await ipc.getSetDifficulties(setId);
+      setKids((prev) => ({ ...prev, [setId]: list }));
+    }
+    setSpread((prev) => new Set(prev).add(setId));
+  }
+
+  /** Убрать одну карту — из строки списка или из раскрытого набора. */
+  async function removeOne(map: Beatmap) {
+    if (!window.confirm(`Убрать «${displayTitle(map)} [${map.version}]» из библиотеки?`)) return;
+
+    await ipc.deleteBeatmaps([map.beatmapId]);
+    if (opened === map.beatmapId) setOpened(null);
+
+    const set = map.beatmapsetId;
+    if (set !== null && kids[set] !== undefined) {
+      setKids((prev) => ({
+        ...prev,
+        [set]: (prev[set] ?? []).filter((k) => k.beatmapId !== map.beatmapId),
+      }));
+    }
+
+    // Схлопнутая строка представляет весь набор: удалив показанную сложность,
+    // пересчитываем список, иначе набор пропал бы вместе с остальными.
+    if (filter.groupSets) await reload();
+    else drop([map.beatmapId]);
+
+    await refreshCollections();
   }
 
   return (
@@ -181,6 +249,14 @@ export default function Library() {
             />
           </div>
 
+          <Chip
+            active={filter.groupSets}
+            onClick={() => setFilter({ groupSets: !filter.groupSets })}
+            title="Сложности одного набора — одной строкой"
+          >
+            Наборами
+          </Chip>
+
           {dirty ? (
             <div className={s.saveFilter}>
               <Button size="sm" onClick={() => void saveAsSmart()}>
@@ -209,12 +285,16 @@ export default function Library() {
           ) : (
             <div className={s.canvas} style={{ height: rows.getTotalSize() }}>
               {virtual.map((v) => {
-                const m = items[v.index];
-                if (!m) return null;
+                const row = shown[v.index];
+                if (!row) return null;
+                const m = row.map;
+                const set = m.beatmapsetId;
+                const extra = m.setCount ?? 1;
+
                 return (
                   <div
-                    key={m.beatmapId}
-                    className={s.slot}
+                    key={row.child ? `k${m.beatmapId}` : m.beatmapId}
+                    className={[s.slot, row.child ? s.child : null].filter(Boolean).join(' ')}
                     style={{ transform: `translateY(${v.start}px)` }}
                   >
                     <MapRow
@@ -226,8 +306,29 @@ export default function Library() {
                       title={displayTitle(m)}
                       version={m.version}
                       mod={(m.mods[0] as ModTag) ?? 'NM'}
-                      selected={picked.has(m.beatmapId) || opened === m.beatmapId}
+                      selected={picked.has(m.beatmapId)}
+                      opened={opened === m.beatmapId}
                       checkbox
+                      {...(!row.child && set !== null && extra > 1
+                        ? {
+                            expand: {
+                              count: extra,
+                              open: spread.has(set),
+                              onToggle: () => void toggleSpread(set),
+                            },
+                          }
+                        : {})}
+                      tools={
+                        <button
+                          className={s.rowX}
+                          onClick={() => void removeOne(m)}
+                          type="button"
+                          aria-label="Убрать из библиотеки"
+                          title="Убрать из библиотеки"
+                        >
+                          ✕
+                        </button>
+                      }
                       onToggleSelect={(shift) => togglePick(v.index, m.beatmapId, shift)}
                       onClick={() => setOpened(m.beatmapId)}
                     />
@@ -254,7 +355,21 @@ export default function Library() {
       </div>
 
       {opened !== null ? (
-        <Card beatmapId={opened} onClose={() => setOpened(null)} onChanged={patch} />
+        <Card
+          beatmapId={opened}
+          onClose={() => setOpened(null)}
+          onChanged={patch}
+          onOpen={setOpened}
+          onDeleted={(ids) => {
+            drop(ids);
+            setPicked((prev) => {
+              const next = new Set(prev);
+              for (const id of ids) next.delete(id);
+              return next;
+            });
+            void refreshCollections();
+          }}
+        />
       ) : null}
 
       {importing ? (

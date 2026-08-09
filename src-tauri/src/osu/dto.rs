@@ -360,6 +360,7 @@ pub fn to_beatmap(dto: &BeatmapDto, parent: Option<&BeatmapsetDto>) -> Beatmap {
         fm_mods: Vec::new(),
         skillsets: Vec::new(),
         labels: Vec::new(),
+        set_count: None,
     }
 }
 

@@ -159,6 +159,7 @@ mod tests {
             fm_mods: vec![],
             skillsets: vec![],
             labels: vec![],
+            set_count: None,
         }
     }
 

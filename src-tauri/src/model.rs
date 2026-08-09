@@ -56,6 +56,11 @@ pub struct Beatmap {
     pub fm_mods: Vec<String>,
     pub skillsets: Vec<SkillsetTag>,
     pub labels: Vec<Label>,
+
+    /// Сколько сложностей у набора. Заполняется только в схлопнутом списке —
+    /// в остальных местах строка отвечает сама за себя.
+    #[serde(default)]
+    pub set_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +154,9 @@ pub struct LibraryFilter {
     pub length: Range,
     #[serde(default)]
     pub collection_id: Option<i64>,
+    /// Схлопывать сложности одного набора в одну строку.
+    #[serde(default)]
+    pub group_sets: bool,
     #[serde(default = "default_sort")]
     pub sort: String,
     #[serde(default = "default_dir")]
@@ -174,6 +182,7 @@ impl Default for LibraryFilter {
             bpm: Range::default(),
             length: Range::default(),
             collection_id: None,
+            group_sets: false,
             sort: default_sort(),
             dir: default_dir(),
         }
