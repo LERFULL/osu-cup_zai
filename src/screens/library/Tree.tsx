@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Collection } from '@/lib/types';
-import { Button } from '@/components';
+import { Button, Menu, MenuItem, MenuSeparator } from '@/components';
+import { filterIsSet, filterSummary } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { useApp } from '@/store/app';
 import s from './Tree.module.css';
@@ -10,45 +11,69 @@ interface Props {
   onSelect: (id: number | null) => void;
 }
 
+/** Что именно создаём после выбора в меню. */
+type Making = { kind: 'plain' | 'smart'; name: string } | null;
+
 /**
  * Дерево коллекций. «Все карты» — всегда первый пункт и он же способ
  * выйти из любой коллекции.
  */
 export function Tree({ activeId, onSelect }: Props) {
-  const { collections, refreshCollections } = useApp();
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState('');
+  const { collections, refreshCollections, filter, resetFilter } = useApp();
+  const [adding, setAdding] = useState(false);
+  const [making, setMaking] = useState<Making>(null);
   const [menu, setMenu] = useState<number | null>(null);
 
   const plain = collections.filter((c) => !c.isSmart);
   const smart = collections.filter((c) => c.isSmart);
+  const hasFilter = filterIsSet(filter);
+
+  function begin(kind: 'plain' | 'smart') {
+    setAdding(false);
+    // Умной сразу предлагаем имя из условий фильтра — его останется только принять.
+    setMaking({ kind, name: kind === 'smart' ? filterSummary(filter) : '' });
+  }
 
   async function create() {
-    const trimmed = name.trim();
-    if (trimmed === '') {
-      setCreating(false);
-      return;
-    }
-    const made = await ipc.createCollection(trimmed, null);
-    setName('');
-    setCreating(false);
+    if (!making) return;
+    const name = making.name.trim();
+    const kind = making.kind;
+    // Закрываемся до запроса: второй Enter или потеря фокуса не создадут дубль.
+    setMaking(null);
+    if (name === '') return;
+
+    const made =
+      kind === 'smart'
+        ? await ipc.createSmartCollection(name, null, { ...filter, collectionId: null })
+        : await ipc.createCollection(name, null);
+
     await refreshCollections();
     onSelect(made.id);
+    // Условия уехали внутрь коллекции — оставлять их ещё и в чипах значит
+    // показывать фильтр, который уже никуда не применяется.
+    if (kind === 'smart') resetFilter();
   }
 
   async function remove(id: number) {
-    await ipc.deleteCollection(id);
     setMenu(null);
+    await ipc.deleteCollection(id);
     if (activeId === id) onSelect(null);
     await refreshCollections();
   }
 
   async function rename(c: Collection) {
-    const next = window.prompt('Новое название', c.name);
     setMenu(null);
+    const next = window.prompt('Новое название', c.name);
     if (next === null || next.trim() === '') return;
     await ipc.renameCollection(c.id, next.trim());
     await refreshCollections();
+  }
+
+  async function duplicate(c: Collection) {
+    setMenu(null);
+    const made = await ipc.duplicateCollection(c.id);
+    await refreshCollections();
+    onSelect(made.id);
   }
 
   const row = (c: Collection) => (
@@ -57,6 +82,7 @@ export function Tree({ activeId, onSelect }: Props) {
         className={[s.row, activeId === c.id ? s.on : null].filter(Boolean).join(' ')}
         onClick={() => onSelect(c.id)}
         type="button"
+        {...(c.isSmart && c.filter !== null ? { title: filterSummary(c.filter) } : {})}
       >
         <span className={s.dot} style={{ background: c.color ?? '#4A5164' }} aria-hidden />
         <span className={s.name}>{c.name}</span>
@@ -72,16 +98,14 @@ export function Tree({ activeId, onSelect }: Props) {
         ⋯
       </button>
 
-      {menu === c.id ? (
-        <div className={s.menu}>
-          <button onClick={() => void rename(c)} type="button">
-            Переименовать
-          </button>
-          <button onClick={() => void remove(c.id)} type="button" className={s.danger}>
-            Удалить
-          </button>
-        </div>
-      ) : null}
+      <Menu open={menu === c.id} onClose={() => setMenu(null)} align="right">
+        <MenuItem onClick={() => void rename(c)}>Переименовать</MenuItem>
+        <MenuItem onClick={() => void duplicate(c)}>Дублировать</MenuItem>
+        <MenuSeparator />
+        <MenuItem onClick={() => void remove(c.id)} danger>
+          Удалить
+        </MenuItem>
+      </Menu>
     </div>
   );
 
@@ -110,26 +134,40 @@ export function Tree({ activeId, onSelect }: Props) {
       ) : null}
 
       <div className={s.bottom}>
-        {creating ? (
+        {making ? (
           <input
             className={s.input}
-            value={name}
+            value={making.name}
             autoFocus
-            placeholder="Название"
-            onChange={(e) => setName(e.target.value)}
+            placeholder={making.kind === 'smart' ? 'Название умной' : 'Название'}
+            onChange={(e) => setMaking({ ...making, name: e.target.value })}
             onBlur={() => void create()}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void create();
               if (e.key === 'Escape') {
-                setName('');
-                setCreating(false);
+                e.stopPropagation();
+                setMaking(null);
               }
             }}
           />
         ) : (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            + Коллекция
-          </Button>
+          <>
+            <Button size="sm" onClick={() => setAdding(true)}>
+              + Коллекция
+            </Button>
+            <Menu open={adding} onClose={() => setAdding(false)} up>
+              <MenuItem onClick={() => begin('plain')} note="Складываешь карты руками">
+                Обычная
+              </MenuItem>
+              <MenuItem
+                onClick={() => begin('smart')}
+                disabled={!hasFilter}
+                note={hasFilter ? filterSummary(filter) : 'Сначала задай фильтр'}
+              >
+                Умная из текущего фильтра
+              </MenuItem>
+            </Menu>
+          </>
         )}
       </div>
     </aside>

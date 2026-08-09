@@ -338,6 +338,97 @@ fn auto_skillsets_survives_zero_aim() {
     assert!(!got.contains(&"speed".to_string()));
 }
 
+/// Путь правок из карточки карты: что нажали — то и лежит в базе после
+/// перечитывания. Мод-теги, скилсеты и заметка правятся по отдельности и
+/// не затирают друг друга.
+#[test]
+fn card_edits_survive_reread() {
+    let conn = db();
+    let mut m = map(1, "Camellia", "Ghost", 6.2);
+    m.mods = vec!["NM".into()];
+    m.skillsets = vec![SkillsetTag {
+        skillset: "stream".into(),
+        suggested: true,
+    }];
+    beatmaps::upsert(&conn, &m).unwrap();
+
+    beatmaps::set_mods(&conn, 1, &["HD".into(), "DT".into()]).unwrap();
+    beatmaps::set_skillsets(&conn, 1, &["speed".into(), "tech".into()]).unwrap();
+    beatmaps::set_note(&conn, 1, "играли в финале").unwrap();
+
+    let got = beatmaps::get(&conn, 1).unwrap().unwrap();
+
+    let mut mods = got.mods.clone();
+    mods.sort();
+    assert_eq!(mods, vec!["DT".to_string(), "HD".to_string()]);
+
+    let mut skills: Vec<String> = got.skillsets.iter().map(|s| s.skillset.clone()).collect();
+    skills.sort();
+    assert_eq!(skills, vec!["speed".to_string(), "tech".to_string()]);
+    // Проставленное руками больше не считается предложенным.
+    assert!(got.skillsets.iter().all(|s| !s.suggested));
+
+    assert_eq!(got.note.as_deref(), Some("играли в финале"));
+
+    // Снять всё — тоже правка: пустой список должен доехать до базы.
+    beatmaps::set_mods(&conn, 1, &[]).unwrap();
+    beatmaps::set_skillsets(&conn, 1, &[]).unwrap();
+    let empty = beatmaps::get(&conn, 1).unwrap().unwrap();
+    assert!(empty.mods.is_empty());
+    assert!(empty.skillsets.is_empty());
+    // А заметка при этом на месте.
+    assert_eq!(empty.note.as_deref(), Some("играли в финале"));
+}
+
+#[test]
+fn smart_collection_saves_current_filter() {
+    let conn = db();
+    for (i, stars) in [4.0, 6.5, 7.2].iter().enumerate() {
+        let mut m = map(i as i64 + 1, "A", "T", *stars);
+        m.mods = vec!["DT".into()];
+        beatmaps::upsert(&conn, &m).unwrap();
+    }
+
+    let saved = LibraryFilter {
+        mods: vec!["DT".into()],
+        stars: Range {
+            min: Some(6.0),
+            max: None,
+        },
+        ..Default::default()
+    };
+    let made = collections::create_smart(&conn, "DT 6★+", None, &saved).unwrap();
+    assert!(made.is_smart);
+
+    // Заходим в умную коллекцию без других условий — работает её фильтр.
+    let here = LibraryFilter {
+        collection_id: Some(made.id),
+        ..Default::default()
+    };
+    let page = beatmaps::list(&conn, &here, 0, 50).unwrap();
+    assert_eq!(page.total, 2);
+}
+
+#[test]
+fn adding_to_collection_is_idempotent() {
+    let conn = db();
+    for i in 1..=3 {
+        beatmaps::upsert(&conn, &map(i, "A", "T", 5.0)).unwrap();
+    }
+    let c = collections::create(&conn, "Кубок", None).unwrap();
+
+    collections::add_beatmaps(&conn, c.id, &[1, 2]).unwrap();
+    // Повторное добавление той же карты не плодит дублей.
+    collections::add_beatmaps(&conn, c.id, &[2, 3]).unwrap();
+    assert_eq!(collections::list(&conn).unwrap()[0].count, 3);
+
+    collections::remove_beatmaps(&conn, c.id, &[2]).unwrap();
+    assert_eq!(collections::list(&conn).unwrap()[0].count, 2);
+
+    // Убрали из коллекции — карта осталась в библиотеке.
+    assert!(beatmaps::get(&conn, 2).unwrap().is_some());
+}
+
 #[test]
 fn attributes_round_trip() {
     let conn = db();

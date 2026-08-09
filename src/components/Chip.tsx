@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent, ReactNode } from 'react';
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import s from './Chip.module.css';
 
 type CssVars = CSSProperties & Record<string, string | number>;
@@ -27,12 +27,21 @@ export function Chip({ children, color, active = false, onRemove, onClick, title
     onRemove?.();
   };
 
+  // Чип — не кнопка по разметке, поэтому пробел и Enter приходится ловить руками.
+  const keyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    onClick?.();
+  };
+
   return (
     <span
       className={cls}
       style={style}
       {...(title !== undefined ? { title } : {})}
-      {...(onClick ? { onClick, role: 'button', tabIndex: 0 } : {})}
+      {...(onClick
+        ? { onClick, role: 'button', tabIndex: 0, 'aria-pressed': active, onKeyDown: keyDown }
+        : {})}
     >
       {children}
       {onRemove ? (

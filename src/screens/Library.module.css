@@ -116,6 +116,11 @@
   width: 210px;
 }
 
+.saveFilter {
+  display: flex;
+  gap: 7px;
+}
+
 .list {
   flex: 1;
   min-height: 0;
@@ -138,27 +143,4 @@
   padding-bottom: 4px;
 }
 
-/* Панель массовых действий поверх списка, снизу. */
-.bulk {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  left: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(26, 30, 40, 0.95);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.bulkActions {
-  display: flex;
-  gap: 7px;
-}
+/* Панель массовых действий живёт в Bulk.module.css. */

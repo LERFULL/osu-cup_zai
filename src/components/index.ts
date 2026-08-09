@@ -16,6 +16,9 @@ export type { RailProps, RailItem } from './Rail';
 export { Panel } from './Panel';
 export type { PanelProps } from './Panel';
 
+export { Menu, MenuItem, MenuSeparator } from './Menu';
+export type { MenuProps, MenuItemProps } from './Menu';
+
 export { RangeSlider } from './RangeSlider';
 export type { RangeSliderProps, RangeValue } from './RangeSlider';
 

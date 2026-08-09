@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button, Chip, Hex, Panel } from '@/components';
 import { MOD_TAGS, SKILLSETS, type Beatmap, type ModTag, type Skillset } from '@/lib/types';
@@ -19,14 +19,25 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
   const [siblings, setSiblings] = useState<Beatmap[]>([]);
   const [mod, setMod] = useState<ModTag>('NM');
   const [note, setNote] = useState('');
+  const [failed, setFailed] = useState<string | null>(null);
+
+  // Правки идут одна за другой; каждая должна считаться от последнего
+  // состояния, а не от того, что было на момент отрисовки кнопки.
+  const latest = useRef<Beatmap | null>(null);
+  // Запись — по одной за раз и в порядке кликов: иначе два быстрых
+  // переключения могут дойти до базы задом наперёд.
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     let alive = true;
     setMap(null);
     setSiblings([]);
+    setFailed(null);
+    latest.current = null;
 
     void ipc.getBeatmap(beatmapId).then((m) => {
       if (!alive || !m) return;
+      latest.current = m;
       setMap(m);
       setNote(m.note ?? '');
       setMod((m.mods[0] as ModTag) ?? 'NM');
@@ -42,6 +53,30 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
     };
   }, [beatmapId]);
 
+  /**
+   * Считает новое состояние карты от последнего известного, сразу показывает
+   * его и ставит запись в очередь. Не сохранилось — возвращаем как было.
+   */
+  function apply(change: (m: Beatmap) => Beatmap, save: (m: Beatmap) => Promise<void>) {
+    const before = latest.current;
+    if (!before) return;
+
+    const next = change(before);
+    latest.current = next;
+    setMap(next);
+    onChanged(next);
+
+    chain.current = chain.current
+      .then(() => save(next))
+      .then(() => setFailed(null))
+      .catch((e: unknown) => {
+        latest.current = before;
+        setMap(before);
+        onChanged(before);
+        setFailed(String(e));
+      });
+  }
+
   if (!map) {
     return (
       <Panel title="Карта" onClose={onClose}>
@@ -53,34 +88,35 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
   const d = derive(map, modsFor(mod));
   const cover = coverUrl(map.coverPath);
 
-  async function toggleMod(m: ModTag) {
-    if (!map) return;
-    const next = map.mods.includes(m) ? map.mods.filter((x) => x !== m) : [...map.mods, m];
-    await ipc.setBeatmapMods(map.beatmapId, next as ModTag[]);
-    const fresh = { ...map, mods: next };
-    setMap(fresh);
-    onChanged(fresh);
+  function toggleMod(m: ModTag) {
+    apply(
+      (cur) => ({
+        ...cur,
+        mods: cur.mods.includes(m) ? cur.mods.filter((x) => x !== m) : [...cur.mods, m],
+      }),
+      (cur) => ipc.setBeatmapMods(cur.beatmapId, cur.mods),
+    );
   }
 
-  async function toggleSkill(k: Skillset) {
-    if (!map) return;
-    const own = map.skillsets.map((x) => x.skillset);
-    const next = own.includes(k) ? own.filter((x) => x !== k) : [...own, k];
-    await ipc.setBeatmapSkillsets(map.beatmapId, next as Skillset[]);
-    const fresh = {
-      ...map,
-      skillsets: next.map((x) => ({ skillset: x, suggested: false })),
-    };
-    setMap(fresh);
-    onChanged(fresh);
+  function toggleSkill(k: Skillset) {
+    apply(
+      (cur) => {
+        const own = cur.skillsets.map((x) => x.skillset);
+        const next = own.includes(k) ? own.filter((x) => x !== k) : [...own, k];
+        // Проставленное руками перестаёт быть предложенным — так же и в базе.
+        return { ...cur, skillsets: next.map((x) => ({ skillset: x, suggested: false })) };
+      },
+      (cur) => ipc.setBeatmapSkillsets(cur.beatmapId, cur.skillsets.map((x) => x.skillset)),
+    );
   }
 
-  async function saveNote() {
-    if (!map || note === (map.note ?? '')) return;
-    await ipc.setBeatmapNote(map.beatmapId, note);
-    const fresh = { ...map, note };
-    setMap(fresh);
-    onChanged(fresh);
+  function saveNote() {
+    const cur = latest.current;
+    if (!cur || note === (cur.note ?? '')) return;
+    apply(
+      (m) => ({ ...m, note }),
+      (m) => ipc.setBeatmapNote(m.beatmapId, m.note ?? ''),
+    );
   }
 
   return (
@@ -124,7 +160,7 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
       <Section title="Мод-теги">
         <div className={s.chips}>
           {MOD_TAGS.map((m) => (
-            <Chip key={m} active={map.mods.includes(m)} onClick={() => void toggleMod(m)}>
+            <Chip key={m} active={map.mods.includes(m)} onClick={() => toggleMod(m)}>
               {m}
             </Chip>
           ))}
@@ -142,7 +178,7 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
                 active={own !== undefined}
                 color={auto ? 'var(--cyan)' : 'var(--pink)'}
                 {...(auto ? { title: 'Проставлено автоматически' } : {})}
-                onClick={() => void toggleSkill(k)}
+                onClick={() => toggleSkill(k)}
               >
                 {k}
               </Chip>
@@ -176,9 +212,11 @@ export function Card({ beatmapId, onClose, onChanged }: Props) {
           rows={3}
           placeholder="Например: играли в финале прошлого кубка"
           onChange={(e) => setNote(e.target.value)}
-          onBlur={() => void saveNote()}
+          onBlur={saveNote}
         />
       </Section>
+
+      {failed !== null ? <div className={s.failed}>Не сохранилось: {failed}</div> : null}
 
       <div className={s.actions}>
         <Button onClick={() => void openUrl(`https://osu.ppy.sh/b/${map.beatmapId}`)}>

@@ -77,6 +77,26 @@ export function useBeatmapPages(filter: LibraryFilter) {
     setItems((prev) => prev.map((m) => (m.beatmapId === map.beatmapId ? map : m)));
   }, []);
 
+  /**
+   * Перечитывает всё, что уже пролистано, одним запросом. Нужен после массовых
+   * действий: пришлось бы иначе тянуть каждую задетую карту по отдельности.
+   */
+  const reload = useCallback(async () => {
+    const my = run.current;
+    const want = Math.max(PAGE, loaded.current);
+
+    try {
+      const page = await ipc.listBeatmaps(filter, 0, want);
+      if (my !== run.current) return;
+      loaded.current = page.items.length;
+      known.current = page.total;
+      setItems(page.items);
+      setTotal(page.total);
+    } catch (e: unknown) {
+      if (my === run.current) setError(String(e));
+    }
+  }, [filter]);
+
   const drop = useCallback((ids: number[]) => {
     const gone = new Set(ids);
     setItems((prev) => {
@@ -91,5 +111,5 @@ export function useBeatmapPages(filter: LibraryFilter) {
     });
   }, []);
 
-  return { items, total, loading, error, loadMore, patch, drop };
+  return { items, total, loading, error, loadMore, patch, drop, reload };
 }

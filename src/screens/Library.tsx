@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button, Chip, Empty, MapRow, RangeSlider } from '@/components';
 import { MOD_TAGS, type Beatmap, type ModTag } from '@/lib/types';
-import { coverUrl, maps } from '@/lib/format';
+import { coverUrl, filterIsSet, filterSummary, maps } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { useApp } from '@/store/app';
 import { Tree } from './library/Tree';
 import { Import } from './library/Import';
 import { Card } from './library/Card';
+import { Bulk } from './library/Bulk';
 import { useBeatmapPages } from './library/useBeatmaps';
 import s from './Library.module.css';
 
@@ -23,7 +24,7 @@ export default function Library() {
   // Точка отсчёта для выделения диапазона по Shift.
   const anchor = useRef<number | null>(null);
 
-  const { items, total, loading, error, loadMore, patch, drop } = useBeatmapPages(filter);
+  const { items, total, loading, error, loadMore, patch, drop, reload } = useBeatmapPages(filter);
 
   // В DOM живут только видимые строки: библиотека рассчитана на десятки тысяч карт.
   const rows = useVirtualizer({
@@ -53,16 +54,24 @@ export default function Library() {
     [collections, filter.collectionId],
   );
 
-  const dirty =
-    filter.query !== '' ||
-    filter.mods.length > 0 ||
-    filter.skillsets.length > 0 ||
-    filter.stars.min !== null ||
-    filter.stars.max !== null;
+  const dirty = filterIsSet(filter);
 
   function toggleMod(m: ModTag) {
     const has = filter.mods.includes(m);
     setFilter({ mods: has ? filter.mods.filter((x) => x !== m) : [...filter.mods, m] });
+  }
+
+  /** Сохранить условия фильтра как умную коллекцию. */
+  async function saveAsSmart() {
+    const name = window.prompt('Название умной коллекции', filterSummary(filter));
+    if (name === null || name.trim() === '') return;
+    const made = await ipc.createSmartCollection(name.trim(), null, {
+      ...filter,
+      collectionId: null,
+    });
+    await refreshCollections();
+    setFilter({ collectionId: made.id });
+    resetFilter();
   }
 
   /**
@@ -112,7 +121,13 @@ export default function Library() {
     <div className={s.screen}>
       <Tree
         activeId={filter.collectionId}
-        onSelect={(id) => setFilter({ collectionId: id })}
+        onSelect={(id) => {
+          const target = collections.find((c) => c.id === id) ?? null;
+          setFilter({ collectionId: id });
+          // Умная коллекция сама себе фильтр: чужие условия она не применяет,
+          // поэтому и показывать их набранными нечестно.
+          if (target?.isSmart === true) resetFilter();
+        }}
       />
 
       <div className={s.main}>
@@ -167,9 +182,14 @@ export default function Library() {
           </div>
 
           {dirty ? (
-            <Button size="sm" onClick={resetFilter}>
-              Сбросить
-            </Button>
+            <div className={s.saveFilter}>
+              <Button size="sm" onClick={() => void saveAsSmart()}>
+                Сохранить как умную
+              </Button>
+              <Button size="sm" onClick={resetFilter}>
+                Сбросить
+              </Button>
+            </div>
           ) : null}
         </div>
 
@@ -219,17 +239,17 @@ export default function Library() {
         </div>
 
         {picked.size > 0 ? (
-          <div className={s.bulk}>
-            <span>Выбрано {maps(picked.size)}</span>
-            <div className={s.bulkActions}>
-              <Button size="sm" onClick={clearPicked}>
-                Снять выделение
-              </Button>
-              <Button size="sm" variant="danger" onClick={() => void removePicked()}>
-                Удалить из библиотеки
-              </Button>
-            </div>
-          </div>
+          <Bulk
+            ids={[...picked]}
+            collections={collections}
+            here={here}
+            onClear={clearPicked}
+            onChanged={async () => {
+              await reload();
+              await refreshCollections();
+            }}
+            onDelete={removePicked}
+          />
         ) : null}
       </div>
 
