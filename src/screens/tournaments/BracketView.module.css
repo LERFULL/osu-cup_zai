@@ -27,6 +27,25 @@
   min-width: 0;
 }
 
+/* Верхняя сетка и гранд-финал стоят в один ряд: победитель верхней уходит
+   в гранд-финал направо, и разрывать эту линию незачем. Гранд-финал узкий,
+   поэтому места он почти не занимает. */
+.top {
+  display: flex;
+  align-items: flex-start;
+  gap: 26px;
+  min-width: 0;
+}
+
+.top .side:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.top .side:last-child {
+  flex: 0 0 auto;
+}
+
 .sideTitle {
   margin-bottom: 11px;
   color: var(--txt3);

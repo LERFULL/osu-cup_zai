@@ -251,9 +251,14 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
         </div>
       ) : null}
 
-      {renderSide('upper')}
+      {/* Гранд-финал — продолжение верхней сетки, а не отдельный раздел:
+          победитель верхней приходит в него слева, и стоять он должен
+          там же, справа от финала, а не под всей сеткой. */}
+      <div className={s.top}>
+        {renderSide('upper')}
+        {renderSide('grand')}
+      </div>
       {renderSide('lower')}
-      {renderSide('grand')}
     </div>
   );
 }
