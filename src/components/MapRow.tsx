@@ -46,6 +46,9 @@ export interface MapRowBase {
   /** Показать чекбокс. С обработчиком он кликается отдельно от строки. */
   checkbox?: boolean;
   onToggleSelect?: (shift: boolean) => void;
+  /** Зажали чекбокс, чтобы вести выделение по строкам. Ведёт список сам:
+   *  строке достаточно сказать, что с неё начали. */
+  onSweepSelect?: (shift: boolean) => void;
   /** Ручка перетаскивания слева. Тянется только она, а не вся строка:
    *  иначе нажатие на любую кнопку внутри начинало бы перетаскивание.
    *  Обработчики приходят снаружи — порядок строк знает список, а не строка. */
@@ -93,6 +96,7 @@ export function MapRow(props: MapRowProps) {
     onClick,
     checkbox,
     onToggleSelect,
+    onSweepSelect,
     gripProps,
     expand,
     tools,
@@ -161,8 +165,23 @@ export function MapRow(props: MapRowProps) {
             type="button"
             aria-pressed={selected === true}
             aria-label={selected === true ? 'Снять выделение' : 'Выделить'}
+            style={{ touchAction: 'none' }}
+            onPointerDown={
+              onSweepSelect
+                ? (e) => {
+                    // Только основная кнопка: правой вызывают меню.
+                    if (e.button !== 0) return;
+                    stop(e);
+                    e.preventDefault();
+                    onSweepSelect(e.shiftKey);
+                  }
+                : undefined
+            }
             onClick={(e) => {
               stop(e);
+              // Протягивание уже отметило эту строку на нажатии — второй
+              // раз щёлкать по ней значит снять то, что только что выбрали.
+              if (onSweepSelect) return;
               onToggleSelect(e.shiftKey);
             }}
           >

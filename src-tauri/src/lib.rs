@@ -41,6 +41,7 @@ pub fn run() {
             // библиотека
             commands::library::list_beatmaps,
             commands::library::count_without_mods,
+            commands::library::library_summary,
             commands::library::get_beatmap,
             commands::library::get_set_difficulties,
             commands::library::get_attributes,

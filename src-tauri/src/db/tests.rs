@@ -635,6 +635,51 @@ fn tagged(conn: &Connection, id: i64, mapper: &str, bpm: f64, mods: &[&str]) {
 }
 
 #[test]
+fn summary_describes_what_is_on_screen() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+    tagged(&conn, 2, "b", 200.0, &["NM", "HD"]);
+    tagged(&conn, 3, "c", 150.0, &["HD"]);
+    // Карта без тегов: в разбивку по модам не попадёт, но в общий счёт — да.
+    let mut bare = map(4, "Artist", "Map 4", 6.0);
+    bare.mods = vec![];
+    beatmaps::upsert(&conn, &bare).unwrap();
+
+    let got = beatmaps::summary(&conn, &LibraryFilter::default()).unwrap();
+
+    assert_eq!(got.total, 4);
+    assert_eq!(got.untagged, 1);
+    // Карта с двумя тегами считается в обоих: сумма по модам законно
+    // больше числа карт.
+    let nm = got.by_mod.iter().find(|m| m.mod_tag == "NM").unwrap();
+    let hd = got.by_mod.iter().find(|m| m.mod_tag == "HD").unwrap();
+    assert_eq!(nm.count, 2);
+    assert_eq!(hd.count, 2);
+
+    assert_eq!(got.bpm_min, Some(150.0));
+    assert_eq!(got.bpm_max, Some(200.0));
+    assert_eq!(got.stars_min, Some(6.0));
+}
+
+#[test]
+fn summary_follows_the_filter() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+    tagged(&conn, 2, "b", 200.0, &["HD"]);
+
+    let filter = LibraryFilter {
+        mods: vec!["HD".to_string()],
+        ..Default::default()
+    };
+
+    // Сводка должна описывать выдачу, а не всю библиотеку: иначе она
+    // рассказывала бы не о том, что человек видит.
+    let got = beatmaps::summary(&conn, &filter).unwrap();
+    assert_eq!(got.total, 1);
+    assert_eq!(got.bpm_min, Some(200.0));
+}
+
+#[test]
 fn builtin_templates_are_seeded_once() {
     let conn = db();
     // Миграция идемпотентна: повторный запуск не должен удваивать шаблоны.

@@ -17,6 +17,7 @@ import type {
   ImportProgress,
   Label,
   LibraryFilter,
+  LibrarySummary,
   MatchState,
   ModTag,
   Page,
@@ -56,6 +57,9 @@ export const listBeatmaps = (filter: LibraryFilter, offset: number, limit: numbe
 
 /** Сколько карт ещё без мод-тегов — счётчик системного раздела дерева. */
 export const countWithoutMods = () => invoke<number>('count_without_mods');
+
+export const librarySummary = (filter: LibraryFilter) =>
+  invoke<LibrarySummary>('library_summary', { filter });
 
 export const getBeatmap = (beatmapId: number) =>
   invoke<Beatmap | null>('get_beatmap', { beatmapId });

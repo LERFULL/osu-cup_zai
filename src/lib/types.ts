@@ -202,6 +202,31 @@ export interface Page<T> {
   offset: number;
 }
 
+/** Сколько карт под мод-тегом. Карта с несколькими тегами считается в каждом. */
+export interface ModCount {
+  mod: ModTag;
+  count: number;
+}
+
+/**
+ * Из чего состоит то, что сейчас на экране библиотеки. Считается по тому же
+ * фильтру, что и список.
+ */
+export interface LibrarySummary {
+  total: number;
+  /** Карты без единого мод-тега — генерация их не увидит. */
+  untagged: number;
+  byMod: ModCount[];
+  starsMin: number | null;
+  starsMax: number | null;
+  starsAvg: number | null;
+  /** Секунды. */
+  lengthAvg: number | null;
+  lengthTotal: number | null;
+  bpmMin: number | null;
+  bpmMax: number | null;
+}
+
 // ────────────────────────────────────────────────── ключ и подключение
 
 export interface ApiCredentials {

@@ -402,6 +402,38 @@ pub struct PoolOverlap {
     pub pools: Vec<String>,
 }
 
+/// Сколько карт под каждым мод-тегом. Карта с несколькими тегами
+/// считается в каждом: тег — это «где её можно поставить», а не сорт.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModCount {
+    #[serde(rename = "mod")]
+    pub mod_tag: String,
+    pub count: i64,
+}
+
+/// Из чего состоит то, что сейчас на экране библиотеки.
+///
+/// Считается по тому же фильтру, что и список: смотреть на коллекцию и
+/// не знать, сколько в ней HD и какой там разброс звёзд, — значит собирать
+/// маппул вслепую.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibrarySummary {
+    pub total: i64,
+    /// Карты без единого мод-тега — генерация их не увидит.
+    pub untagged: i64,
+    pub by_mod: Vec<ModCount>,
+    pub stars_min: Option<f64>,
+    pub stars_max: Option<f64>,
+    pub stars_avg: Option<f64>,
+    /// Секунды.
+    pub length_avg: Option<f64>,
+    pub length_total: Option<i64>,
+    pub bpm_min: Option<f64>,
+    pub bpm_max: Option<f64>,
+}
+
 // ───────────────────────────────────────────────────────────── игроки
 
 #[derive(Debug, Clone, Serialize)]

@@ -4,7 +4,7 @@ use tauri::State;
 
 use crate::db::beatmaps;
 use crate::error::Result;
-use crate::model::{Beatmap, BeatmapAttributes, Label, LibraryFilter, Page};
+use crate::model::{Beatmap, BeatmapAttributes, Label, LibraryFilter, LibrarySummary, Page};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -23,6 +23,15 @@ pub async fn list_beatmaps(
 #[tauri::command]
 pub async fn count_without_mods(state: State<'_, Arc<AppState>>) -> Result<i64> {
     state.db.with(beatmaps::count_without_mods)
+}
+
+/// Из чего состоит то, что сейчас на экране: моды, звёзды, длина, BPM.
+#[tauri::command]
+pub async fn library_summary(
+    state: State<'_, Arc<AppState>>,
+    filter: LibraryFilter,
+) -> Result<LibrarySummary> {
+    state.db.with(|conn| beatmaps::summary(conn, &filter))
 }
 
 #[tauri::command]

@@ -20,7 +20,7 @@ import type {
 } from './types';
 import { COLLECTIONS, LABELS, MAPS } from './mock';
 import { tournamentHandlers } from './devTournaments';
-import { EMPTY_FILTER, EMPTY_RULES } from './types';
+import { EMPTY_FILTER, EMPTY_RULES, MOD_TAGS } from './types';
 
 type Args = Record<string, unknown>;
 
@@ -348,6 +348,37 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     return { items: all.slice(offset, offset + limit), total: all.length, offset };
   },
   count_without_mods: () => maps.filter((m) => m.mods.length === 0).length,
+
+  /** Сводка по выдаче — тем же фильтром, что и список. */
+  library_summary: (a) => {
+    const all = filtered(a['filter'] as LibraryFilter);
+
+    const byMod = MOD_TAGS.map((mod) => ({
+      mod,
+      count: all.filter((m) => m.mods.includes(mod)).length,
+    })).filter((x) => x.count > 0);
+
+    const nums = (pick: (m: Beatmap) => number | null): number[] =>
+      all.map(pick).filter((v): v is number => v !== null && Number.isFinite(v));
+
+    const stars = nums((m) => m.difficultyRating);
+    const lengths = nums((m) => m.totalLength);
+    const bpms = nums((m) => m.bpm);
+    const avg = (v: number[]) => (v.length === 0 ? null : v.reduce((x, y) => x + y, 0) / v.length);
+
+    return {
+      total: all.length,
+      untagged: all.filter((m) => m.mods.length === 0).length,
+      byMod,
+      starsMin: stars.length === 0 ? null : Math.min(...stars),
+      starsMax: stars.length === 0 ? null : Math.max(...stars),
+      starsAvg: avg(stars),
+      lengthAvg: avg(lengths),
+      lengthTotal: lengths.length === 0 ? null : lengths.reduce((x, y) => x + y, 0),
+      bpmMin: bpms.length === 0 ? null : Math.min(...bpms),
+      bpmMax: bpms.length === 0 ? null : Math.max(...bpms),
+    };
+  },
   get_beatmap: (a) => maps.find((m) => m.beatmapId === a['beatmapId']) ?? null,
   get_set_difficulties: (a) => {
     const set = a['beatmapsetId'];

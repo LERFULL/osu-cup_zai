@@ -9,6 +9,7 @@ import { Tree } from './library/Tree';
 import { Import } from './library/Import';
 import { Card } from './library/Card';
 import { Bulk } from './library/Bulk';
+import { Summary } from './library/Summary';
 import { useBeatmapPages } from './library/useBeatmaps';
 import s from './Library.module.css';
 
@@ -34,6 +35,10 @@ export default function Library() {
   const [importing, setImporting] = useState(false);
   const [opened, setOpened] = useState<number | null>(null);
   const [picked, setPicked] = useState<ReadonlySet<number>>(new Set());
+  // Состав выдачи меняют не только фильтры: импорт, удаление и массовые
+  // правки тоже. Счётчик заставляет сводку пересчитаться после них.
+  const [revision, setRevision] = useState(0);
+  const bumpSummary = () => setRevision((n) => n + 1);
   const listRef = useRef<HTMLDivElement>(null);
   // Точка отсчёта для выделения диапазона по Shift.
   const anchor = useRef<number | null>(null);
@@ -143,6 +148,65 @@ export default function Library() {
     if (!shift) anchor.current = index;
   }
 
+  /**
+   * Выделение протягиванием: зажал чекбокс и повёл — отмечаются все строки
+   * по пути. Мышь может уйти за пределы строки и даже списка, поэтому
+   * ведём по всему окну, а не по элементу.
+   *
+   * Направление задаёт первая строка: если начали с невыделенной — ведём
+   * выделение, если с выделенной — снимаем. Так одно и то же движение
+   * работает в обе стороны.
+   */
+  function startSweep(index: number, id: number, shift: boolean) {
+    // Shift — это выделение диапазона, а не протягивание: они бы мешали.
+    if (shift) {
+      togglePick(index, id, true);
+      return;
+    }
+
+    const adding = !picked.has(id);
+    let last = index;
+
+    const apply = (to: number) => {
+      setPicked((prev) => {
+        const next = new Set(prev);
+        const [a, b] = last < to ? [last, to] : [to, last];
+        for (let i = a; i <= b; i++) {
+          const r = shown[i];
+          if (!r) continue;
+          if (adding) next.add(r.map.beatmapId);
+          else next.delete(r.map.beatmapId);
+        }
+        return next;
+      });
+      last = to;
+    };
+
+    apply(index);
+    anchor.current = index;
+
+    const move = (e: PointerEvent) => {
+      // Строка под курсором: у каждой в разметке лежит её номер.
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const row = el instanceof Element ? el.closest('[data-index]') : null;
+      if (!(row instanceof HTMLElement)) return;
+
+      const to = Number(row.dataset['index']);
+      if (Number.isFinite(to) && to !== last) apply(to);
+    };
+
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      anchor.current = last;
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
   async function removePicked() {
     const ids = [...picked];
     await ipc.deleteBeatmaps(ids);
@@ -150,6 +214,7 @@ export default function Library() {
     setPicked(new Set());
     anchor.current = null;
     await refreshCollections();
+    bumpSummary();
   }
 
   function clearPicked() {
@@ -196,6 +261,7 @@ export default function Library() {
     else drop([map.beatmapId]);
 
     await refreshCollections();
+    bumpSummary();
   }
 
   /**
@@ -303,6 +369,18 @@ export default function Library() {
             Наборами
           </Chip>
 
+          <Chip
+            active={false}
+            onClick={() => {
+              // Выделить всё, что сейчас на экране: протягивание по строкам
+              // на сотне карт — это всё же работа.
+              setPicked(new Set(shown.map((r) => r.map.beatmapId)));
+            }}
+            title="Выделить все карты на экране"
+          >
+            Выделить все
+          </Chip>
+
           {dirty ? (
             <div className={s.saveFilter}>
               <Button size="sm" onClick={() => void saveAsSmart()}>
@@ -314,6 +392,8 @@ export default function Library() {
             </div>
           ) : null}
         </div>
+
+        <Summary filter={filter} revision={revision} />
 
         <div className={s.list} ref={listRef}>
           {error ? (
@@ -349,6 +429,7 @@ export default function Library() {
                     key={row.child ? `k${m.beatmapId}` : m.beatmapId}
                     className={[s.slot, row.child ? s.child : null].filter(Boolean).join(' ')}
                     style={{ transform: `translateY(${v.start}px)` }}
+                    data-index={v.index}
                   >
                     <MapRow
                       kind="plain"
@@ -384,6 +465,7 @@ export default function Library() {
                         </button>
                       }
                       onToggleSelect={(shift) => togglePick(v.index, m.beatmapId, shift)}
+                      onSweepSelect={(shift) => startSweep(v.index, m.beatmapId, shift)}
                       onClick={() => setOpened(m.beatmapId)}
                     />
                   </div>
@@ -402,6 +484,7 @@ export default function Library() {
             onChanged={async () => {
               await reload();
               await refreshCollections();
+              bumpSummary();
             }}
             onDelete={removePicked}
           />
@@ -413,7 +496,11 @@ export default function Library() {
           beatmapId={opened}
           onClose={() => setOpened(null)}
           onChanged={tagged}
-          onSaved={() => void refreshUntagged()}
+          onSaved={() => {
+            void refreshUntagged();
+            // Проставили теги — разбивка по модам в сводке уже другая.
+            bumpSummary();
+          }}
           onOpen={setOpened}
           onDeleted={(ids) => {
             drop(ids);
@@ -423,6 +510,7 @@ export default function Library() {
               return next;
             });
             void refreshCollections();
+            bumpSummary();
           }}
         />
       ) : null}
@@ -434,11 +522,13 @@ export default function Library() {
             // Карты могли доехать и без нажатия «Показать в библиотеке»:
             // счётчики дерева считаются по базе, а не по этому окну.
             void refreshCollections();
+            bumpSummary();
           }}
           onDone={() => {
             setImporting(false);
             setFilter({ sort: 'added', dir: 'desc' });
             void refreshCollections();
+            bumpSummary();
           }}
         />
       ) : null}

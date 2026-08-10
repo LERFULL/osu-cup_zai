@@ -8,6 +8,15 @@ export function formatLength(seconds: number | null | undefined): string {
   return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** Суммарное время: часы отдельно, иначе mm:ss нечитаемы на больших числах. */
+export function formatSpan(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds)) return '—';
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return h > 0 ? `${h} ч ${m} мин` : `${m} мин`;
+}
+
 export function formatStars(stars: number | null | undefined): string {
   if (stars == null || !Number.isFinite(stars)) return '—';
   return stars.toFixed(2);

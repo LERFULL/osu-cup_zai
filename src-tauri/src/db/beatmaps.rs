@@ -10,7 +10,9 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, ToS
 
 use super::{now_iso, placeholders, CHUNK};
 use crate::error::Result;
-use crate::model::{Beatmap, BeatmapAttributes, Label, LibraryFilter, Page, SkillsetTag};
+use crate::model::{
+    Beatmap, BeatmapAttributes, Label, LibraryFilter, LibrarySummary, ModCount, Page, SkillsetTag,
+};
 
 /// Колонки карты в одном месте: и список, и карточка читают одинаково.
 const COLS: &str = "b.beatmap_id, b.beatmapset_id, b.checksum, \
@@ -732,6 +734,101 @@ pub fn count_for(conn: &Connection, f: &LibraryFilter) -> Result<i64> {
 
     let refs: Vec<&dyn ToSql> = w.args.iter().map(|a| a.as_ref()).collect();
     Ok(conn.query_row(&sql, refs.as_slice(), |r| r.get(0))?)
+}
+
+/// Из чего состоит текущая выдача: моды, звёзды, длина, BPM.
+///
+/// Считается тем же фильтром, что и список, — иначе сводка описывала бы
+/// не то, что человек видит на экране. Три запроса вместо одного: общий
+/// разбор и разбивка по модам считаются по-разному, а склеивать их в один
+/// запрос значит получить кратные строки из-за джойна тегов.
+pub fn summary(conn: &Connection, f: &LibraryFilter) -> Result<LibrarySummary> {
+    let w = build_where(conn, f)?;
+    let where_sql = if w.conds.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", w.conds.join(" AND "))
+    };
+    let args: Vec<&dyn ToSql> = w.args.iter().map(|a| a.as_ref()).collect();
+
+    type Totals = (
+        i64,
+        Option<f64>,
+        Option<f64>,
+        Option<f64>,
+        Option<f64>,
+        Option<i64>,
+        Option<f64>,
+        Option<f64>,
+    );
+    let totals: Totals = conn.query_row(
+        &format!(
+            "SELECT COUNT(*),
+                    MIN(b.difficulty_rating), MAX(b.difficulty_rating), AVG(b.difficulty_rating),
+                    AVG(b.total_length), SUM(b.total_length),
+                    MIN(b.bpm), MAX(b.bpm)
+               FROM beatmaps b{joins}{where_sql}",
+            joins = w.joins
+        ),
+        args.as_slice(),
+        |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+            ))
+        },
+    )?;
+
+    let untagged: i64 = conn.query_row(
+        &format!(
+            "SELECT COUNT(*) FROM beatmaps b{joins}{where_sql}{and} NOT EXISTS (
+                 SELECT 1 FROM beatmap_mods m WHERE m.beatmap_id = b.beatmap_id
+             )",
+            joins = w.joins,
+            and = if w.conds.is_empty() { " WHERE" } else { " AND" }
+        ),
+        args.as_slice(),
+        |r| r.get(0),
+    )?;
+
+    // Карта с несколькими тегами считается в каждом: тег отвечает на вопрос
+    // «куда её можно поставить», и сумма по модам законно больше числа карт.
+    let mut st = conn.prepare(&format!(
+        "SELECT m.mod, COUNT(*)
+           FROM beatmaps b{joins}
+           JOIN beatmap_mods m ON m.beatmap_id = b.beatmap_id
+          {where_sql}
+          GROUP BY m.mod
+          ORDER BY m.mod",
+        joins = w.joins
+    ))?;
+    let by_mod = st
+        .query_map(args.as_slice(), |r| {
+            Ok(ModCount {
+                mod_tag: r.get(0)?,
+                count: r.get(1)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(LibrarySummary {
+        total: totals.0,
+        untagged,
+        by_mod,
+        stars_min: totals.1,
+        stars_max: totals.2,
+        stars_avg: totals.3,
+        length_avg: totals.4,
+        length_total: totals.5,
+        bpm_min: totals.6,
+        bpm_max: totals.7,
+    })
 }
 
 /// Сколько карт ещё без мод-тегов. Отдельным запросом, а не через `list`:
