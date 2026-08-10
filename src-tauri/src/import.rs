@@ -214,18 +214,35 @@ async fn run_import(app: AppHandle, batch_id: String, parsed: ParsedLinks) -> Re
         if state.batches.is_cancelled(&batch_id).await {
             break;
         }
+
+        let ids: Vec<i64> = fresh
+            .iter()
+            .filter(|m| m.beatmapset_id == Some(set_id))
+            .map(|m| m.beatmap_id)
+            .collect();
+
+        // Файл уже в кеше — качать нечего, но путь в карту прописать надо:
+        // после удаления и повторного добавления строка в базе новая, а
+        // обложка осталась с прошлого раза. Без этого карта выглядит
+        // «без обложки», хотя картинка лежит на диске.
         if state.covers.has(set_id) {
+            let path_str = state.covers.path_for(set_id).to_string_lossy().to_string();
+            let _ = state.db.with(|conn| {
+                for id in &ids {
+                    crate::db::beatmaps::set_cover_path(conn, *id, &path_str)?;
+                }
+                Ok(())
+            });
+            for id in ids {
+                emit_cover(&app, id);
+            }
             continue;
         }
+
         // Обложки лежат на assets.ppy.sh без авторизации и в лимит API не входят.
         if let Ok(bytes) = state.osu.download_cover(set_id).await {
             if let Ok(path) = state.covers.put(set_id, &bytes) {
                 let path_str = path.to_string_lossy().to_string();
-                let ids: Vec<i64> = fresh
-                    .iter()
-                    .filter(|m| m.beatmapset_id == Some(set_id))
-                    .map(|m| m.beatmap_id)
-                    .collect();
 
                 let _ = state.db.with(|conn| {
                     for id in &ids {

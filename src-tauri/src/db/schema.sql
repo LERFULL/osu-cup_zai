@@ -227,7 +227,7 @@ CREATE INDEX IF NOT EXISTS ix_players_nick ON players(nickname);
 CREATE TABLE IF NOT EXISTS tournaments (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   name           TEXT NOT NULL,
-  status         TEXT NOT NULL DEFAULT 'draft',   -- draft running finished
+  status         TEXT NOT NULL DEFAULT 'draft',   -- draft seeded running finished
   bracket_size   INTEGER NOT NULL,
   target_score   TEXT NOT NULL DEFAULT '{}',      -- JSON: общий или по раундам
   bans_per_round TEXT NOT NULL DEFAULT '{}',      -- JSON

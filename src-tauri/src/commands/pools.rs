@@ -250,6 +250,18 @@ pub async fn generate_pool(
         .with_tx(|tx| generate::generate(tx, template_id, &name))
 }
 
+/// Серия маппулов под турнир: карты внутри серии не повторяются.
+#[tauri::command]
+pub async fn generate_pool_series(
+    state: State<'_, Arc<AppState>>,
+    template_id: i64,
+    names: Vec<String>,
+) -> Result<Vec<GenReport>> {
+    state
+        .db
+        .with_tx(|tx| generate::generate_series(tx, template_id, &names))
+}
+
 #[tauri::command]
 pub async fn reroll_pool(
     state: State<'_, Arc<AppState>>,

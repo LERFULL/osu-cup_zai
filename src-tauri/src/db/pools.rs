@@ -407,6 +407,56 @@ pub fn reorder(conn: &Connection, pool_id: i64, order: &[i64]) -> Result<()> {
 
 /// Все карты, стоящие в перечисленных пулах — для правила «не повторять
 /// карты из прошлых маппулов турнира».
+/// Карты, попавшие больше чем в один из указанных маппулов.
+///
+/// В рамках турнира это ошибка: карта всплывёт в двух матчах, а игроки
+/// приедут на неё подготовленными. Следить за этим по строкам вручную
+/// невозможно, поэтому считаем запросом.
+pub fn overlaps_between_pools(
+    conn: &Connection,
+    pool_ids: &[i64],
+) -> Result<Vec<crate::model::PoolOverlap>> {
+    if pool_ids.len() < 2 {
+        return Ok(Vec::new());
+    }
+
+    let holes = super::placeholders(pool_ids.len());
+    let sql = format!(
+        "SELECT s.beatmap_id,
+                COALESCE(b.artist || ' — ' || b.title, 'карта ' || s.beatmap_id) AS name,
+                GROUP_CONCAT(DISTINCT p.name) AS pools
+           FROM pool_slots s
+           JOIN pools p ON p.id = s.pool_id
+           LEFT JOIN beatmaps b ON b.beatmap_id = s.beatmap_id
+          WHERE s.beatmap_id IS NOT NULL AND s.pool_id IN ({holes})
+          GROUP BY s.beatmap_id
+         HAVING COUNT(DISTINCT s.pool_id) > 1
+          ORDER BY name COLLATE NOCASE"
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(pool_ids.iter()), |r| {
+        Ok(crate::model::PoolOverlap {
+            beatmap_id: r.get(0)?,
+            name: r.get(1)?,
+            pools: r
+                .get::<_, Option<String>>(2)?
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+        })
+    })?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// Карты, лежащие хотя бы в одном из указанных маппулов.
 pub fn beatmaps_in_pools(conn: &Connection, pool_ids: &[i64]) -> Result<Vec<i64>> {
     if pool_ids.is_empty() {
         return Ok(Vec::new());

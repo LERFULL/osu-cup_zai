@@ -87,7 +87,9 @@
 }
 
 .row:hover .grip,
-.row:focus-within .grip {
+.row:focus-within .grip,
+/* Пока строку тянут, курсор уходит с неё — ручка должна остаться видимой. */
+.grip:active {
   opacity: 1;
 }
 
@@ -222,18 +224,23 @@
 }
 
 /* ── кнопки слота ── */
-/* Встают на место статистики, а не поверх неё: по наведению цифры уступают
-   место кнопкам, поэтому читать что-либо сквозь них не приходится. */
+/* Занимают собственное место в строке слева от шестиугольника: перекрывать
+   мод-тег нельзя — по нему читают, что это за слот, и во время бана тоже.
+   Статистика уступает им место, а не прячется под ними. */
 
 .tools {
-  position: absolute;
+  position: relative;
   z-index: 3;
-  top: 50%;
-  right: 62px;
+  flex: 0 0 auto;
   display: flex;
   gap: 4px;
+  align-items: center;
+}
+
+/* Пока кнопки не нужны, их место занимает статистика: без наведения строка
+   выглядит так же, как в списке. */
+.withTools .tools {
   opacity: 0;
-  transform: translateY(-50%);
   pointer-events: none;
   transition: opacity 0.13s;
 }
@@ -244,13 +251,23 @@
   pointer-events: auto;
 }
 
+/* Правая часть ужимается до нуля, освобождая ширину под кнопки, а не
+   остаётся под ними невидимой. */
 .withTools .end {
-  transition: opacity 0.13s;
+  transition: opacity 0.13s, min-width 0.13s;
 }
 
 .withTools:hover .end,
 .withTools:focus-within .end {
   opacity: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Ждём именно этого действия — кнопки видны сразу и не требуют наведения. */
+.toolsPinned {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ── выбрана ── */

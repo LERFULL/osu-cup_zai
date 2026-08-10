@@ -112,7 +112,11 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
 
   /** Одна сторона сетки: колонки раундов, позиции и линии связей. */
   function renderSide(side: BracketSide) {
-    const inSide = bracket.matches.filter((m) => m.bracket === side);
+    // Матчи, в которые никто не пришёл (обе ветки закончились техпобедами),
+    // в сетке не показываем: играть там нечего, а место они занимают.
+    const inSide = bracket.matches.filter(
+      (m) => m.bracket === side && !(m.isWalkover && m.winnerId === null),
+    );
     if (inSide.length === 0) return null;
 
     const rounds = [...new Set(inSide.map((m) => m.round))].sort((a, b) => a - b);

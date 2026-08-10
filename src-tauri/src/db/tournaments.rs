@@ -187,6 +187,21 @@ fn draft(conn: &Connection, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Сетку можно строить заново, пока турнир не запущен: у построенной,
+/// но не утверждённой достаточно поменять сеяние и скатать ещё раз.
+fn seedable(conn: &Connection, id: i64) -> Result<()> {
+    let status: String = conn.query_row(
+        "SELECT status FROM tournaments WHERE id = ?1",
+        params![id],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(
+        status == "draft" || status == "seeded",
+        "турнир уже идёт — сетку менять нельзя"
+    );
+    Ok(())
+}
+
 pub fn add_player(conn: &Connection, tournament_id: i64, player_id: i64) -> Result<()> {
     draft(conn, tournament_id)?;
 
@@ -287,12 +302,16 @@ fn seat_order(players: &[TournamentPlayer], size: usize) -> Vec<Option<i64>> {
     seeded
 }
 
-/// Строит сетку и переводит турнир в «идёт».
+/// Строит сетку и показывает её на утверждение.
+///
+/// Турнир при этом не начинается: сетку можно рассмотреть, пересобрать
+/// с другим сеянием или вернуть в черновик. Матчи играются только после
+/// `confirm` — иначе первый же взгляд на неудачную сетку был бы поздним.
 ///
 /// Вызывать внутри транзакции: матчи вставляются пачкой и связываются
 /// вторым проходом, а половина сетки — это не сетка.
 pub fn start(conn: &Connection, id: i64) -> Result<()> {
-    draft(conn, id)?;
+    seedable(conn, id)?;
 
     let players = players_of(conn, id)?;
     anyhow::ensure!(players.len() >= 2, "для сетки нужно хотя бы два игрока");
@@ -334,11 +353,107 @@ pub fn start(conn: &Connection, id: i64) -> Result<()> {
     }
 
     conn.execute(
-        "UPDATE tournaments SET status = 'running', bracket_size = ?2 WHERE id = ?1",
+        "UPDATE tournaments SET status = 'seeded', bracket_size = ?2 WHERE id = ?1",
         params![id, size as i64],
     )?;
 
+    assign_pools(conn, id)?;
     advance_walkovers(conn, id)?;
+    Ok(())
+}
+
+/// Раздаёт маппулы по матчам заранее и возвращает то, что стоит знать.
+///
+/// Пакет пулов выбирается на турнире целиком, поэтому спрашивать пул
+/// в начале каждого матча незачем: раскладываем их по раундам сразу.
+/// Матчи одного раунда играют одним пулом — так раунд сравним внутри
+/// себя, — а пулы идут по кругу, то есть возврат к уже сыгранному
+/// случается только после всех остальных.
+pub fn assign_pools(conn: &Connection, tournament_id: i64) -> Result<Vec<String>> {
+    let pools = pools_of(conn, tournament_id)?;
+    if pools.is_empty() {
+        return Ok(vec!["Маппулы к турниру не привязаны".to_string()]);
+    }
+
+    let no_repeat: bool = conn.query_row(
+        "SELECT no_repeat_pool FROM tournaments WHERE id = ?1",
+        params![tournament_id],
+        |r| Ok(r.get::<_, i64>(0)? != 0),
+    )?;
+
+    // Раунды в порядке игры: сначала верхняя сетка, потом нижняя, гранд-финал
+    // последним. Ключ — пара (сетка, раунд): у каждого свой пул.
+    let mut st = conn.prepare(
+        "SELECT DISTINCT bracket, round FROM matches
+          WHERE tournament_id = ?1
+          ORDER BY CASE bracket WHEN 'upper' THEN 0 WHEN 'lower' THEN 1 ELSE 2 END, round",
+    )?;
+    let stages = st
+        .query_map(params![tournament_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    for (i, (bracket, round)) in stages.iter().enumerate() {
+        let pool = pools[i % pools.len()];
+        conn.execute(
+            "UPDATE matches SET pool_id = ?4
+              WHERE tournament_id = ?1 AND bracket = ?2 AND round = ?3
+                AND pool_id IS NULL",
+            params![tournament_id, bracket, round, pool],
+        )?;
+    }
+
+    let mut notes = Vec::new();
+    if no_repeat && stages.len() > pools.len() {
+        notes.push(format!(
+            "Раундов {}, а маппулов {} — со второго круга они пойдут по второму разу",
+            stages.len(),
+            pools.len()
+        ));
+    }
+    Ok(notes)
+}
+
+/// Утверждает построенную сетку: с этого момента турнир идёт.
+pub fn confirm(conn: &Connection, id: i64) -> Result<()> {
+    let status: String = conn.query_row(
+        "SELECT status FROM tournaments WHERE id = ?1",
+        params![id],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(
+        status == "seeded",
+        "запускать можно только построенную, но ещё не начатую сетку"
+    );
+
+    conn.execute(
+        "UPDATE tournaments SET status = 'running' WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}
+
+/// Возвращает турнир в черновик вместе со сброшенной сеткой.
+/// Разрешено, только пока не сыграно ни одного матча по-настоящему.
+pub fn reopen(conn: &Connection, id: i64) -> Result<()> {
+    let played: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM match_actions a
+           JOIN matches m ON m.id = a.match_id
+          WHERE m.tournament_id = ?1",
+        params![id],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(
+        played == 0,
+        "в сетке уже играли — пересобрать её значит потерять результаты"
+    );
+
+    conn.execute("DELETE FROM matches WHERE tournament_id = ?1", params![id])?;
+    conn.execute(
+        "UPDATE tournaments SET status = 'draft', bracket_size = 0 WHERE id = ?1",
+        params![id],
+    )?;
     Ok(())
 }
 
@@ -367,18 +482,54 @@ pub fn advance_walkovers(conn: &Connection, tournament_id: i64) -> Result<()> {
             )
             .ok();
 
-        let Some((match_id, winner)) = found else {
+        if let Some((match_id, winner)) = found {
+            conn.execute(
+                "UPDATE matches
+                    SET status = 'finished', winner_id = ?2, is_walkover = 1,
+                        finished_at = datetime('now')
+                  WHERE id = ?1",
+                params![match_id, winner],
+            )?;
+            promote(conn, match_id)?;
+            continue;
+        }
+
+        // Матч, в который уже некому прийти: оба источника закончились
+        // техпобедами. Такой матч закрываем без победителя — иначе он
+        // навсегда останется «ждёт соперника» и запрёт всё, что за ним.
+        let empty: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM matches m
+                  WHERE tournament_id = ?1 AND status = 'pending'
+                    AND player_a IS NULL AND player_b IS NULL
+                    AND EXISTS (
+                      SELECT 1 FROM matches src
+                       WHERE src.tournament_id = m.tournament_id
+                         AND (src.next_win_slot = m.id OR src.next_lose_slot = m.id)
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1 FROM matches src
+                       WHERE src.tournament_id = m.tournament_id
+                         AND (src.next_win_slot = m.id OR src.next_lose_slot = m.id)
+                         AND src.status <> 'finished'
+                    )
+                  LIMIT 1",
+                params![tournament_id],
+                |r| r.get(0),
+            )
+            .ok();
+
+        let Some(match_id) = empty else {
             break;
         };
 
         conn.execute(
             "UPDATE matches
-                SET status = 'finished', winner_id = ?2, is_walkover = 1,
+                SET status = 'finished', winner_id = NULL, is_walkover = 1,
                     finished_at = datetime('now')
               WHERE id = ?1",
-            params![match_id, winner],
+            params![match_id],
         )?;
-        promote(conn, match_id)?;
     }
     Ok(())
 }

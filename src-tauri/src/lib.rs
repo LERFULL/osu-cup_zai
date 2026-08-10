@@ -99,6 +99,7 @@ pub fn run() {
             commands::pools::slot_filter,
             // генерация
             commands::pools::generate_pool,
+            commands::pools::generate_pool_series,
             commands::pools::reroll_pool,
             commands::pools::reroll_slot,
             // импорт
@@ -114,6 +115,8 @@ pub fn run() {
             commands::players::archive_player,
             commands::players::delete_player,
             commands::players::player_stats,
+            commands::players::fetch_player_avatar,
+            commands::players::refresh_player_avatars,
             // турниры
             commands::tournaments::list_tournaments,
             commands::tournaments::get_tournament,
@@ -127,7 +130,10 @@ pub fn run() {
             commands::tournaments::set_tournament_player_color,
             commands::tournaments::set_tournament_pools,
             commands::tournaments::start_tournament,
+            commands::tournaments::confirm_tournament,
+            commands::tournaments::reopen_tournament,
             commands::tournaments::tournament_bracket,
+            commands::tournaments::tournament_pool_overlaps,
             commands::tournaments::finish_tournament,
             // матчи
             commands::matches::match_state,

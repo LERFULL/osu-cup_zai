@@ -97,6 +97,39 @@ export default function Pools() {
     }
   }
 
+  /**
+   * Серия под турнир. Карты в ней не повторяются: маппулы одного турнира
+   * с общими картами — это карта, которую разыграют дважды.
+   */
+  async function rollSeries(t: PoolTemplate) {
+    setMenu(null);
+    const raw = window.prompt(
+      'Сколько маппулов накатить под турнир?\nПо одному на раунд — карты между ними не повторятся.',
+      '4',
+    );
+    if (raw === null) return;
+
+    const count = Number(raw.trim());
+    if (!Number.isFinite(count) || count < 1) return;
+    if (count > 24) {
+      setError('Больше двадцати четырёх маппулов за раз — это точно опечатка');
+      return;
+    }
+
+    const names = Array.from({ length: count }, (_, i) => `${t.name} — раунд ${i + 1}`);
+    try {
+      const reports = await ipc.generatePoolSeries(t.id, names);
+      // Заметки собираем со всей серии: пустые слоты во втором пуле важнее
+      // того, что первый собрался идеально.
+      setNotes(reports.flatMap((r) => r.notes));
+      await reload();
+      const first = reports[0];
+      if (first !== undefined) setOpen({ kind: 'pool', id: first.pool.id });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function renameTemplate(t: PoolTemplate) {
     setMenu(null);
     const name = window.prompt('Новое название', t.name);
@@ -138,6 +171,13 @@ export default function Pools() {
           ⋯
         </button>
         <Menu open={menu === `t${t.id}`} onClose={() => setMenu(null)} align="right">
+          <MenuItem
+            onClick={() => void rollSeries(t)}
+            note="Карты между маппулами не повторятся"
+          >
+            Накатать серию под турнир
+          </MenuItem>
+          <MenuSeparator />
           <MenuItem onClick={() => void renameTemplate(t)}>Переименовать</MenuItem>
           <MenuItem
             onClick={() => {

@@ -429,10 +429,16 @@ export default function Library() {
 
       {importing ? (
         <Import
-          onClose={() => setImporting(false)}
+          onClose={() => {
+            setImporting(false);
+            // Карты могли доехать и без нажатия «Показать в библиотеке»:
+            // счётчики дерева считаются по базе, а не по этому окну.
+            void refreshCollections();
+          }}
           onDone={() => {
             setImporting(false);
             setFilter({ sort: 'added', dir: 'desc' });
+            void refreshCollections();
           }}
         />
       ) : null}

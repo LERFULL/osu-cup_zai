@@ -198,6 +198,25 @@ export function MatchView({ id, onClose }: Props) {
               ⋯
             </Button>
             <Menu open={menu === 'more'} onClose={() => setMenu(null)} align="right">
+              {/* Пул раздан по раунду заранее — здесь только правка,
+                  если для конкретного матча нужен другой. */}
+              {state.actions.length === 0
+                ? pools.map((p) => (
+                    <MenuItem
+                      key={`pool-${p.id}`}
+                      onClick={() => {
+                        setMenu(null);
+                        void run(() => ipc.setMatchPool(id, p.id));
+                      }}
+                      {...(p.id === state.poolId ? { note: 'сейчас играется этот' } : {})}
+                    >
+                      {p.id === state.poolId ? '✓ ' : '   '}
+                      Маппул: {p.name}
+                    </MenuItem>
+                  ))
+                : null}
+              {state.actions.length === 0 && pools.length > 0 ? <MenuSeparator /> : null}
+
               {state.players.map((p) => (
                 <MenuItem
                   key={p.playerId}
@@ -260,6 +279,19 @@ export function MatchView({ id, onClose }: Props) {
           </div>
 
           <div className={s.turn}>{turnLine(state, name)}</div>
+
+          {state.problems.length > 0 ? (
+            <div className={s.problems}>
+              {state.problems.map((p) => (
+                <div key={p} className={s.problem}>
+                  <span aria-hidden>⚠</span> {p}
+                </div>
+              ))}
+              <span className={s.problemHint}>
+                Поправь правила турнира или маппул — иначе матч не доиграется.
+              </span>
+            </div>
+          ) : null}
 
           {state.poolId === null ? (
             <div className={s.setup}>
@@ -347,15 +379,17 @@ export function MatchView({ id, onClose }: Props) {
                                     )
                                   }
                                 >
-                                  {canBan ? 'Бан' : 'Пик'}
+                                  {canBan ? 'BAN' : 'PICK'}
                                 </Button>
                               ),
                             }
                           : {})}
                         {...(waitingResult && row.state.kind === 'playing'
                           ? {
+                              toolsPinned: true,
                               tools: (
                                 <>
+                                  <span className={s.who}>кто выиграл</span>
                                   {state.players.map((p) => (
                                     <Button
                                       key={p.playerId}

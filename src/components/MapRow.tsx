@@ -1,5 +1,6 @@
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import type { ModTag } from '@/lib/types';
+import type { GripProps } from '@/lib/useReorder';
 import { Hex } from './Hex';
 import { Button } from './Button';
 import s from './MapRow.module.css';
@@ -46,13 +47,17 @@ export interface MapRowBase {
   checkbox?: boolean;
   onToggleSelect?: (shift: boolean) => void;
   /** Ручка перетаскивания слева. Тянется только она, а не вся строка:
-   *  иначе нажатие на любую кнопку внутри начинало бы перетаскивание. */
-  grip?: boolean;
+   *  иначе нажатие на любую кнопку внутри начинало бы перетаскивание.
+   *  Обработчики приходят снаружи — порядок строк знает список, а не строка. */
+  gripProps?: GripProps;
   /** Сколько ещё сложностей в наборе. Кнопка видна всегда, а не по наведению:
    *  иначе о свёрнутых сложностях нельзя догадаться, не поводив мышью. */
   expand?: { count: number; open: boolean; onToggle: () => void };
   /** Кнопки слота. Занимают своё место в строке, ничего не загораживая. */
   tools?: ReactNode;
+  /** Показывать кнопки всегда, а не по наведению. Для действия, которого
+   *  прямо сейчас ждут: искать его мышью — лишний шаг. */
+  toolsPinned?: boolean;
   className?: string;
 }
 
@@ -88,9 +93,10 @@ export function MapRow(props: MapRowProps) {
     onClick,
     checkbox,
     onToggleSelect,
-    grip,
+    gripProps,
     expand,
     tools,
+    toolsPinned,
     className,
   } = props;
 
@@ -106,7 +112,7 @@ export function MapRow(props: MapRowProps) {
     selected ? s.selected : null,
     opened ? s.opened : null,
     onClick ? s.clickable : null,
-    tools !== undefined ? s.withTools : null,
+    tools !== undefined && toolsPinned !== true ? s.withTools : null,
     className,
   ]
     .filter(Boolean)
@@ -142,18 +148,8 @@ export function MapRow(props: MapRowProps) {
       <div className={s.shade} aria-hidden />
       <div className={s.tint} aria-hidden />
 
-      {grip === true ? (
-        <span
-          className={s.grip}
-          draggable
-          title="Потянуть, чтобы переставить"
-          onClick={stop}
-          onDragStart={(e) => {
-            // Без данных в переносе браузер отменяет перетаскивание сразу же.
-            e.dataTransfer.setData('text/plain', '');
-            e.dataTransfer.effectAllowed = 'move';
-          }}
-        >
+      {gripProps !== undefined ? (
+        <span className={s.grip} title="Потянуть, чтобы переставить" onClick={stop} {...gripProps}>
           ⠿
         </span>
       ) : null}
@@ -249,7 +245,13 @@ export function MapRow(props: MapRowProps) {
       {tools !== undefined ? (
         // Кнопки внутри строки, а строка кликается целиком: без этого нажатие
         // на любую из них заодно открывало бы карту.
-        <div className={s.tools} onClick={stop} onKeyDown={(e) => e.stopPropagation()}>
+        <div
+          className={[s.tools, toolsPinned === true ? s.toolsPinned : null]
+            .filter(Boolean)
+            .join(' ')}
+          onClick={stop}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
           {tools}
         </div>
       ) : null}

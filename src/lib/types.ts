@@ -373,6 +373,15 @@ export interface GenReport {
   notes: string[];
 }
 
+/** Карта, попавшая сразу в несколько маппулов одного турнира. */
+export interface PoolOverlap {
+  beatmapId: number;
+  /** «Исполнитель — название», как в строке карты. */
+  name: string;
+  /** Названия маппулов, в которых она встретилась. */
+  pools: string[];
+}
+
 // ─────────────────────────────────────────────────────────────── игроки
 
 export interface Player {
@@ -394,6 +403,26 @@ export interface PlayerVersus {
   losses: number;
 }
 
+/** Строка истории выступлений игрока: один турнир. */
+export interface PlayerAppearance {
+  tournamentId: number;
+  tournamentName: string;
+  /** Когда закончился турнир. `null` — ещё идёт. */
+  finishedAt: string | null;
+  /** Занятое место: 1 — победитель, дальше по порядку вылета. */
+  placement: number | null;
+  /** Матчей сыграно и выиграно в этом турнире. */
+  matches: number;
+  matchWins: number;
+}
+
+/** Результаты по мод-тегам: сыграно и выиграно карт. */
+export interface ModStats {
+  mod: string;
+  played: number;
+  won: number;
+}
+
 /** Всё посчитано по истории матчей на момент запроса. */
 export interface PlayerStats {
   playerId: number;
@@ -408,12 +437,20 @@ export interface PlayerStats {
   bestMod: string | null;
   worstMod: string | null;
   favouriteBeatmap: number | null;
+  /** Сыграно и выиграно по каждому мод-тегу. */
+  byMod: ModStats[];
+  /** По одному турниру на строку, новые сверху. */
+  history: PlayerAppearance[];
   versus: PlayerVersus[];
 }
 
 // ────────────────────────────────────────────────────────────── турниры
 
-export type TournamentStatus = 'draft' | 'running' | 'finished';
+/**
+ * `seeded` — сетка построена, но турнир ещё не начат: её можно
+ * рассмотреть, пересобрать или вернуть состав в черновик.
+ */
+export type TournamentStatus = 'draft' | 'seeded' | 'running' | 'finished';
 
 /** Кто банит первым: жеребьёвкой или по сеянию. */
 export type FirstBan = 'random' | 'higherSeed' | 'lowerSeed';
@@ -530,4 +567,6 @@ export interface MatchState extends Match {
   target: number;
   /** Кому осталась одна победа. */
   matchPoint: number[];
+  /** Правила и маппул не сходятся: карт не хватит доиграть. */
+  problems: string[];
 }

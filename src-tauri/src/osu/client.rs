@@ -146,6 +146,25 @@ impl OsuClient {
         Ok(bytes.to_vec())
     }
 
+    /// Аватар игрока. Как и обложки, лежит на статике и токена не требует.
+    /// Отдаётся редиректом на текущую картинку профиля.
+    pub async fn download_avatar(&self, user_id: i64) -> Result<Vec<u8>> {
+        let url = format!("https://a.ppy.sh/{user_id}");
+
+        let resp = send_retrying(|| self.http.get(&url)).await?;
+        let resp = self.check_status(resp, Some(user_id)).await?;
+
+        let bytes = resp.bytes().await.map_err(|e| {
+            if e.is_connect() || e.is_timeout() {
+                AppError::Offline
+            } else {
+                AppError::Other(format!("Аватар скачать не вышло: {e}"))
+            }
+        })?;
+
+        Ok(bytes.to_vec())
+    }
+
     /// GET к api/v2 с токеном, обязательными заголовками, ретраем и разбором JSON.
     async fn get_json<T: DeserializeOwned>(
         &self,

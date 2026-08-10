@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button, Chip, Empty, MapRow, Menu, MenuItem, MenuSeparator } from '@/components';
 import {
   MOD_TAGS,
@@ -10,6 +10,7 @@ import {
 } from '@/lib/types';
 import { coverUrl, formatLength, poolAverageStars } from '@/lib/format';
 import { FM_CHOICES, derive } from '@/lib/derive';
+import { useReorder } from '@/lib/useReorder';
 import * as ipc from '@/lib/ipc';
 import { Import } from '../library/Import';
 import { Picker } from './Picker';
@@ -45,11 +46,6 @@ export function PoolEditor({ id, notes, onClose }: Props) {
   const [hints, setHints] = useState<string[]>(notes);
   const [busy, setBusy] = useState(false);
 
-  const drag = useRef<number | null>(null);
-  // Пока слот тянут, порядок переставляется только на экране. В базу он уходит
-  // один раз, на отпускании: иначе каждое движение мыши слало бы свой запрос.
-  const [order, setOrder] = useState<PoolSlot[] | null>(null);
-
   const load = useCallback(async (poolId: number) => {
     try {
       setPool(await ipc.getPool(poolId));
@@ -66,7 +62,6 @@ export function PoolEditor({ id, notes, onClose }: Props) {
   /** Ответ команды — пул целиком, вместе с его настоящим id. */
   function accept(next: Pool) {
     setPool(next);
-    setOrder(null);
     if (next.id !== current) setCurrent(next.id);
   }
 
@@ -81,6 +76,38 @@ export function PoolEditor({ id, notes, onClose }: Props) {
       setBusy(false);
     }
   }
+
+  /** Порядок слотов уходит в базу один раз — на отпускании. */
+  const applyOrder = useCallback(
+    (from: number, to: number) => {
+      setPool((prev) => {
+        if (prev === null) return prev;
+
+        const next = [...prev.slots];
+        const [moved] = next.splice(from, 1);
+        if (moved === undefined) return prev;
+        next.splice(to, 0, moved);
+
+        // Показываем новый порядок сразу, не дожидаясь ответа: иначе строка
+        // на миг отскакивала бы назад.
+        void ipc
+          .reorderPoolSlots(
+            prev.id,
+            next.map((x) => x.position),
+          )
+          .then((saved) => {
+            setPool(saved);
+            if (saved.id !== prev.id) setCurrent(saved.id);
+          })
+          .catch((e: unknown) => setError(String(e)));
+
+        return { ...prev, slots: next };
+      });
+    },
+    [],
+  );
+
+  const reorder = useReorder({ count: pool?.slots.length ?? 0, onDrop: applyOrder });
 
   if (pool === null) {
     return (
@@ -136,37 +163,6 @@ export function PoolEditor({ id, notes, onClose }: Props) {
       : [...p.displayFields, f];
     setPool({ ...p, displayFields: next });
     void ipc.setPoolDisplayFields(p.id, next);
-  }
-
-  function dragStart(from: number) {
-    drag.current = from;
-    setOrder(p.slots);
-  }
-
-  function dragOver(to: number) {
-    const from = drag.current;
-    if (from === null || from === to) return;
-    drag.current = to;
-    setOrder((prev) => {
-      const next = [...(prev ?? p.slots)];
-      const [moved] = next.splice(from, 1);
-      if (moved) next.splice(to, 0, moved);
-      return next;
-    });
-  }
-
-  /** Отпустили — записываем новый порядок. Пустую перестановку не шлём. */
-  async function dragEnd() {
-    const next = order;
-    drag.current = null;
-    if (next === null) return;
-
-    const positions = next.map((x) => x.position);
-    if (positions.every((v, i) => v === p.slots[i]?.position)) {
-      setOrder(null);
-      return;
-    }
-    await guard(async () => accept(await ipc.reorderPoolSlots(p.id, positions)));
   }
 
   /** Правая часть строки: то, что выбрано в «Поля». */
@@ -364,21 +360,8 @@ export function PoolEditor({ id, notes, onClose }: Props) {
               />
             ) : null}
 
-            {(order ?? p.slots).map((x, i) => (
-              <div
-                key={x.id}
-                className={s.slot}
-                onDragStart={() => dragStart(i)}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  dragOver(i);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  void dragEnd();
-                }}
-                onDragEnd={() => void dragEnd()}
-              >
+            {p.slots.map((x, i) => (
+              <div key={x.id} className={s.slot} data-row style={reorder.rowStyle(i)}>
                 {x.beatmap !== null ? (
                   <MapRow
                     kind="plain"
@@ -388,7 +371,7 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                     version={details(x)}
                     mod={x.mod}
                     slot={x.slotLabel}
-                    grip
+                    gripProps={reorder.handleProps(i)}
                     tools={slotTools(x)}
                     onClick={() => setPicking(x.position)}
                   />
@@ -396,12 +379,8 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                   <div className={s.empty}>
                     <span
                       className={s.emptyGrip}
-                      draggable
                       title="Потянуть, чтобы переставить"
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', '');
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
+                      {...reorder.handleProps(i)}
                     >
                       ⠿
                     </span>

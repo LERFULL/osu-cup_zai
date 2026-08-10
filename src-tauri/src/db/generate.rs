@@ -491,6 +491,74 @@ pub fn generate(conn: &Connection, template_id: i64, name: &str) -> Result<GenRe
     })
 }
 
+/// Серия маппулов под один турнир.
+///
+/// Собирать их по одному неудобно и опасно: карта, попавшая в два пула
+/// одного турнира, всплывёт дважды, а уследить за этим руками нельзя.
+/// Здесь каждый следующий пул генерируется с оглядкой на все предыдущие —
+/// карты внутри серии не повторяются.
+///
+/// Возвращает готовые пулы и то, что не удалось выдержать: если карт в
+/// библиотеке не хватило, честнее сказать об этом сразу, чем молча
+/// выдать полупустые слоты.
+pub fn generate_series(
+    conn: &Connection,
+    template_id: i64,
+    names: &[String],
+) -> Result<Vec<GenReport>> {
+    if names.is_empty() {
+        return Err(AppError::Other("Не задано ни одного маппула".into()));
+    }
+
+    let template = templates::get(conn, template_id)?;
+    if template.slots.is_empty() {
+        return Err(AppError::Other(
+            "В шаблоне нет ни одного слота — добавь их в редакторе шаблона".into(),
+        ));
+    }
+
+    // Копим карты всей серии: следующий пул не должен брать то, что уже
+    // ушло в предыдущие.
+    let mut excluded = excluded_ids(conn, &template.rules)?;
+    let mut out = Vec::with_capacity(names.len());
+
+    for (i, name) in names.iter().enumerate() {
+        let mut lists = load_candidates(conn, &template, &excluded)?;
+        let mut plan = plan_from_template(&template);
+        let mut notes = run(&mut plan, &mut lists, &template.rules);
+
+        let name = if name.trim().is_empty() {
+            format!("{} {}", template.name, i + 1)
+        } else {
+            name.trim().to_string()
+        };
+
+        let pool_id = pools::create(conn, &name, Some(template_id))?;
+        let slots = to_slots(conn, &plan)?;
+        pools::replace_slots(conn, pool_id, &slots)?;
+
+        let pool = pools::get(conn, pool_id)?;
+        // Карты этого пула закрываем для следующих.
+        for slot in &pool.slots {
+            if let Some(id) = slot.beatmap_id {
+                excluded.insert(id);
+            }
+        }
+
+        let empty = pool.slots.iter().filter(|s| s.beatmap_id.is_none()).count();
+        if empty > 0 {
+            notes.push(format!(
+                "«{name}»: не хватило карт на {empty} слотов — в библиотеке не осталось \
+                 подходящих, не занятых другими маппулами серии"
+            ));
+        }
+
+        out.push(GenReport { pool, notes });
+    }
+
+    Ok(out)
+}
+
 /// Перекат существующего пула. `keep_pinned` — не трогать закреплённые слоты.
 pub fn reroll(conn: &Connection, pool_id: i64, keep_pinned: bool) -> Result<GenReport> {
     let target = pools::writable(conn, pool_id)?;

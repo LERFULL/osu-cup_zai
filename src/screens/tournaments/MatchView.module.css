@@ -185,6 +185,41 @@
   font-size: 12.5px;
 }
 
+/* Правила и маппул не сходятся: матч физически не доиграть.
+   Говорим об этом до первого бана, а не в тупике. */
+.problems {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 107, 107, 0.32);
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.problem {
+  color: var(--red);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.problemHint {
+  color: var(--txt2);
+  font-size: 11.5px;
+}
+
+/* Подпись у кнопок выбора победителя: без неё два ника подряд читаются
+   как что угодно. */
+.who {
+  color: var(--txt3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* Строки маппула сгруппированы по мод-тегам — как в эталоне превью. */
 .pool {
   display: flex;

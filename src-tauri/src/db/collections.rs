@@ -27,8 +27,10 @@ fn row_to_collection(row: &rusqlite::Row) -> rusqlite::Result<Collection> {
     })
 }
 
-/// Счётчик карт есть только у обычных коллекций: у умной состав считается
-/// на лету, и гнать этот подсчёт на каждый показ дерева слишком дорого.
+/// Счётчик карт. У обычной коллекции это число строк в ней; у умной —
+/// размер выдачи по сохранённому фильтру. Умных обычно несколько, и гнать
+/// подсчёт каждого на каждый показ дорого, поэтому считаем один раз
+/// запросом по всем коллекциям сразу.
 const LIST_SQL: &str = "SELECT c.id, c.name, c.color, c.icon, c.folder_id, c.position,
             c.is_smart, c.filter, c.created_at,
             CASE WHEN c.is_smart = 1 THEN 0 ELSE (
@@ -45,6 +47,14 @@ pub fn list(conn: &Connection) -> Result<Vec<Collection>> {
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
+    }
+
+    // Умные коллекции: их состав — это фильтр, и счётчик заполняем живым
+    // подсчётом, а не нулём из списка. Считаем только те, что есть на экране.
+    for c in out.iter_mut().filter(|c| c.is_smart) {
+        if let Some(filter) = &c.filter {
+            c.count = super::beatmaps::count_for(conn, filter)?;
+        }
     }
     Ok(out)
 }

@@ -716,6 +716,24 @@ pub fn ids_for(conn: &Connection, f: &LibraryFilter) -> Result<Vec<i64>> {
     Ok(out)
 }
 
+/// Сколько карт попадает под фильтр. Нужен счётчику умной коллекции:
+/// её состав нигде не хранится и считается по сохранённым условиям.
+pub fn count_for(conn: &Connection, f: &LibraryFilter) -> Result<i64> {
+    let w = build_where(conn, f)?;
+    let where_sql = if w.conds.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", w.conds.join(" AND "))
+    };
+    let sql = format!(
+        "SELECT COUNT(*) FROM beatmaps b{joins}{where_sql}",
+        joins = w.joins
+    );
+
+    let refs: Vec<&dyn ToSql> = w.args.iter().map(|a| a.as_ref()).collect();
+    Ok(conn.query_row(&sql, refs.as_slice(), |r| r.get(0))?)
+}
+
 /// Сколько карт ещё без мод-тегов. Отдельным запросом, а не через `list`:
 /// дереву нужно одно число, а не страница.
 pub fn count_without_mods(conn: &Connection) -> Result<i64> {

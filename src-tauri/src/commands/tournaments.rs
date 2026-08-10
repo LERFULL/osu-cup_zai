@@ -4,7 +4,7 @@ use tauri::State;
 
 use crate::db::tournaments as db;
 use crate::error::Result;
-use crate::model::{Bracket, ByRound, Tournament};
+use crate::model::{Bracket, ByRound, PoolOverlap, Tournament};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -122,7 +122,9 @@ pub async fn set_tournament_pools(
         .with_tx(|tx| Ok(db::set_pools(tx, id, &pool_ids)?))
 }
 
-/// Строит сетку. С этого момента состав участников закрыт.
+/// Строит сетку и показывает её на утверждение. Состав с этого момента
+/// закрыт, но турнир ещё не идёт: сетку можно пересобрать или вернуть
+/// в черновик.
 #[tauri::command]
 pub async fn start_tournament(state: State<'_, Arc<AppState>>, id: i64) -> Result<Bracket> {
     state.db.with_tx(|tx| {
@@ -131,9 +133,42 @@ pub async fn start_tournament(state: State<'_, Arc<AppState>>, id: i64) -> Resul
     })
 }
 
+/// Утверждает сетку: матчи можно играть.
+#[tauri::command]
+pub async fn confirm_tournament(state: State<'_, Arc<AppState>>, id: i64) -> Result<Bracket> {
+    state.db.with_tx(|tx| {
+        db::confirm(tx, id)?;
+        Ok(db::bracket_of(tx, id)?)
+    })
+}
+
+/// Возвращает турнир в черновик и стирает несыгранную сетку.
+#[tauri::command]
+pub async fn reopen_tournament(state: State<'_, Arc<AppState>>, id: i64) -> Result<Bracket> {
+    state.db.with_tx(|tx| {
+        db::reopen(tx, id)?;
+        Ok(db::bracket_of(tx, id)?)
+    })
+}
+
 #[tauri::command]
 pub async fn tournament_bracket(state: State<'_, Arc<AppState>>, id: i64) -> Result<Bracket> {
     state.db.with(|conn| Ok(db::bracket_of(conn, id)?))
+}
+
+/// Карты, попавшие сразу в несколько маппулов турнира.
+///
+/// Повтор внутри одного турнира — это карта, которая всплывёт в двух
+/// матчах: следить за этим по строкам вручную невозможно.
+#[tauri::command]
+pub async fn tournament_pool_overlaps(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+) -> Result<Vec<PoolOverlap>> {
+    state.db.with(|conn| {
+        let pool_ids = db::pools_of(conn, id)?;
+        Ok(crate::db::pools::overlaps_between_pools(conn, &pool_ids)?)
+    })
 }
 
 #[tauri::command]

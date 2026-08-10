@@ -391,6 +391,17 @@ pub struct GenReport {
     pub notes: Vec<String>,
 }
 
+/// Карта, попавшая сразу в несколько маппулов одного турнира.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolOverlap {
+    pub beatmap_id: i64,
+    /// «Исполнитель — название», как показывается в строке карты.
+    pub name: String,
+    /// Названия маппулов, в которых она встретилась.
+    pub pools: Vec<String>,
+}
+
 // ───────────────────────────────────────────────────────────── игроки
 
 #[derive(Debug, Clone, Serialize)]
@@ -416,6 +427,29 @@ pub struct PlayerVersus {
     pub losses: i64,
 }
 
+/// Строка истории выступлений: один турнир.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerAppearance {
+    pub tournament_id: i64,
+    pub tournament_name: String,
+    /// Когда закончился турнир. `None` — ещё идёт.
+    pub finished_at: Option<String>,
+    pub placement: Option<i64>,
+    pub matches: i64,
+    pub match_wins: i64,
+}
+
+/// Результаты по мод-тегу: сколько карт сыграно и выиграно.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModStats {
+    #[serde(rename = "mod")]
+    pub mod_tag: String,
+    pub played: i64,
+    pub won: i64,
+}
+
 /// Всё посчитано по матчам на момент запроса — отдельного счётчика,
 /// который мог бы разойтись с историей, нет.
 #[derive(Debug, Clone, Serialize)]
@@ -433,6 +467,10 @@ pub struct PlayerStats {
     pub best_mod: Option<String>,
     pub worst_mod: Option<String>,
     pub favourite_beatmap: Option<i64>,
+    /// Сыграно и выиграно по каждому мод-тегу.
+    pub by_mod: Vec<ModStats>,
+    /// По одному турниру на строку, новые сверху.
+    pub history: Vec<PlayerAppearance>,
     pub versus: Vec<PlayerVersus>,
 }
 
@@ -605,6 +643,9 @@ pub struct MatchState {
     pub target: i64,
     /// Кому осталась одна победа — метка «матчпоинт».
     pub match_point: Vec<i64>,
+    /// Правила и маппул не сходятся: карт не хватит доиграть до конца.
+    /// Пустой список — всё в порядке.
+    pub problems: Vec<String>,
 }
 
 /// Турнир вместе с сеткой — то, из чего рисуется экран турнира.

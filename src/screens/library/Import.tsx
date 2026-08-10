@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Area, Button, Panel } from '@/components';
 import * as ipc from '@/lib/ipc';
 import { maps } from '@/lib/format';
+import { useApp } from '@/store/app';
 import type { ImportProgress, ParsedLinks } from '@/lib/types';
 import s from './Import.module.css';
 
@@ -20,8 +21,9 @@ https://osu.ppy.sh/beatmapsets/1084284`;
 export function Import({ onClose, onDone }: Props) {
   const [text, setText] = useState('');
   const [found, setFound] = useState<ParsedLinks | null>(null);
-  const [progress, setProgress] = useState<ImportProgress | null>(null);
-  const batch = useRef<string | null>(null);
+  // Прогресс живёт в сторе: окно можно закрыть и уйти в другой раздел,
+  // загрузка от этого не прервётся.
+  const { importing: progress, startImport } = useApp();
 
   // Разбор идёт на каждое изменение — он не ходит в сеть и стоит копейки.
   useEffect(() => {
@@ -38,21 +40,12 @@ export function Import({ onClose, onDone }: Props) {
     };
   }, [text]);
 
-  useEffect(() => {
-    const un = ipc.onImportProgress((p) => {
-      if (batch.current === null || p.batchId === batch.current) setProgress(p);
-    });
-    return () => {
-      void un.then((f) => f());
-    };
-  }, []);
-
   const total = found ? found.beatmapIds.length + found.beatmapsetIds.length : 0;
   const running = progress !== null && progress.stage !== 'done' && progress.stage !== 'cancelled';
 
   async function start() {
     if (!found || total === 0) return;
-    batch.current = await ipc.importLinks(found);
+    await startImport(found);
   }
 
   const done = progress?.stage === 'done';
@@ -124,9 +117,16 @@ export function Import({ onClose, onDone }: Props) {
             Показать в библиотеке
           </Button>
         ) : (
-          <Button variant="primary" disabled={total === 0 || running} onClick={() => void start()}>
-            {running ? 'Загружаю…' : `Загрузить ${total > 0 ? maps(total) : ''}`}
-          </Button>
+          <>
+            <Button variant="primary" disabled={total === 0 || running} onClick={() => void start()}>
+              {running ? 'Загружаю…' : `Загрузить ${total > 0 ? maps(total) : ''}`}
+            </Button>
+            {running ? (
+              // Загрузка идёт в фоне и не привязана к этому окну: за ней
+              // видно по карточке в рейле из любого раздела.
+              <Button onClick={onClose}>Свернуть и заняться другим</Button>
+            ) : null}
+          </>
         )}
       </div>
     </Panel>

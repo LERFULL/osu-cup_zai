@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useApp } from '@/store/app';
-import { Rail } from '@/components';
+import { ImportCard, Rail } from '@/components';
 import Onboarding from '@/screens/Onboarding';
 import Library from '@/screens/Library';
 import Players from '@/screens/Players';
@@ -64,9 +64,12 @@ export default function App() {
         active={route}
         onSelect={(id) => go(id as typeof route)}
         footer={
-          <button className={s.railBtn} onClick={() => go('settings')} type="button">
-            <span aria-hidden>⚙</span> Настройки
-          </button>
+          <>
+            <ImportCard />
+            <button className={s.railBtn} onClick={() => go('settings')} type="button">
+              <span aria-hidden>⚙</span> Настройки
+            </button>
+          </>
         }
       />
       <main className={s.main}>

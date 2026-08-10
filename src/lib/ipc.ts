@@ -25,6 +25,7 @@ import type {
   PlayerStats,
   Pool,
   PoolField,
+  PoolOverlap,
   PoolStatus,
   PoolTemplate,
   QueueStatus,
@@ -200,6 +201,14 @@ export const getSlotFilter = (poolId: number, position: number) =>
 export const generatePool = (templateId: number, name: string) =>
   invoke<GenReport>('generate_pool', { templateId, name });
 
+/** Серия маппулов под турнир: карты внутри серии не повторяются. */
+export const generatePoolSeries = (templateId: number, names: string[]) =>
+  invoke<GenReport[]>('generate_pool_series', { templateId, names });
+
+/** Карты, попавшие сразу в несколько маппулов турнира. */
+export const tournamentPoolOverlaps = (id: number) =>
+  invoke<PoolOverlap[]>('tournament_pool_overlaps', { id });
+
 export const rerollPool = (poolId: number, keepPinned: boolean) =>
   invoke<GenReport>('reroll_pool', { poolId, keepPinned });
 
@@ -260,6 +269,15 @@ export const deletePlayer = (id: number) => invoke<void>('delete_player', { id }
 
 export const playerStats = (id: number) => invoke<PlayerStats>('player_stats', { id });
 
+/** Тянет аватар с osu! по ID профиля. Возвращает игрока с путём к файлу. */
+export const fetchPlayerAvatar = (id: number) =>
+  invoke<Player>('fetch_player_avatar', { id });
+
+/** Обновляет устаревшие аватары и подтягивает недостающие. Молча:
+ *  без сети просто вернёт список как есть. */
+export const refreshPlayerAvatars = (includeArchived = false) =>
+  invoke<Player[]>('refresh_player_avatars', { includeArchived });
+
 // ────────────────────────────────────────────────────────────── турниры
 
 export const listTournaments = () => invoke<Tournament[]>('list_tournaments');
@@ -304,8 +322,14 @@ export const setTournamentPlayerColor = (id: number, playerId: number, color: st
 export const setTournamentPools = (id: number, poolIds: number[]) =>
   invoke<void>('set_tournament_pools', { id, poolIds });
 
-/** Строит сетку. Дальше состав участников закрыт. */
+/** Строит сетку и показывает её на утверждение. Состав дальше закрыт. */
 export const startTournament = (id: number) => invoke<Bracket>('start_tournament', { id });
+
+/** Утверждает сетку: с этого момента матчи можно играть. */
+export const confirmTournament = (id: number) => invoke<Bracket>('confirm_tournament', { id });
+
+/** Возвращает турнир в черновик и стирает несыгранную сетку. */
+export const reopenTournament = (id: number) => invoke<Bracket>('reopen_tournament', { id });
 
 export const tournamentBracket = (id: number) => invoke<Bracket>('tournament_bracket', { id });
 

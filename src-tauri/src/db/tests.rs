@@ -651,6 +651,82 @@ fn builtin_templates_are_seeded_once() {
 }
 
 #[test]
+fn series_never_repeats_a_map_across_its_pools() {
+    let conn = db();
+    // Девять карт на три пула по три слота — хватает ровно впритык.
+    for id in 1..=9 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM", "TB"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None), slot_in("TB", 1, None)]).unwrap();
+
+    let names = vec!["Раунд 1".to_string(), "Раунд 2".to_string(), "Раунд 3".to_string()];
+    let reports = generate::generate_series(&conn, t.id, &names).unwrap();
+    assert_eq!(reports.len(), 3);
+
+    let mut seen = std::collections::HashSet::new();
+    for r in &reports {
+        for slot in &r.pool.slots {
+            let id = slot.beatmap_id.expect("карт должно хватить на все слоты");
+            assert!(
+                seen.insert(id),
+                "карта {id} попала в два маппула одного турнира"
+            );
+        }
+    }
+    assert_eq!(seen.len(), 9);
+}
+
+#[test]
+fn series_reports_when_library_runs_dry() {
+    let conn = db();
+    // Карт на два пула не хватает: во втором останутся пустые слоты.
+    for id in 1..=4 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM", "TB"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None), slot_in("TB", 1, None)]).unwrap();
+
+    let names = vec!["Раунд 1".to_string(), "Раунд 2".to_string()];
+    let reports = generate::generate_series(&conn, t.id, &names).unwrap();
+
+    let second = &reports[1];
+    assert!(
+        second.notes.iter().any(|n| n.contains("не хватило карт")),
+        "о нехватке карт надо сказать, а не молча оставить пустые слоты: {:?}",
+        second.notes
+    );
+}
+
+#[test]
+fn overlapping_maps_between_pools_are_found() {
+    let conn = db();
+    for id in 1..=3 {
+        tagged(&conn, id, "mapper", 180.0, &["NM"]);
+    }
+
+    // Одну и ту же карту кладём в два разных пула — так бывает, когда
+    // маппулы собирали руками в разное время.
+    let first = pools::create(&conn, "Раунд 1", None).unwrap();
+    let second = pools::create(&conn, "Раунд 2", None).unwrap();
+    for pool in [first, second] {
+        pools::add_slot(&conn, pool, "NM").unwrap();
+        let slots = pools::get(&conn, pool).unwrap().slots;
+        pools::set_slot_beatmap(&conn, slots[0].id, Some(1)).unwrap();
+    }
+
+    let found = pools::overlaps_between_pools(&conn, &[first, second]).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].beatmap_id, 1);
+    assert_eq!(found[0].pools.len(), 2);
+
+    // Один пул сам с собой не пересекается.
+    assert!(pools::overlaps_between_pools(&conn, &[first]).unwrap().is_empty());
+}
+
+#[test]
 fn template_slots_are_replaced_wholesale() {
     let conn = db();
     let t = templates::create(&conn, "Свой").unwrap();
@@ -1049,7 +1125,15 @@ fn smart_collection_works_as_slot_source() {
 // ─────────────────────────────────────────────── игроки, турниры, матчи
 
 /// Турнир с готовой сеткой: игроки, маппул из трёх карт и запуск.
+/// Турнир с построенной и утверждённой сеткой — по нему можно играть.
 fn tournament(conn: &mut Connection, nicks: &[&str]) -> i64 {
+    let t = seeded_tournament(conn, nicks);
+    tournaments::confirm(conn, t).unwrap();
+    t
+}
+
+/// Турнир с построенной, но ещё не утверждённой сеткой.
+fn seeded_tournament(conn: &mut Connection, nicks: &[&str]) -> i64 {
     let t = tournaments::create(conn, "Кубок", 2, 1).unwrap();
     for nick in nicks {
         let p = players::create(conn, nick, None, None).unwrap();
@@ -1141,6 +1225,56 @@ fn roster_locked_after_start() {
 
     assert!(tournaments::add_player(&conn, t, extra).is_err());
     assert!(tournaments::start(&mut conn, t).is_err());
+}
+
+#[test]
+fn seeded_bracket_can_be_rebuilt_but_not_played() {
+    let mut conn = db();
+    let t = seeded_tournament(&mut conn, &["Ari", "Bo"]);
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(&conn, t, &[pool]).unwrap();
+
+    // Сетка построена, но турнир ещё не идёт.
+    assert_eq!(tournaments::get(&conn, t).unwrap().status, "seeded");
+
+    // Играть по неутверждённой сетке нельзя: она ещё может смениться.
+    let m = tournaments::bracket_of(&conn, t)
+        .unwrap()
+        .matches
+        .into_iter()
+        .find(|m| m.player_a.is_some() && m.player_b.is_some())
+        .unwrap();
+    let a = m.player_a.unwrap();
+    assert!(matches::set_first_ban(&conn, m.id, a).is_err());
+
+    // Зато можно пересобрать её заново, а потом запустить.
+    assert!(tournaments::start(&mut conn, t).is_ok());
+    tournaments::confirm(&conn, t).unwrap();
+    assert_eq!(tournaments::get(&conn, t).unwrap().status, "running");
+
+    let m = tournaments::bracket_of(&conn, t)
+        .unwrap()
+        .matches
+        .into_iter()
+        .find(|m| m.player_a.is_some() && m.player_b.is_some())
+        .unwrap();
+    assert!(matches::set_first_ban(&conn, m.id, m.player_a.unwrap()).is_ok());
+}
+
+#[test]
+fn reopen_returns_unplayed_bracket_to_draft() {
+    let mut conn = db();
+    let t = seeded_tournament(&mut conn, &["Ari", "Bo", "Cy"]);
+
+    tournaments::reopen(&conn, t).unwrap();
+    let back = tournaments::get(&conn, t).unwrap();
+    assert_eq!(back.status, "draft");
+    assert_eq!(back.bracket_size, 0);
+    assert!(tournaments::bracket_of(&conn, t).unwrap().matches.is_empty());
+
+    // Состав снова открыт.
+    let extra = players::create(&conn, "Di", None, None).unwrap();
+    assert!(tournaments::add_player(&conn, t, extra).is_ok());
 }
 
 /// Матч двух игроков с маппулом и назначенным первым баном.
@@ -1278,6 +1412,45 @@ fn manual_result_replaces_log() {
     // Бан из журнала ушёл вместе с остальной историей.
     assert!(!st.actions.iter().any(|x| x.kind == "ban"));
     let _ = a;
+}
+
+#[test]
+fn odd_roster_leaves_no_dead_matches() {
+    let mut conn = db();
+    // Пятеро на сетке в восемь мест: три матча первого раунда — техпобеды,
+    // а один матч нижней сетки остаётся вообще без участников.
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy", "Di", "Ed"]);
+
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+
+    // Ни один матч не должен ждать соперника, которому неоткуда взяться:
+    // такой матч запирал бы всю ветку до конца турнира.
+    for m in &br.matches {
+        let waiting_forever = m.status == "pending"
+            && m.player_a.is_none()
+            && m.player_b.is_none()
+            && !br
+                .matches
+                .iter()
+                .any(|src| {
+                    (src.next_win_slot == Some(m.id) || src.next_lose_slot == Some(m.id))
+                        && src.status != "finished"
+                });
+        assert!(
+            !waiting_forever,
+            "матч {} ({} r{}) заперт: игроки не придут",
+            m.id, m.bracket, m.round
+        );
+    }
+
+    // Все пятеро расставлены по сетке, никто не потерялся.
+    let seated: std::collections::HashSet<i64> = br
+        .matches
+        .iter()
+        .flat_map(|m| [m.player_a, m.player_b])
+        .flatten()
+        .collect();
+    assert_eq!(seated.len(), 5, "в сетке должны стоять все пятеро");
 }
 
 #[test]

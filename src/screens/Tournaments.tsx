@@ -7,6 +7,7 @@ import s from './Tournaments.module.css';
 
 const STATUS_LABEL: Record<Tournament['status'], string> = {
   draft: 'черновик',
+  seeded: 'сетка готова',
   running: 'идёт',
   finished: 'завершён',
 };
@@ -101,7 +102,7 @@ export default function Tournaments() {
           {...(t.status === 'running' ? ({ variant: 'primary' } as const) : {})}
           onClick={() => setOpen(t.id)}
         >
-          {t.status === 'draft' ? 'Собрать' : 'Открыть'}
+          {t.status === 'draft' ? 'Собрать' : t.status === 'seeded' ? 'Проверить сетку' : 'Открыть'}
         </Button>
         <button
           className={s.more}

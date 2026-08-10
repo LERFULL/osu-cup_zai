@@ -88,6 +88,18 @@
   border-radius: 50%;
 }
 
+/* Аватар из профиля osu!. Обводка — цветом игрока: в сетке и в матче
+   его узнают именно по цвету, и в списке это должно совпадать. */
+.avatar {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1.5px solid;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--card2);
+}
+
 .nick {
   overflow: hidden;
   font-size: 14.5px;

@@ -13,6 +13,8 @@ export type { ChipProps } from './Chip';
 export { Rail } from './Rail';
 export type { RailProps, RailItem } from './Rail';
 
+export { ImportCard } from './ImportCard';
+
 export { Panel } from './Panel';
 export type { PanelProps } from './Panel';
 

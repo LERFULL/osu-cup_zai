@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { ModTag } from '@/lib/types';
+import type { GripProps } from '@/lib/useReorder';
 import s from './SlotLine.module.css';
 
 type CssVars = CSSProperties & Record<string, string | number>;
@@ -21,10 +22,9 @@ export interface SlotLineProps {
   children: ReactNode;
   /** Правая часть строки — обычно диапазон или счётчик. */
   end?: ReactNode;
-  /** Ручка перетаскивания. Появляется, только если строку можно двигать. */
-  onDragStart?: () => void;
-  onDragOver?: () => void;
-  onDrop?: () => void;
+  /** Ручка перетаскивания. Появляется, только если строку можно двигать.
+   *  Обработчики приходят снаружи: порядок строк знает список, а не строка. */
+  gripProps?: GripProps;
   dragging?: boolean;
   className?: string;
 }
@@ -35,44 +35,19 @@ export function SlotLine({
   badge,
   children,
   end,
-  onDragStart,
-  onDragOver,
-  onDrop,
+  gripProps,
   dragging = false,
   className,
 }: SlotLineProps) {
   const style: CssVars = { '--mod': MOD_VAR[mod] };
-  const draggable = onDragStart !== undefined;
 
   return (
     <div
       className={[s.line, dragging ? s.dragging : null, className].filter(Boolean).join(' ')}
       style={style}
-      {...(draggable
-        ? {
-            onDragStart: () => onDragStart(),
-            onDragOver: (e) => {
-              e.preventDefault();
-              onDragOver?.();
-            },
-            onDrop: (e) => {
-              e.preventDefault();
-              onDrop?.();
-            },
-          }
-        : {})}
     >
-      {draggable ? (
-        <span
-          className={s.grip}
-          draggable
-          title="Потянуть, чтобы переставить"
-          onDragStart={(e) => {
-            // Без данных в переносе браузер отменяет перетаскивание сразу же.
-            e.dataTransfer.setData('text/plain', '');
-            e.dataTransfer.effectAllowed = 'move';
-          }}
-        >
+      {gripProps !== undefined ? (
+        <span className={s.grip} title="Потянуть, чтобы переставить" {...gripProps}>
           ⠿
         </span>
       ) : null}

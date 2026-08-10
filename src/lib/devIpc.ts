@@ -249,9 +249,14 @@ function candidates(slot: TemplateSlot): Beatmap[] {
 }
 
 /** Набор пула по шаблону. Заглушка берёт карты по порядку, без случайности. */
-function fill(p: Pool, t: PoolTemplate, keepPinned: boolean): { pool: Pool; notes: string[] } {
+function fill(
+  p: Pool,
+  t: PoolTemplate,
+  keepPinned: boolean,
+  seed: Set<number> = new Set(),
+): { pool: Pool; notes: string[] } {
   const kept = keepPinned ? p.slots.filter((x) => x.pinned) : [];
-  const used = new Set(kept.map((x) => x.beatmapId));
+  const used = new Set([...seed, ...kept.map((x) => x.beatmapId)]);
   const mappers = new Set(kept.map((x) => x.beatmap?.creator).filter(Boolean));
 
   const built: PoolSlot[] = [];
@@ -667,6 +672,46 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     };
     pools.push(made);
     return fill(made, t, false);
+  },
+
+  // Серия под турнир: каждый следующий пул не берёт карты предыдущих.
+  generate_pool_series: (a) => {
+    const t = template(a['templateId']);
+    const names = (a['names'] as string[]) ?? [];
+    const taken = new Set<number>();
+
+    return names.map((name, i) => {
+      const made: Pool = {
+        id: nextId++,
+        name: name.trim() === '' ? `${t.name} ${i + 1}` : name.trim(),
+        templateId: t.id,
+        templateName: t.name,
+        folderId: null,
+        status: 'draft',
+        version: 1,
+        parentPoolId: null,
+        displayFields: ['stars', 'length', 'bpm'],
+        isLocked: false,
+        createdAt: '2026-08-09T00:00:00Z',
+        slots: [],
+      };
+      pools.push(made);
+
+      const report = fill(made, t, false, taken);
+      for (const slot of report.pool.slots) {
+        if (slot.beatmapId !== null) taken.add(slot.beatmapId);
+      }
+
+      const empty = report.pool.slots.filter((x) => x.beatmapId === null).length;
+      const notes = [...report.notes];
+      if (empty > 0) {
+        notes.push(
+          `«${made.name}»: не хватило карт на ${empty} слотов — в библиотеке не осталось ` +
+            'подходящих, не занятых другими маппулами серии',
+        );
+      }
+      return { pool: report.pool, notes };
+    });
   },
   reroll_pool: (a) => {
     const p = pool(a['poolId']);

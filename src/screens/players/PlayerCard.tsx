@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Chip, Empty, Field } from '@/components';
 import type { Player, PlayerStats } from '@/lib/types';
+import { coverUrl } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import s from './PlayerCard.module.css';
 
@@ -9,17 +10,50 @@ interface Props {
   onClose: () => void;
 }
 
-/** Та же палитра, что раздаёт база новым игрокам, — цвета из токенов. */
-const PALETTE = [
-  '#ff6fb1',
-  '#5bc8f5',
-  '#7ed957',
-  '#ffd03b',
-  '#c77dff',
-  '#ff6b6b',
-  '#4dd6c1',
-  '#f7913d',
+/** Те же цвета, что раздаёт база: палитра, а дальше считаные по номеру.
+ *  Менять только парой с `db/players.rs`. */
+const PALETTE = ['#ff6fb1', '#5bc8f5', '#7ed957', '#ffd03b', '#c77dff', '#ff6b6b', '#4dd6c1', '#f7913d'];
+
+/** Насыщенность и светлота по кругу: близкие оттенки расходятся ещё и по яркости. */
+const TONES: [number, number][] = [
+  [0.62, 0.66],
+  [0.78, 0.58],
+  [0.52, 0.74],
 ];
+
+function colorAt(n: number): string {
+  if (n < PALETTE.length) return PALETTE[n]!;
+
+  // Золотое сечение по кругу оттенков: точки не сходятся в кучу даже на сотне.
+  const step = n - PALETTE.length;
+  const hue = (196 + step * 137.508) % 360;
+  const [sat, light] = TONES[step % TONES.length]!;
+
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = light - c / 2;
+  const [r, g, b] =
+    hue < 60
+      ? [c, x, 0]
+      : hue < 120
+        ? [x, c, 0]
+        : hue < 180
+          ? [0, c, x]
+          : hue < 240
+            ? [0, x, c]
+            : hue < 300
+              ? [x, 0, c]
+              : [c, 0, x];
+
+  const hex = (v: number) =>
+    Math.round((v + m) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${hex(r)}${hex(g)}${hex(b)}`;
+}
+
+/** Сколько цветов показывать в карточке: палитра плюс запас на большой турнир. */
+const SWATCHES = Array.from({ length: 24 }, (_, i) => colorAt(i));
 
 /** Доля побед в процентах. Без сыгранного показываем прочерк. */
 function rate(won: number, total: number): string {
@@ -37,6 +71,7 @@ export function PlayerCard({ id, onClose }: Props) {
   const [osuId, setOsuId] = useState('');
   const [note, setNote] = useState('');
   const [color, setColor] = useState('');
+  const [pulling, setPulling] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -77,6 +112,30 @@ export function PlayerCard({ id, onClose }: Props) {
     }
   }
 
+  /** Тянет аватар с osu!. ID должен быть уже сохранён — иначе тянуть нечего. */
+  async function pullAvatar() {
+    setPulling(true);
+    try {
+      const trimmed = osuId.trim();
+      // Сохраняем ID заранее: иначе кнопка потянула бы аватар прошлого профиля.
+      if (trimmed !== '' && Number(trimmed) !== player?.osuUserId) {
+        await ipc.updatePlayer(
+          id,
+          nickname,
+          Number(trimmed),
+          color,
+          note.trim() === '' ? null : note,
+        );
+      }
+      await ipc.fetchPlayerAvatar(id);
+      await reload();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setPulling(false);
+    }
+  }
+
   if (player === null) {
     return (
       <div className={s.screen}>
@@ -104,7 +163,16 @@ export function PlayerCard({ id, onClose }: Props) {
         <button className={s.back} onClick={onClose} type="button">
           ← Игроки
         </button>
-        <span className={s.dot} style={{ background: player.color }} aria-hidden />
+        {player.avatarPath !== null ? (
+          <img
+            className={s.barAvatar}
+            src={coverUrl(player.avatarPath) ?? ''}
+            alt=""
+            style={{ borderColor: player.color }}
+          />
+        ) : (
+          <span className={s.dot} style={{ background: player.color }} aria-hidden />
+        )}
         <h1 className={s.h1}>{player.nickname}</h1>
         {player.isArchived && <span className={s.tag}>в архиве</span>}
         <div className={s.right}>
@@ -126,19 +194,52 @@ export function PlayerCard({ id, onClose }: Props) {
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
             />
-            <Field
-              label="ID профиля osu!"
-              hint="Необязательно — нужен, чтобы подтянуть аватар"
-              value={osuId}
-              inputMode="numeric"
-              onChange={(e) => setOsuId(e.target.value.replace(/\D/g, ''))}
-            />
+
+            <div className={s.osuRow}>
+              <div className={s.osuField}>
+                <Field
+                  label="ID профиля osu!"
+                  hint="Нужен, чтобы подтянуть аватар из профиля"
+                  value={osuId}
+                  inputMode="numeric"
+                  onChange={(e) => setOsuId(e.target.value.replace(/\D/g, ''))}
+                />
+              </div>
+
+              <div className={s.avatarBox}>
+                {player.avatarPath !== null ? (
+                  <img
+                    className={s.avatar}
+                    src={coverUrl(player.avatarPath) ?? ''}
+                    alt=""
+                    style={{ borderColor: player.color }}
+                  />
+                ) : (
+                  <div className={s.avatarEmpty} style={{ borderColor: player.color }} aria-hidden>
+                    {player.nickname.slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  disabled={osuId.trim() === '' || pulling}
+                  onClick={() => void pullAvatar()}
+                  title={
+                    osuId.trim() === ''
+                      ? 'Сначала укажи ID профиля'
+                      : 'Скачать аватар из профиля osu!'
+                  }
+                >
+                  {pulling ? 'Тяну…' : player.avatarPath !== null ? 'Обновить' : 'Подтянуть'}
+                </Button>
+              </div>
+            </div>
+
             <Field label="Заметка" value={note} onChange={(e) => setNote(e.target.value)} />
 
             <div className={s.colorRow}>
               <span className={s.label}>Цвет</span>
               <div className={s.swatches}>
-                {PALETTE.map((c) => (
+                {SWATCHES.map((c) => (
                   <button
                     key={c}
                     className={color.toLowerCase() === c.toLowerCase() ? s.swatchOn : s.swatch}
@@ -207,6 +308,65 @@ export function PlayerCard({ id, onClose }: Props) {
             )}
           </section>
         </div>
+
+        <section className={s.block}>
+          <div className={s.blockTitle}>Как идут моды</div>
+          {stats === null || stats.byMod.length === 0 ? (
+            <div className={s.muted}>Ещё не сыграно ни одной карты.</div>
+          ) : (
+            <div className={s.bars}>
+              {stats.byMod.map((m) => {
+                const percent = m.played === 0 ? 0 : Math.round((m.won / m.played) * 100);
+                return (
+                  <div key={m.mod} className={s.bar}>
+                    <span className={s.barMod} data-mod={m.mod}>
+                      {m.mod}
+                    </span>
+                    <div className={s.barTrack}>
+                      {/* Полоса — доля выигранных карт: сравнивать моды между
+                          собой на глаз проще, чем читать проценты. */}
+                      <div
+                        className={s.barFill}
+                        style={{ width: `${percent}%`, background: `var(--${m.mod.toLowerCase()})` }}
+                      />
+                    </div>
+                    <span className={s.barValue}>
+                      {m.won}/{m.played}
+                      <span className={s.barPercent}>{percent}%</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className={s.block}>
+          <div className={s.blockTitle}>Выступления</div>
+          {stats === null || stats.history.length === 0 ? (
+            <div className={s.muted}>Ещё не играл ни в одном турнире.</div>
+          ) : (
+            <div className={s.history}>
+              {stats.history.map((h) => (
+                <div key={h.tournamentId} className={s.hrow}>
+                  <span
+                    className={h.placement === 1 ? s.placeGold : s.place}
+                    title={h.placement === null ? 'Турнир ещё идёт' : `Место ${h.placement}`}
+                  >
+                    {h.placement === null ? '—' : h.placement === 1 ? '♛' : h.placement}
+                  </span>
+                  <span className={s.hname}>{h.tournamentName}</span>
+                  <span className={s.hscore}>
+                    {h.matchWins}/{h.matches} матчей
+                  </span>
+                  <span className={s.hwhen}>
+                    {h.finishedAt === null ? 'идёт' : h.finishedAt.slice(0, 10)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className={s.block}>
           <div className={s.blockTitle}>Личные счёты</div>

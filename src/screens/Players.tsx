@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Empty, Menu, MenuItem, MenuSeparator, Switch } from '@/components';
 import type { Player } from '@/lib/types';
+import { coverUrl } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { PlayerCard } from './players/PlayerCard';
 import s from './Players.module.css';
@@ -24,6 +25,24 @@ export default function Players() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Аватар в профиле меняют когда угодно — раз в неделю перекачиваем его
+  // сами. Список уже показан, обновление доезжает следом и молча: без
+  // сети аватары просто останутся прежними.
+  useEffect(() => {
+    let alive = true;
+    void ipc
+      .refreshPlayerAvatars(showArchived)
+      .then((fresh) => {
+        if (alive) setPlayers(fresh);
+      })
+      .catch(() => {
+        // Молчим намеренно: не та задача, ради которой стоит ругаться.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [showArchived]);
 
   if (open !== null) {
     return (
@@ -103,7 +122,16 @@ export default function Players() {
                 role="button"
                 tabIndex={0}
               >
-                <span className={s.dot} style={{ background: p.color }} aria-hidden />
+                {p.avatarPath !== null ? (
+                  <img
+                    className={s.avatar}
+                    src={coverUrl(p.avatarPath) ?? ''}
+                    alt=""
+                    style={{ borderColor: p.color }}
+                  />
+                ) : (
+                  <span className={s.dot} style={{ background: p.color }} aria-hidden />
+                )}
                 <span className={s.nick}>{p.nickname}</span>
                 {p.osuUserId !== null && <span className={s.osu}>osu! {p.osuUserId}</span>}
                 {p.isArchived && <span className={s.tag}>в архиве</span>}

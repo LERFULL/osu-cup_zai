@@ -4,6 +4,7 @@
 pub mod beatmaps;
 pub mod bracket;
 pub mod collections;
+pub mod feasible;
 pub mod generate;
 pub mod labels;
 pub mod matches;

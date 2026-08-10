@@ -65,6 +65,17 @@ pub fn set_first_ban(conn: &Connection, match_id: i64, player_id: i64) -> Result
         "этот игрок не участвует в матче"
     );
 
+    // Сетку ещё могут пересобрать — играть по ней рано.
+    let status: String = conn.query_row(
+        "SELECT status FROM tournaments WHERE id = ?1",
+        params![m.tournament_id],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(
+        status != "seeded",
+        "сетка ещё не запущена — подтверди её на экране турнира"
+    );
+
     conn.execute(
         "UPDATE matches
             SET first_ban_by = ?2,
@@ -233,6 +244,19 @@ pub fn state(conn: &Connection, match_id: i64) -> Result<MatchState> {
         match_point.extend(m.player_b);
     }
 
+    // Правила и маппул задавались порознь — сверяем их до первого бана.
+    let problems = if m.pool_id.is_some() {
+        let playable = rows.iter().filter(|r| r.mod_tag != "TB").count() as i64;
+        super::feasible::check(super::feasible::Demand {
+            playable,
+            has_tiebreaker: rows.iter().any(|r| r.mod_tag == "TB"),
+            target,
+            bans_each: bans,
+        })
+    } else {
+        Vec::new()
+    };
+
     Ok(MatchState {
         tournament_name: t.name.clone(),
         players: t
@@ -246,6 +270,7 @@ pub fn state(conn: &Connection, match_id: i64) -> Result<MatchState> {
         phase,
         target,
         match_point,
+        problems,
         match_info: m,
     })
 }

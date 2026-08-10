@@ -21,6 +21,7 @@ import type {
   Tournament,
   TournamentPlayer,
 } from './types';
+import { checkFeasible } from './feasible';
 
 type Args = Record<string, unknown>;
 
@@ -35,6 +36,47 @@ const PALETTE = [
   '#4dd6c1',
   '#f7913d',
 ];
+
+/** Насыщенность и светлота по кругу — как в `db/players.rs`. */
+const TONES: [number, number][] = [
+  [0.62, 0.66],
+  [0.78, 0.58],
+  [0.52, 0.74],
+];
+
+/**
+ * Цвет по номеру. Первые восемь — палитра, дальше считаем свои: на турнир
+ * в двадцать человек восьми цветов не хватает, а повторы в сетке не различить.
+ */
+function colorAt(n: number): string {
+  if (n < PALETTE.length) return PALETTE[n]!;
+
+  const step = n - PALETTE.length;
+  const hue = (196 + step * 137.508) % 360;
+  const [sat, light] = TONES[step % TONES.length]!;
+
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = light - c / 2;
+  const [r, g, b] =
+    hue < 60
+      ? [c, x, 0]
+      : hue < 120
+        ? [x, c, 0]
+        : hue < 180
+          ? [0, c, x]
+          : hue < 240
+            ? [0, x, c]
+            : hue < 300
+              ? [x, 0, c]
+              : [c, 0, x];
+
+  const hex = (v: number) =>
+    Math.round((v + m) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${hex(r)}${hex(g)}${hex(b)}`;
+}
 
 let nextId = 500;
 const newId = () => nextId++;
@@ -178,11 +220,11 @@ const findM = (id: unknown): DevMatch => {
 const at = (rule: ByRound, round: number): number => rule.rounds[String(round)] ?? rule.default;
 
 function freeColor(taken: string[]): string {
-  return (
-    PALETTE.find((c) => !taken.some((t) => t.toLowerCase() === c.toLowerCase())) ??
-    PALETTE[taken.length % PALETTE.length] ??
-    PALETTE[0]!
-  );
+  for (let n = 0; n < 512; n++) {
+    const candidate = colorAt(n);
+    if (!taken.some((t) => t.toLowerCase() === candidate.toLowerCase())) return candidate;
+  }
+  return PALETTE[0]!;
 }
 
 /** Счёт по сыгранным картам — как в Rust, считается из журнала. */
@@ -298,6 +340,68 @@ function close(m: DevMatch, winnerId: number, walkover: boolean) {
   promote(m);
 }
 
+/** Пул раздаётся на раунд заранее — как assign_pools в Rust. */
+function assignPools(t: Tournament) {
+  if (t.poolIds.length === 0) return;
+
+  const order = { upper: 0, lower: 1, grand: 2 } as const;
+  const stages: string[] = [];
+  for (const m of matches
+    .filter((x) => x.tournamentId === t.id)
+    .sort((x, y) => order[x.bracket] - order[y.bracket] || x.round - y.round)) {
+    const key = `${m.bracket}:${m.round}`;
+    if (!stages.includes(key)) stages.push(key);
+  }
+
+  for (const m of matches.filter((x) => x.tournamentId === t.id)) {
+    if (m.poolId !== null) continue;
+    const i = stages.indexOf(`${m.bracket}:${m.round}`);
+    m.poolId = t.poolIds[i % t.poolIds.length] ?? null;
+  }
+}
+
+/**
+ * Техпобеды и матчи, в которые уже некому прийти — как advance_walkovers
+ * в Rust. Матч без обоих игроков закрываем без победителя: иначе он
+ * навсегда останется «ждёт соперника» и запрёт всё, что за ним.
+ */
+function advanceWalkovers(t: Tournament) {
+  const mine = () => matches.filter((x) => x.tournamentId === t.id);
+  const sourcesDone = (m: DevMatch) =>
+    !mine().some(
+      (src) =>
+        (src.nextWinSlot === m.id || src.nextLoseSlot === m.id) && src.status !== 'finished',
+    );
+
+  for (;;) {
+    const alone = mine().find(
+      (m) =>
+        m.status === 'pending' &&
+        (m.playerA === null) !== (m.playerB === null) &&
+        sourcesDone(m),
+    );
+    if (alone !== undefined) {
+      close(alone, (alone.playerA ?? alone.playerB) as number, true);
+      continue;
+    }
+
+    const empty = mine().find(
+      (m) =>
+        m.status === 'pending' &&
+        m.playerA === null &&
+        m.playerB === null &&
+        mine().some((src) => src.nextWinSlot === m.id || src.nextLoseSlot === m.id) &&
+        sourcesDone(m),
+    );
+    if (empty === undefined) break;
+
+    empty.status = 'finished';
+    empty.winnerId = null;
+    empty.isWalkover = true;
+    empty.finishedAt = new Date().toISOString();
+  }
+}
+
 // ──────────────────────────────────────────────────────────── команды
 
 export function tournamentHandlers(
@@ -314,17 +418,28 @@ export function tournamentHandlers(
     if (scoreA === target - 1 && m.playerA !== null) matchPoint.push(m.playerA);
     if (scoreB === target - 1 && m.playerB !== null) matchPoint.push(m.playerB);
 
+    const rows = rowsOf(m, target, poolRows);
+
     return {
       ...m,
       scoreA,
       scoreB,
       tournamentName: t.name,
       players: t.players.filter((p) => p.playerId === m.playerA || p.playerId === m.playerB),
-      rows: rowsOf(m, target, poolRows),
+      rows,
       actions: m.actions,
       phase: phaseOf(m, target, bans),
       target,
       matchPoint,
+      problems:
+        m.poolId === null
+          ? []
+          : checkFeasible({
+              playable: rows.filter((r) => r.mod !== 'TB').length,
+              hasTiebreaker: rows.some((r) => r.mod === 'TB'),
+              target,
+              bansEach: bans,
+            }),
     };
   };
 
@@ -401,6 +516,18 @@ export function tournamentHandlers(
       return undefined;
     },
 
+    // Аватары тянутся с a.ppy.sh — в браузерной песочнице их не достать,
+    // поэтому в заглушке просто нечего показывать.
+    fetch_player_avatar: (a) => {
+      const p = players.find((x) => x.id === a['id']);
+      if (!p) throw new Error('Игрок не найден');
+      if (p.osuUserId === null) throw new Error('У игрока не указан ID профиля osu!');
+      return p;
+    },
+
+    refresh_player_avatars: (a) =>
+      players.filter((p) => (a['includeArchived'] === true ? true : !p.isArchived)),
+
     delete_player: (a) => {
       const played = tournaments.some((t) => t.players.some((p) => p.playerId === a['id']));
       if (played) throw new Error('Игрок уже участвовал в турнирах — убери его в архив');
@@ -436,6 +563,21 @@ export function tournamentHandlers(
 
       const mine = tournaments.filter((t) => t.players.some((p) => p.playerId === id));
 
+      // Разбивка по модам: тег берём из строки маппула, как в Rust.
+      const perMod = new Map<string, { played: number; won: number }>();
+      for (const m of own) {
+        const rows = m.poolId === null ? [] : poolRows(m.poolId);
+        for (const x of m.actions) {
+          if (x.type !== 'result') continue;
+          const mod = rows.find((r) => r.slotLabel === x.slotLabel)?.mod;
+          if (mod === undefined) continue;
+          const cell = perMod.get(mod) ?? { played: 0, won: 0 };
+          cell.played += 1;
+          if (x.winnerId === id) cell.won += 1;
+          perMod.set(mod, cell);
+        }
+      }
+
       return {
         playerId: id,
         tournaments: mine.length,
@@ -453,6 +595,20 @@ export function tournamentHandlers(
         bestMod: null,
         worstMod: null,
         favouriteBeatmap: null,
+        byMod: [...perMod.entries()]
+          .map(([mod, v]) => ({ mod, ...v }))
+          .sort((x, y) => x.mod.localeCompare(y.mod)),
+        history: mine.map((t) => {
+          const inThis = finished.filter((m) => m.tournamentId === t.id);
+          return {
+            tournamentId: t.id,
+            tournamentName: t.name,
+            finishedAt: t.finishedAt,
+            placement: t.players.find((p) => p.playerId === id)?.placement ?? null,
+            matches: inThis.length,
+            matchWins: inThis.filter((m) => m.winnerId === id).length,
+          };
+        }),
         versus: [...versus.entries()].map(([playerId, v]) => ({
           playerId,
           nickname: players.find((p) => p.id === playerId)?.nickname ?? 'игрок',
@@ -581,7 +737,7 @@ export function tournamentHandlers(
           slotInBracket: seat.slot,
           playerA: seat.playerA,
           playerB: seat.playerB,
-          poolId: t.poolIds[0] ?? null,
+          poolId: null,
           status: 'pending',
           winnerId: null,
           isWalkover: false,
@@ -597,20 +753,70 @@ export function tournamentHandlers(
         });
       });
 
-      t.status = 'running';
+      // Сетка построена, но турнир ещё не идёт: её можно рассмотреть
+      // и пересобрать. Играть по ней разрешает только confirm.
+      t.status = 'seeded';
       t.bracketSize = size;
 
-      // Место без соперника проходит дальше без игры.
-      for (const m of matches.filter((x) => x.tournamentId === t.id)) {
-        if (m.round !== 1 || m.bracket !== 'upper') continue;
-        if ((m.playerA === null) === (m.playerB === null)) continue;
-        close(m, (m.playerA ?? m.playerB) as number, true);
-      }
+      assignPools(t);
+      advanceWalkovers(t);
+      return bracketOf(t);
+    },
 
+    confirm_tournament: (a) => {
+      const t = findT(a['id']);
+      if (t.status !== 'seeded') {
+        throw new Error('Запускать можно только построенную, но ещё не начатую сетку');
+      }
+      t.status = 'running';
+      return bracketOf(t);
+    },
+
+    reopen_tournament: (a) => {
+      const t = findT(a['id']);
+      const played = matches.some((m) => m.tournamentId === t.id && m.actions.length > 0);
+      if (played) throw new Error('В сетке уже играли — пересобрать её значит потерять результаты');
+
+      for (let k = matches.length - 1; k >= 0; k--) {
+        if (matches[k]?.tournamentId === t.id) matches.splice(k, 1);
+      }
+      t.status = 'draft';
+      t.bracketSize = 0;
       return bracketOf(t);
     },
 
     tournament_bracket: (a) => bracketOf(findT(a['id'])),
+
+    /** Карты, попавшие сразу в несколько маппулов турнира. */
+    tournament_pool_overlaps: (a) => {
+      const t = findT(a['id']);
+      const where = new Map<number, Set<string>>();
+
+      for (const id of t.poolIds) {
+        const name = poolNames().find((p) => p.id === id)?.name ?? `маппул ${id}`;
+        for (const row of poolRows(id)) {
+          const beatmapId = row.beatmap?.beatmapId;
+          if (beatmapId === undefined) continue;
+          const seen = where.get(beatmapId) ?? new Set<string>();
+          seen.add(name);
+          where.set(beatmapId, seen);
+        }
+      }
+
+      return [...where.entries()]
+        .filter(([, pools]) => pools.size > 1)
+        .map(([beatmapId, pools]) => {
+          const row = t.poolIds
+            .flatMap((id) => poolRows(id))
+            .find((r) => r.beatmap?.beatmapId === beatmapId);
+          const map = row?.beatmap;
+          return {
+            beatmapId,
+            name: map ? `${map.artist} — ${map.title}` : `карта ${beatmapId}`,
+            pools: [...pools],
+          };
+        });
+    },
 
     finish_tournament: (a) => {
       const t = findT(a['id']);

@@ -37,6 +37,56 @@
   border-radius: 50%;
 }
 
+/* Аватар в шапке — на месте цветной точки, обводка тем же цветом. */
+.barAvatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--card2);
+}
+
+/* ID профиля и аватар рядом: понятно, что одно тянет другое. */
+.osuRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.osuField {
+  flex: 1;
+  min-width: 0;
+}
+
+.avatarBox {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding-top: 18px;
+}
+
+.avatar,
+.avatarEmpty {
+  width: 56px;
+  height: 56px;
+  border: 2px solid;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--card2);
+}
+
+.avatarEmpty {
+  display: grid;
+  place-items: center;
+  color: var(--txt3);
+  font-size: 21px;
+  font-weight: 800;
+}
+
 .h1 {
   margin: 0;
   font-size: 19px;
@@ -236,4 +286,122 @@
   font-family: var(--mono);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── как идут моды ── */
+/* Доля выигранных карт полосой: сравнить моды между собой на глаз проще,
+   чем читать четыре процента подряд. */
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.barMod {
+  flex: 0 0 34px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--txt2);
+}
+
+.barTrack {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
+.barValue {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--txt2);
+  font-variant-numeric: tabular-nums;
+}
+
+.barPercent {
+  color: var(--txt);
+  font-weight: 600;
+}
+
+/* ── выступления ── */
+
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--card2);
+}
+
+.place,
+.placeGold {
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  height: 22px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--txt2);
+}
+
+/* Победа — единственное, что здесь светится. */
+.placeGold {
+  background: rgba(255, 208, 59, 0.16);
+  color: var(--gold);
+  box-shadow: 0 0 12px rgba(255, 208, 59, 0.25);
+}
+
+.hname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hscore {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--txt2);
+  font-variant-numeric: tabular-nums;
+}
+
+.hwhen {
+  flex: 0 0 74px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--txt3);
 }

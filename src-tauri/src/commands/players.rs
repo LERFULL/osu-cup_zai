@@ -71,3 +71,74 @@ pub async fn delete_player(state: State<'_, Arc<AppState>>, id: i64) -> Result<(
 pub async fn player_stats(state: State<'_, Arc<AppState>>, id: i64) -> Result<PlayerStats> {
     state.db.with(|conn| Ok(db::stats(conn, id)?))
 }
+
+/// Тянет аватар с osu! по ID профиля и запоминает путь к файлу.
+///
+/// Отдельной командой, а не побочным действием сохранения: сеть может
+/// быть недоступна, и это не повод отказываться сохранять игрока.
+#[tauri::command]
+pub async fn fetch_player_avatar(state: State<'_, Arc<AppState>>, id: i64) -> Result<Player> {
+    let osu_user_id = state.db.with(|conn| {
+        let player = db::get(conn, id)?;
+        Ok(player.and_then(|p| p.osu_user_id))
+    })?;
+
+    let Some(osu_user_id) = osu_user_id else {
+        return Err(crate::error::AppError::Other(
+            "У игрока не указан ID профиля osu!".into(),
+        ));
+    };
+
+    let bytes = state.osu.download_avatar(osu_user_id).await?;
+    let path = state.covers.put_avatar(osu_user_id, &bytes)?;
+    let path = path.to_string_lossy().to_string();
+
+    state.db.with(|conn| {
+        db::set_avatar_path(conn, id, Some(&path))?;
+        Ok(db::get(conn, id)?.expect("игрок только что читался"))
+    })
+}
+
+/// Аватар в профиле меняют когда угодно, поэтому раз в несколько дней
+/// перекачиваем его сами. Молча: обновление аватаров — не то, ради чего
+/// стоит показывать ошибку, если интернета сейчас нет.
+const AVATAR_STALE_DAYS: u64 = 7;
+
+/// Обновляет аватары, которым больше недели, и подтягивает недостающие.
+/// Возвращает список игроков — уже с новыми путями.
+#[tauri::command]
+pub async fn refresh_player_avatars(
+    state: State<'_, Arc<AppState>>,
+    include_archived: bool,
+) -> Result<Vec<Player>> {
+    let players = state.db.with(|conn| Ok(db::list(conn, include_archived)?))?;
+
+    for p in &players {
+        let Some(osu_user_id) = p.osu_user_id else {
+            continue;
+        };
+
+        let stale = match state.covers.avatar_age_days(osu_user_id) {
+            None => true,
+            Some(days) => days >= AVATAR_STALE_DAYS,
+        };
+        if !stale && p.avatar_path.is_some() {
+            continue;
+        }
+
+        // Сеть могла отвалиться — это не повод ронять весь список.
+        let Ok(bytes) = state.osu.download_avatar(osu_user_id).await else {
+            continue;
+        };
+        let Ok(path) = state.covers.put_avatar(osu_user_id, &bytes) else {
+            continue;
+        };
+
+        let path = path.to_string_lossy().to_string();
+        let _ = state
+            .db
+            .with(|conn| Ok(db::set_avatar_path(conn, p.id, Some(&path))?));
+    }
+
+    state.db.with(|conn| Ok(db::list(conn, include_archived)?))
+}

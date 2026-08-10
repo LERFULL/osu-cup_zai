@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Button,
   Chip,
@@ -20,6 +20,7 @@ import {
   type TemplateSlot,
 } from '@/lib/types';
 import { maps, slotConditions, slots as slotsWord } from '@/lib/format';
+import { useReorder } from '@/lib/useReorder';
 import * as ipc from '@/lib/ipc';
 import { useApp } from '@/store/app';
 import s from './TemplateEditor.module.css';
@@ -45,8 +46,6 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const drag = useRef<number | null>(null);
-
   const load = useCallback(async () => {
     try {
       const t = await ipc.getTemplate(id);
@@ -68,6 +67,20 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Порядок слотов правится на месте — в базу он уйдёт вместе с шаблоном. */
+  const move = useCallback((from: number, to: number) => {
+    setDraft((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      if (moved === undefined) return prev;
+      next.splice(to, 0, moved);
+      return next;
+    });
+    setDirty(true);
+  }, []);
+
+  const reorder = useReorder({ count: draft.length, onDrop: move });
 
   if (rules === null) {
     return (
@@ -110,19 +123,6 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
   function removeSlot(index: number) {
     setDraft((prev) => prev.filter((_, i) => i !== index));
     setOpen(null);
-    setDirty(true);
-  }
-
-  function move(to: number) {
-    const from = drag.current;
-    if (from === null || from === to) return;
-    setDraft((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      if (moved) next.splice(to, 0, moved);
-      return next;
-    });
-    drag.current = to;
     setDirty(true);
   }
 
@@ -240,13 +240,11 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
             ) : null}
 
             {draft.map((slot, i) => (
-              <div key={slot.id} className={s.slot}>
+              <div key={slot.id} className={s.slot} data-row style={reorder.rowStyle(i)}>
                 <SlotLine
                   mod={slot.mod}
                   badge={`${slot.mod}×${slot.count}`}
-                  onDragStart={() => (drag.current = i)}
-                  onDragOver={() => move(i)}
-                  onDrop={() => (drag.current = null)}
+                  gripProps={reorder.handleProps(i)}
                   end={
                     <>
                       <span className={s.count}>
