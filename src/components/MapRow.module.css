@@ -28,6 +28,8 @@
 
 /* ── обложка и подкраска модом ── */
 
+/* Обложка чуть заметнее, чем в превью: узнавать карту по картинке проще,
+   а читаемость текста держит градиент .shade, а не приглушение самого фото. */
 .cover {
   position: absolute;
   right: 0;
@@ -37,7 +39,7 @@
   pointer-events: none;
   background-size: cover;
   background-position: center 30%;
-  opacity: 0.4;
+  opacity: 0.55;
 }
 
 .shade {
@@ -289,8 +291,8 @@
 }
 
 .ban .cover {
-  filter: grayscale(1) brightness(0.4);
-  opacity: 0.28;
+  filter: grayscale(1) brightness(0.45);
+  opacity: 0.32;
 }
 
 .ban .shade {
@@ -382,8 +384,8 @@
 /* ── сыграна ── */
 
 .done .cover {
-  opacity: 0.19;
-  filter: saturate(0.5);
+  opacity: 0.3;
+  filter: saturate(0.55);
 }
 
 .done .title {
@@ -428,7 +430,7 @@
 }
 
 .lock .cover {
-  opacity: 0.13;
+  opacity: 0.18;
   filter: grayscale(0.7);
 }
 

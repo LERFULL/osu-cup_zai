@@ -1,0 +1,197 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+/* Победитель — единственное место, где неон работает в полную силу. */
+.champion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border: 1px solid rgba(255, 111, 177, 0.4);
+  border-radius: 14px;
+  background: rgba(255, 111, 177, 0.1);
+  box-shadow: 0 0 24px rgba(255, 111, 177, 0.14);
+  font-size: 14.5px;
+  font-weight: 800;
+}
+
+.crown {
+  color: var(--pink);
+  font-size: 16px;
+}
+
+.side {
+  min-width: 0;
+}
+
+.sideTitle {
+  margin-bottom: 11px;
+  color: var(--txt3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Сетка шире экрана на больших турнирах — колонки уезжают вбок. */
+.scroll {
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+
+.canvas {
+  position: relative;
+}
+
+.roundTitle {
+  position: absolute;
+  top: 0;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Линии связей лежат под карточками и не ловят мышь. */
+.links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.link {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1.5;
+  transition: stroke 0.2s;
+}
+
+.match {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  /* Кнопка не наследует цвет сама — без этого текст внутри чёрный. */
+  color: var(--txt);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  transition: border-color 0.14s, background 0.14s, box-shadow 0.14s;
+}
+
+/* Матч, который можно играть прямо сейчас. */
+.ready {
+  border-color: rgba(255, 111, 177, 0.4);
+  box-shadow: 0 0 18px rgba(255, 111, 177, 0.1);
+  cursor: pointer;
+}
+
+.ready:hover {
+  border-color: rgba(255, 111, 177, 0.75);
+  background: var(--card2);
+  box-shadow: 0 0 24px rgba(255, 111, 177, 0.18);
+}
+
+.done {
+  cursor: pointer;
+}
+
+.done:hover {
+  background: var(--card2);
+}
+
+.match:disabled {
+  opacity: 0.6;
+}
+
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.won {
+  background: rgba(126, 217, 87, 0.12);
+}
+
+.lost {
+  opacity: 0.45;
+}
+
+.seed,
+.seedEmpty {
+  flex: none;
+  width: 18px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-align: right;
+}
+
+/* Цвет игрока полосой, а не точкой: в мелком масштабе он читается лучше. */
+.stripe {
+  flex: none;
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+}
+
+.nick {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tbd {
+  overflow: hidden;
+  color: var(--txt3);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score,
+.scoreLead {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.score {
+  color: var(--txt3);
+}
+
+.scoreLead {
+  color: var(--txt);
+  font-weight: 700;
+}
+
+.tag {
+  position: absolute;
+  top: -7px;
+  right: 8px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--card2);
+  color: var(--txt3);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

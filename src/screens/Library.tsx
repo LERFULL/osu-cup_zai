@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button, Chip, Empty, MapRow, RangeSlider } from '@/components';
-import { MOD_TAGS, type Beatmap, type ModTag } from '@/lib/types';
+import { MOD_TAGS, type Beatmap, type LibraryFilter, type ModTag, type Place } from '@/lib/types';
 import { coverUrl, filterIsSet, filterSummary, maps } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { useApp } from '@/store/app';
@@ -21,8 +21,16 @@ interface Row {
   child: boolean;
 }
 
+/** Где находимся сейчас — выводится из фильтра. */
+function placeOf(filter: LibraryFilter): Place {
+  if (filter.noMods) return { kind: 'untagged' };
+  if (filter.collectionId !== null) return { kind: 'collection', id: filter.collectionId };
+  return { kind: 'all' };
+}
+
 export default function Library() {
-  const { filter, setFilter, resetFilter, collections, refreshCollections } = useApp();
+  const { filter, setFilter, resetFilter, collections, refreshCollections, refreshUntagged } =
+    useApp();
   const [importing, setImporting] = useState(false);
   const [opened, setOpened] = useState<number | null>(null);
   const [picked, setPicked] = useState<ReadonlySet<number>>(new Set());
@@ -80,6 +88,11 @@ export default function Library() {
     () => collections.find((c) => c.id === filter.collectionId) ?? null,
     [collections, filter.collectionId],
   );
+
+  const place = placeOf(filter);
+  const untagged = place.kind === 'untagged';
+  /** Название места — оно же заголовок области списка. */
+  const title = untagged ? 'Без мод-тегов' : (here?.name ?? 'Все карты');
 
   const dirty = filterIsSet(filter);
 
@@ -185,13 +198,38 @@ export default function Library() {
     await refreshCollections();
   }
 
+  /**
+   * Правка карты из карточки. В «Без мод-тегов» карта, которой только что
+   * проставили тег, этому месту уже не принадлежит — убираем её из списка
+   * сразу, а не по возвращении на экран.
+   */
+  function tagged(map: Beatmap) {
+    if (untagged && map.mods.length > 0) {
+      drop([map.beatmapId]);
+      if (opened === map.beatmapId) setOpened(null);
+    } else {
+      patch(map);
+    }
+  }
+
   return (
     <div className={s.screen}>
       <Tree
-        activeId={filter.collectionId}
-        onSelect={(id) => {
-          const target = collections.find((c) => c.id === id) ?? null;
-          setFilter({ collectionId: id });
+        place={place}
+        onSelect={(next) => {
+          if (next.kind === 'untagged') {
+            // Системный раздел и коллекция — разные места: вместе они бы
+            // показывали пересечение, которого пользователь не просил.
+            setFilter({ collectionId: null, noMods: true });
+            return;
+          }
+          if (next.kind === 'all') {
+            setFilter({ collectionId: null, noMods: false });
+            return;
+          }
+
+          const target = collections.find((c) => c.id === next.id) ?? null;
+          setFilter({ collectionId: next.id, noMods: false });
           // Умная коллекция сама себе фильтр: чужие условия она не применяет,
           // поэтому и показывать их набранными нечестно.
           if (target?.isSmart === true) resetFilter();
@@ -201,12 +239,12 @@ export default function Library() {
       <div className={s.main}>
         <header className={s.bar}>
           <div className={s.where}>
-            <h1 className={s.h1}>{here ? here.name : 'Все карты'}</h1>
+            <h1 className={s.h1}>{title}</h1>
             <span className={s.count}>{loading ? '…' : maps(total)}</span>
-            {here ? (
+            {place.kind !== 'all' ? (
               <button
                 className={s.exit}
-                onClick={() => setFilter({ collectionId: null })}
+                onClick={() => setFilter({ collectionId: null, noMods: false })}
                 type="button"
                 title="Выйти в «Все карты»"
               >
@@ -229,13 +267,21 @@ export default function Library() {
         </header>
 
         <div className={s.filters}>
-          <div className={s.mods}>
-            {MOD_TAGS.map((m) => (
-              <Chip key={m} active={filter.mods.includes(m)} onClick={() => toggleMod(m)}>
-                {m}
-              </Chip>
-            ))}
-          </div>
+          {/* В «Без мод-тегов» чипы модов не показываем: у этих карт тегов нет,
+              и любой выбранный дал бы гарантированно пустой список. */}
+          {untagged ? (
+            <span className={s.hint}>
+              Проставь мод-теги — и карта уедет отсюда в генерацию маппулов
+            </span>
+          ) : (
+            <div className={s.mods}>
+              {MOD_TAGS.map((m) => (
+                <Chip key={m} active={filter.mods.includes(m)} onClick={() => toggleMod(m)}>
+                  {m}
+                </Chip>
+              ))}
+            </div>
+          )}
 
           <div className={s.slider}>
             <RangeSlider
@@ -273,15 +319,22 @@ export default function Library() {
           {error ? (
             <Empty title="Не получилось прочитать библиотеку" note={error} />
           ) : items.length === 0 && !loading ? (
-            <Empty
-              title={here ? 'В этой коллекции пока пусто' : 'Здесь пока пусто'}
-              note="Вставь список ссылок на карты — прога найдёт их сама и загрузит."
-              actions={
-                <Button variant="primary" onClick={() => setImporting(true)}>
-                  Добавить по ссылкам
-                </Button>
-              }
-            />
+            untagged ? (
+              <Empty
+                title="Все карты размечены"
+                note="Как только появится карта без мод-тегов, она окажется здесь — и её будет видно, пока ей не проставят теги."
+              />
+            ) : (
+              <Empty
+                title={here ? 'В этой коллекции пока пусто' : 'Здесь пока пусто'}
+                note="Вставь список ссылок на карты — прога найдёт их сама и загрузит."
+                actions={
+                  <Button variant="primary" onClick={() => setImporting(true)}>
+                    Добавить по ссылкам
+                  </Button>
+                }
+              />
+            )
           ) : (
             <div className={s.canvas} style={{ height: rows.getTotalSize() }}>
               {virtual.map((v) => {
@@ -306,6 +359,7 @@ export default function Library() {
                       title={displayTitle(m)}
                       version={m.version}
                       mod={(m.mods[0] as ModTag) ?? 'NM'}
+                      untagged={m.mods.length === 0}
                       selected={picked.has(m.beatmapId)}
                       opened={opened === m.beatmapId}
                       checkbox
@@ -358,7 +412,8 @@ export default function Library() {
         <Card
           beatmapId={opened}
           onClose={() => setOpened(null)}
-          onChanged={patch}
+          onChanged={tagged}
+          onSaved={() => void refreshUntagged()}
           onOpen={setOpened}
           onDeleted={(ids) => {
             drop(ids);

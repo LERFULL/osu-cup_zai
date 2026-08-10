@@ -33,6 +33,9 @@ export interface MapRowBase {
   /** Метка слота маппула, например NM1. Без неё в шестиугольнике сам мод. */
   slot?: string;
   mod: ModTag;
+  /** У карты не проставлено ни одного мод-тега. Шестиугольник приглушён и
+   *  показывает прочерк: «NM по умолчанию» выдавал бы тег, которого нет. */
+  untagged?: boolean;
   /** Отмечена галочкой — попадёт под массовое действие. */
   selected?: boolean;
   /** Открыта в боковой панели. Подсвечивается рамкой, галочку не ставит:
@@ -79,6 +82,7 @@ export function MapRow(props: MapRowProps) {
     artist,
     slot,
     mod,
+    untagged,
     selected,
     opened,
     onClick,
@@ -251,7 +255,12 @@ export function MapRow(props: MapRowProps) {
       ) : null}
 
       <span className={s.hexslot}>
-        <Hex mod={mod} glow={glow} dim={muted} {...(slot !== undefined ? { label: slot } : {})} />
+        <Hex
+          mod={mod}
+          glow={glow && untagged !== true}
+          dim={muted || untagged === true}
+          {...(untagged === true ? { label: '—' } : slot !== undefined ? { label: slot } : {})}
+        />
       </span>
     </div>
   );

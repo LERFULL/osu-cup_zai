@@ -11,6 +11,8 @@ interface Props {
   beatmapId: number;
   onClose: () => void;
   onChanged: (map: Beatmap) => void;
+  /** Правка доехала до базы или откатилась: можно читать сводные счётчики. */
+  onSaved?: () => void;
   /** Карты убраны из библиотеки — список наверху пересобирается. */
   onDeleted: (beatmapIds: number[]) => void;
   /** Открыть другую сложность того же набора. */
@@ -18,7 +20,7 @@ interface Props {
 }
 
 /** Карточка карты: всё, что о ней известно, и всё, что в ней можно править. */
-export function Card({ beatmapId, onClose, onChanged, onDeleted, onOpen }: Props) {
+export function Card({ beatmapId, onClose, onChanged, onSaved, onDeleted, onOpen }: Props) {
   const [map, setMap] = useState<Beatmap | null>(null);
   const [siblings, setSiblings] = useState<Beatmap[]>([]);
   const [mod, setMod] = useState<ModTag>('NM');
@@ -78,7 +80,8 @@ export function Card({ beatmapId, onClose, onChanged, onDeleted, onOpen }: Props
         setMap(before);
         onChanged(before);
         setFailed(String(e));
-      });
+      })
+      .then(() => onSaved?.());
   }
 
   if (!map) {

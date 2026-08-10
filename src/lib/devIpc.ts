@@ -19,6 +19,7 @@ import type {
   TemplateSlot,
 } from './types';
 import { COLLECTIONS, LABELS, MAPS } from './mock';
+import { tournamentHandlers } from './devTournaments';
 import { EMPTY_FILTER, EMPTY_RULES } from './types';
 
 type Args = Record<string, unknown>;
@@ -63,6 +64,7 @@ function matches(m: Beatmap, f: LibraryFilter): boolean {
     const hay = `${m.artist} ${m.title} ${m.version} ${m.creator ?? ''}`.toLowerCase();
     if (!hay.includes(q)) return false;
   }
+  if (f.noMods && m.mods.length > 0) return false;
   if (f.mods.length > 0 && !m.mods.some((x) => f.mods.includes(x))) return false;
   if (f.skillsets.length > 0) {
     const own = m.skillsets.map((s) => s.skillset);
@@ -340,6 +342,7 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
 
     return { items: all.slice(offset, offset + limit), total: all.length, offset };
   },
+  count_without_mods: () => maps.filter((m) => m.mods.length === 0).length,
   get_beatmap: (a) => maps.find((m) => m.beatmapId === a['beatmapId']) ?? null,
   get_set_difficulties: (a) => {
     const set = a['beatmapsetId'];
@@ -707,6 +710,22 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     window.open(String(a['url']), '_blank', 'noopener');
     return undefined;
   },
+
+  // Игроки, турниры и матчи живут отдельным модулем: там своя механика
+  // сетки и журнала действий, и в общем списке она бы потерялась.
+  ...tournamentHandlers(
+    (poolId) =>
+      withMaps(pools.find((p) => p.id === poolId) ?? { slots: [] } as unknown as Pool).slots.map(
+        (slot) => ({
+          slotLabel: slot.slotLabel,
+          mod: slot.mod,
+          beatmap: slot.beatmap,
+          starRatingWithMods: slot.starRatingWithMods,
+          state: { kind: 'free' },
+        }),
+      ),
+    () => pools.map((p) => ({ id: p.id, name: p.name })),
+  ),
 };
 
 /** Ставится один раз при старте, если настоящего Tauri в окне нет. */

@@ -505,6 +505,15 @@ fn build_where(conn: &Connection, f: &LibraryFilter) -> Result<Where> {
         w.args.push(Box::new(cid));
     }
 
+    // «Без мод-тегов» — карта без единой записи в beatmap_mods. NOT EXISTS,
+    // а не «mod IS NULL»: у карты их несколько, а отсутствие — это именно
+    // отсутствие строк.
+    if f.no_mods {
+        w.conds.push(
+            "NOT EXISTS (SELECT 1 FROM beatmap_mods m WHERE m.beatmap_id = b.beatmap_id)".into(),
+        );
+    }
+
     if !f.mods.is_empty() {
         // Карта подходит, если разрешена хотя бы в одном из выбранных мод-тегов.
         w.conds.push(format!(
@@ -705,6 +714,17 @@ pub fn ids_for(conn: &Connection, f: &LibraryFilter) -> Result<Vec<i64>> {
         out.push(row?);
     }
     Ok(out)
+}
+
+/// Сколько карт ещё без мод-тегов. Отдельным запросом, а не через `list`:
+/// дереву нужно одно число, а не страница.
+pub fn count_without_mods(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM beatmaps b
+         WHERE NOT EXISTS (SELECT 1 FROM beatmap_mods m WHERE m.beatmap_id = b.beatmap_id)",
+        [],
+        |r| r.get(0),
+    )?)
 }
 
 // ───────────────────────────────────────────── пользовательские поля

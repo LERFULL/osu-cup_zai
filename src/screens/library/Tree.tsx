@@ -1,25 +1,26 @@
 import { useState } from 'react';
-import type { Collection } from '@/lib/types';
+import type { Collection, Place } from '@/lib/types';
 import { Button, Menu, MenuItem, MenuSeparator } from '@/components';
-import { filterIsSet, filterSummary } from '@/lib/format';
+import { filterIsSet, filterSummary, maps } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { useApp } from '@/store/app';
 import s from './Tree.module.css';
 
 interface Props {
-  activeId: number | null;
-  onSelect: (id: number | null) => void;
+  place: Place;
+  onSelect: (place: Place) => void;
 }
 
 /** Что именно создаём после выбора в меню. */
 type Making = { kind: 'plain' | 'smart'; name: string } | null;
 
 /**
- * Дерево коллекций. «Все карты» — всегда первый пункт и он же способ
- * выйти из любой коллекции.
+ * Дерево коллекций. Первые два пункта — системные: «Все карты» и «Без
+ * мод-тегов». Их нельзя удалить или переименовать, состав у них считается сам,
+ * и «Все карты» — он же способ выйти из любой коллекции.
  */
-export function Tree({ activeId, onSelect }: Props) {
-  const { collections, refreshCollections, filter, resetFilter } = useApp();
+export function Tree({ place, onSelect }: Props) {
+  const { collections, refreshCollections, untagged, filter, resetFilter } = useApp();
   const [adding, setAdding] = useState(false);
   const [making, setMaking] = useState<Making>(null);
   const [menu, setMenu] = useState<number | null>(null);
@@ -48,7 +49,7 @@ export function Tree({ activeId, onSelect }: Props) {
         : await ipc.createCollection(name, null);
 
     await refreshCollections();
-    onSelect(made.id);
+    onSelect({ kind: 'collection', id: made.id });
     // Условия уехали внутрь коллекции — оставлять их ещё и в чипах значит
     // показывать фильтр, который уже никуда не применяется.
     if (kind === 'smart') resetFilter();
@@ -57,7 +58,7 @@ export function Tree({ activeId, onSelect }: Props) {
   async function remove(id: number) {
     setMenu(null);
     await ipc.deleteCollection(id);
-    if (activeId === id) onSelect(null);
+    if (place.kind === 'collection' && place.id === id) onSelect({ kind: 'all' });
     await refreshCollections();
   }
 
@@ -73,14 +74,19 @@ export function Tree({ activeId, onSelect }: Props) {
     setMenu(null);
     const made = await ipc.duplicateCollection(c.id);
     await refreshCollections();
-    onSelect(made.id);
+    onSelect({ kind: 'collection', id: made.id });
   }
 
   const row = (c: Collection) => (
     <div key={c.id} className={s.rowWrap}>
       <button
-        className={[s.row, activeId === c.id ? s.on : null].filter(Boolean).join(' ')}
-        onClick={() => onSelect(c.id)}
+        className={[
+          s.row,
+          place.kind === 'collection' && place.id === c.id ? s.on : null,
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        onClick={() => onSelect({ kind: 'collection', id: c.id })}
         type="button"
         {...(c.isSmart && c.filter !== null ? { title: filterSummary(c.filter) } : {})}
       >
@@ -112,11 +118,29 @@ export function Tree({ activeId, onSelect }: Props) {
   return (
     <aside className={s.tree}>
       <button
-        className={[s.row, s.all, activeId === null ? s.on : null].filter(Boolean).join(' ')}
-        onClick={() => onSelect(null)}
+        className={[s.row, s.system, place.kind === 'all' ? s.on : null].filter(Boolean).join(' ')}
+        onClick={() => onSelect({ kind: 'all' })}
         type="button"
       >
         <span className={s.name}>Все карты</span>
+      </button>
+
+      <button
+        className={[s.row, s.system, place.kind === 'untagged' ? s.on : null]
+          .filter(Boolean)
+          .join(' ')}
+        onClick={() => onSelect({ kind: 'untagged' })}
+        type="button"
+        title={
+          untagged > 0
+            ? `${maps(untagged)} ждут мод-тегов — без них генерация их не увидит`
+            : 'Все карты размечены'
+        }
+      >
+        <span className={s.name}>Без мод-тегов</span>
+        <span className={[s.count, untagged > 0 ? s.waiting : null].filter(Boolean).join(' ')}>
+          {untagged}
+        </span>
       </button>
 
       {plain.length > 0 ? (

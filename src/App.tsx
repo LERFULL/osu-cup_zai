@@ -3,8 +3,10 @@ import { useApp } from '@/store/app';
 import { Rail } from '@/components';
 import Onboarding from '@/screens/Onboarding';
 import Library from '@/screens/Library';
+import Players from '@/screens/Players';
 import Pools from '@/screens/Pools';
 import Settings from '@/screens/Settings';
+import Tournaments from '@/screens/Tournaments';
 import Stub from '@/screens/Stub';
 import s from './App.module.css';
 
@@ -71,9 +73,9 @@ export default function App() {
         {route === 'library' && <Library />}
         {route === 'settings' && <Settings />}
         {route === 'home' && <Stub title="Главная" />}
-        {route === 'tournaments' && <Stub title="Турниры" />}
+        {route === 'tournaments' && <Tournaments />}
         {route === 'pools' && <Pools />}
-        {route === 'players' && <Stub title="Игроки" />}
+        {route === 'players' && <Players />}
         {route === 'history' && <Stub title="История" />}
       </main>
     </div>

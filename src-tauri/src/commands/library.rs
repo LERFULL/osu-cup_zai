@@ -19,6 +19,12 @@ pub async fn list_beatmaps(
         .with(|conn| beatmaps::list(conn, &filter, offset, limit))
 }
 
+/// Счётчик раздела «Без мод-тегов» в дереве коллекций.
+#[tauri::command]
+pub async fn count_without_mods(state: State<'_, Arc<AppState>>) -> Result<i64> {
+    state.db.with(beatmaps::count_without_mods)
+}
+
 #[tauri::command]
 pub async fn get_beatmap(
     state: State<'_, Arc<AppState>>,

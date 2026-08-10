@@ -141,6 +141,15 @@ export interface Collection {
   createdAt: string;
 }
 
+/**
+ * Где в библиотеке находимся. Два первых места — системные: их нельзя
+ * ни удалить, ни переименовать, и состав у них считается сам.
+ */
+export type Place =
+  | { kind: 'all' }
+  | { kind: 'untagged' }
+  | { kind: 'collection'; id: number };
+
 // ─────────────────────────────────────────────────────────────── фильтр
 
 export type SortKey = 'added' | 'stars' | 'bpm' | 'length' | 'title' | 'artist';
@@ -161,6 +170,10 @@ export interface LibraryFilter {
   bpm: Range;
   length: Range;
   collectionId: number | null;
+  /** Только карты, у которых не проставлено ни одного мод-тега.
+   *  Это место в библиотеке, а не условие: счётчику и кнопке «Сохранить
+   *  как умную» он не мешает, а сброс фильтра его не трогает. */
+  noMods: boolean;
   /** Схлопывать сложности одного набора в одну строку. */
   groupSets: boolean;
   sort: SortKey;
@@ -177,6 +190,7 @@ export const EMPTY_FILTER: LibraryFilter = {
   bpm: { min: null, max: null },
   length: { min: null, max: null },
   collectionId: null,
+  noMods: false,
   groupSets: false,
   sort: 'added',
   dir: 'desc',
@@ -357,4 +371,163 @@ export interface Pool {
 export interface GenReport {
   pool: Pool;
   notes: string[];
+}
+
+// ─────────────────────────────────────────────────────────────── игроки
+
+export interface Player {
+  id: number;
+  nickname: string;
+  osuUserId: number | null;
+  color: string;
+  avatarPath: string | null;
+  note: string | null;
+  isArchived: boolean;
+  createdAt: string;
+}
+
+/** Личный счёт с конкретным соперником. */
+export interface PlayerVersus {
+  playerId: number;
+  nickname: string;
+  wins: number;
+  losses: number;
+}
+
+/** Всё посчитано по истории матчей на момент запроса. */
+export interface PlayerStats {
+  playerId: number;
+  tournaments: number;
+  tournamentWins: number;
+  /** Занятые места, по возрастанию. */
+  placements: number[];
+  matches: number;
+  matchWins: number;
+  maps: number;
+  mapWins: number;
+  bestMod: string | null;
+  worstMod: string | null;
+  favouriteBeatmap: number | null;
+  versus: PlayerVersus[];
+}
+
+// ────────────────────────────────────────────────────────────── турниры
+
+export type TournamentStatus = 'draft' | 'running' | 'finished';
+
+/** Кто банит первым: жеребьёвкой или по сеянию. */
+export type FirstBan = 'random' | 'higherSeed' | 'lowerSeed';
+
+/**
+ * Значение с исключениями по раундам: общее число, а по конкретным
+ * раундам — только там, где решили иначе.
+ */
+export interface ByRound {
+  default: number;
+  rounds: Record<string, number>;
+}
+
+export interface TournamentPlayer {
+  playerId: number;
+  nickname: string;
+  seed: number | null;
+  /** Цвет в рамках этого турнира — глобальный при этом не меняется. */
+  color: string;
+  placement: number | null;
+}
+
+export interface Tournament {
+  id: number;
+  name: string;
+  status: TournamentStatus;
+  bracketSize: number;
+  targetScore: ByRound;
+  bansPerRound: ByRound;
+  firstBan: FirstBan;
+  noRepeatPool: boolean;
+  createdAt: string;
+  finishedAt: string | null;
+  players: TournamentPlayer[];
+  poolIds: number[];
+}
+
+export type BracketSide = 'upper' | 'lower' | 'grand';
+export type MatchStatus = 'pending' | 'running' | 'finished';
+
+export interface Match {
+  id: number;
+  tournamentId: number;
+  bracket: BracketSide;
+  round: number;
+  slotInBracket: number;
+  playerA: number | null;
+  playerB: number | null;
+  poolId: number | null;
+  status: MatchStatus;
+  winnerId: number | null;
+  isWalkover: boolean;
+  isManualEdit: boolean;
+  firstBanBy: number | null;
+  nextWinSlot: number | null;
+  nextLoseSlot: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** Счёт по картам. Считается из журнала действий, а не хранится. */
+  scoreA: number;
+  scoreB: number;
+}
+
+/** Турнир вместе с сеткой. */
+export interface Bracket extends Tournament {
+  matches: Match[];
+}
+
+// ─────────────────────────────────────────────────────────────── матч
+
+export type ActionKind = 'ban' | 'pick' | 'result';
+
+export interface MatchAction {
+  n: number;
+  type: ActionKind;
+  actorId: number | null;
+  slotLabel: string;
+  winnerId: number | null;
+  source: string;
+  at: string;
+}
+
+/** Состояние строки маппула в матче. */
+export type RowState =
+  | { kind: 'free' }
+  | { kind: 'banned'; by: number | null; n: number }
+  | { kind: 'playing'; by: number | null }
+  | { kind: 'played'; winner: number | null; n: number }
+  | { kind: 'locked'; hint: string };
+
+export interface MatchRow {
+  slotLabel: string;
+  mod: ModTag;
+  beatmap: Beatmap | null;
+  starRatingWithMods: number | null;
+  state: RowState;
+}
+
+/** Что матчу делать дальше. Выводится из журнала целиком. */
+export type Phase =
+  | { kind: 'notStarted' }
+  | { kind: 'ban'; actor: number; done: number; total: number }
+  | { kind: 'pick'; actor: number }
+  | { kind: 'result'; slotLabel: string }
+  | { kind: 'finished'; winner: number | null };
+
+export interface MatchState extends Match {
+  tournamentName: string;
+  players: TournamentPlayer[];
+  rows: MatchRow[];
+  actions: MatchAction[];
+  phase: Phase;
+  /** До скольких побед играет этот матч. */
+  target: number;
+  /** Кому осталась одна победа. */
+  matchPoint: number[];
 }

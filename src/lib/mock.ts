@@ -4,7 +4,28 @@
 
 import { EMPTY_FILTER, type Beatmap, type Collection, type Label } from './types';
 
-const COVER = (set: number) => `https://assets.ppy.sh/beatmaps/${set}/covers/cover@2x.jpg`;
+/**
+ * Обложка для вёрстки в браузере. Раньше сюда шла ссылка на assets.ppy.sh,
+ * но песочница превью режет сторонние картинки (ERR_BLOCKED_BY_ORB), и строки
+ * выглядели пустыми. Рисуем локально: цвет выводим из id набора, поэтому у
+ * каждой карты он свой и стабильный между перезагрузками.
+ */
+const COVER = (set: number): string => {
+  const hue = set % 360;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="250">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="hsl(${hue} 62% 46%)"/>
+        <stop offset="0.55" stop-color="hsl(${(hue + 42) % 360} 58% 30%)"/>
+        <stop offset="1" stop-color="hsl(${(hue + 84) % 360} 52% 18%)"/>
+      </linearGradient>
+    </defs>
+    <rect width="900" height="250" fill="url(#g)"/>
+    <circle cx="${180 + (set % 420)}" cy="86" r="150" fill="hsl(${(hue + 160) % 360} 70% 60%)" opacity="0.28"/>
+    <circle cx="${640 - (set % 260)}" cy="210" r="190" fill="hsl(${(hue + 300) % 360} 74% 55%)" opacity="0.2"/>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+};
 
 interface Seed {
   id: number;
@@ -41,6 +62,9 @@ const SEEDS: Seed[] = [
   { id: 14, set: 1329901, artist: 'DragonForce', title: 'Through the Fire', version: 'Flames', by: 'Halgoh', stars: 7.31, bpm: 200, len: 428, ar: 9.9, mods: ['DT', 'TB'], skills: ['stamina', 'stream'] },
   { id: 15, set: 1402387, artist: 'sakuzyo', title: 'Altale', version: 'Starlight', by: 'Fii', stars: 5.74, bpm: 128, len: 151, ar: 9.1, mods: ['NM', 'HD'], skills: ['reading', 'tech'] },
   { id: 16, set: 1476620, artist: 'Feint', title: 'Snake Eyes', version: 'Venom', by: 'Sing', stars: 6.36, bpm: 174, len: 213, ar: 9.4, mods: ['HD', 'FM'], skills: ['alt', 'speed'] },
+  // Свежий импорт: тегов ещё нет, эти карты живут в разделе «Без мод-тегов».
+  { id: 20, set: 1512334, artist: 'Yooh', title: 'Cyberspace', version: 'Neon', by: 'Wafu', stars: 6.11, bpm: 186, len: 171, ar: 9.4, mods: [], skills: [] },
+  { id: 21, set: 1498012, artist: 'Toby Fox', title: 'Spider Dance', version: 'Arachnid', by: 'Nostril', stars: 5.63, bpm: 148, len: 133, ar: 9.2, mods: [], skills: ['alt'] },
   // Сложности одного набора с id 1 — на них видно схлопывание в одну строку.
   { id: 17, set: 1084284, artist: 'Zutomayo', title: 'Kan Saete Kuyashiiwa', version: 'Insane', by: 'Nathan', stars: 4.88, bpm: 190, len: 232, ar: 9.0, mods: ['NM'], skills: ['stream'] },
   { id: 18, set: 1084284, artist: 'Zutomayo', title: 'Kan Saete Kuyashiiwa', version: 'Hard', by: 'Nathan', stars: 3.61, bpm: 190, len: 232, ar: 8.4, mods: ['NM'], skills: ['alt'] },

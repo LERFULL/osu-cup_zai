@@ -4,8 +4,10 @@
 
 use rusqlite::Connection;
 
-use crate::db::{beatmaps, collections, labels};
-use crate::model::{Beatmap, BeatmapAttributes, LibraryFilter, Range, SkillsetTag};
+use crate::db::{beatmaps, collections, labels, matches, players, tournaments};
+use crate::model::{
+    Beatmap, BeatmapAttributes, LibraryFilter, Phase, Range, RowState, SkillsetTag,
+};
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BUILTIN_TEMPLATES: &str = include_str!("migrations/002_builtin_templates.sql");
@@ -552,6 +554,61 @@ fn attributes_round_trip() {
     assert_eq!(got[0].star_rating, Some(7.4));
 }
 
+/// Раздел «Без мод-тегов» — второе системное место библиотеки. Состав у него
+/// считается сам, и карта уходит из него ровно тогда, когда ей проставили тег.
+#[test]
+fn untagged_place_holds_maps_until_they_get_a_mod() {
+    let conn = db();
+
+    let mut bare = map(1, "A", "Без тегов", 5.0);
+    bare.mods = vec![];
+    beatmaps::upsert(&conn, &bare).unwrap();
+    // map() по умолчанию отдаёт карту с NM — она сюда попасть не должна.
+    beatmaps::upsert(&conn, &map(2, "B", "С тегом", 6.0)).unwrap();
+
+    let f = LibraryFilter {
+        no_mods: true,
+        ..Default::default()
+    };
+    let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    assert_eq!(page.total, 1);
+    assert_eq!(page.items[0].beatmap_id, 1);
+    assert_eq!(beatmaps::count_without_mods(&conn).unwrap(), 1);
+
+    // Проставили тег — карта уехала из раздела и из его счётчика.
+    beatmaps::set_mods(&conn, 1, &["HD".into()]).unwrap();
+    assert_eq!(beatmaps::list(&conn, &f, 0, 50).unwrap().total, 0);
+    assert_eq!(beatmaps::count_without_mods(&conn).unwrap(), 0);
+
+    // Сняли все теги — вернулась обратно.
+    beatmaps::set_mods(&conn, 1, &[]).unwrap();
+    assert_eq!(beatmaps::count_without_mods(&conn).unwrap(), 1);
+}
+
+/// Раздел совмещается с остальными условиями фильтра: внутри него можно
+/// искать и сужать по звёздам, не выходя наружу.
+#[test]
+fn untagged_place_combines_with_filter() {
+    let conn = db();
+    for (id, stars) in [(1, 3.0), (2, 7.0)] {
+        let mut m = map(id, "A", &format!("Map {id}"), stars);
+        m.mods = vec![];
+        beatmaps::upsert(&conn, &m).unwrap();
+    }
+
+    let f = LibraryFilter {
+        no_mods: true,
+        stars: Range {
+            min: Some(6.0),
+            max: None,
+        },
+        ..Default::default()
+    };
+    let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    assert_eq!(page.total, 1);
+    assert_eq!(page.items[0].beatmap_id, 2);
+}
+
 // ───────────────────────────────────────── шаблоны и генерация маппулов
 
 use crate::db::{generate, pools, templates};
@@ -987,4 +1044,276 @@ fn smart_collection_works_as_slot_source() {
 
     let report = generate::generate(&conn, t.id, "Пул").unwrap();
     assert_eq!(report.pool.slots[0].beatmap_id, Some(3));
+}
+
+// ─────────────────────────────────────────────── игроки, турниры, матчи
+
+/// Турнир с готовой сеткой: игроки, маппул из трёх карт и запуск.
+fn tournament(conn: &mut Connection, nicks: &[&str]) -> i64 {
+    let t = tournaments::create(conn, "Кубок", 2, 1).unwrap();
+    for nick in nicks {
+        let p = players::create(conn, nick, None, None).unwrap();
+        tournaments::add_player(conn, t, p).unwrap();
+    }
+    tournaments::start(conn, t).unwrap();
+    t
+}
+
+/// Маппул на пять строк: по две карты под NM и HD плюс тайбрейк.
+/// Меньше не годится — что-то надо забанить, а что-то ещё сыграть.
+fn pool_with_tb(conn: &Connection) -> i64 {
+    for id in 1..=5 {
+        beatmaps::upsert(conn, &map(id, "a", "t", 5.0)).unwrap();
+    }
+    let pool = pools::create(conn, "Пул", None).unwrap();
+    for (i, mod_tag) in ["NM", "NM", "HD", "HD", "TB"].iter().enumerate() {
+        pools::add_slot(conn, pool, mod_tag).unwrap();
+        let slots = pools::get(conn, pool).unwrap().slots;
+        pools::set_slot_beatmap(conn, slots[i].id, Some(i as i64 + 1)).unwrap();
+    }
+    pool
+}
+
+#[test]
+fn player_delete_only_before_tournaments() {
+    let mut conn = db();
+    let p = players::create(&conn, "Ari", None, None).unwrap();
+    players::delete(&conn, p).unwrap();
+    assert!(players::get(&conn, p).unwrap().is_none());
+
+    let p = players::create(&conn, "Bo", None, None).unwrap();
+    let t = tournaments::create(&conn, "Кубок", 2, 1).unwrap();
+    tournaments::add_player(&conn, t, p).unwrap();
+
+    // Уже играл — только в архив, иначе история осталась бы без имени.
+    assert!(players::delete(&conn, p).is_err());
+    players::set_archived(&conn, p, true).unwrap();
+    assert!(players::get(&conn, p).unwrap().unwrap().is_archived);
+
+    let _ = &mut conn;
+}
+
+#[test]
+fn tournament_players_get_distinct_colors() {
+    let conn = db();
+    let a = players::create(&conn, "Ari", None, None).unwrap();
+    // Второму ставим тот же цвет, что у первого.
+    let first = players::get(&conn, a).unwrap().unwrap().color;
+    let b = players::create(&conn, "Bo", None, Some(&first)).unwrap();
+
+    let t = tournaments::create(&conn, "Кубок", 2, 1).unwrap();
+    tournaments::add_player(&conn, t, a).unwrap();
+    tournaments::add_player(&conn, t, b).unwrap();
+
+    let colors: Vec<String> = tournaments::players_of(&conn, t)
+        .unwrap()
+        .into_iter()
+        .map(|p| p.color)
+        .collect();
+    assert_ne!(colors[0], colors[1], "цвета в турнире должны различаться");
+    // Личный цвет игрока при этом не менялся.
+    assert_eq!(players::get(&conn, b).unwrap().unwrap().color, first);
+}
+
+#[test]
+fn odd_player_count_gives_walkover() {
+    let mut conn = db();
+    // Трое на сетку из четырёх: кто-то проходит первый раунд без игры.
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy"]);
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+
+    assert_eq!(br.tournament.bracket_size, 4);
+    let walkovers: Vec<_> = br.matches.iter().filter(|m| m.is_walkover).collect();
+    assert_eq!(walkovers.len(), 1);
+    assert!(walkovers[0].winner_id.is_some());
+
+    // Победитель технической победы уже сидит в следующем матче.
+    let next = walkovers[0].next_win_slot.unwrap();
+    let next = br.matches.iter().find(|m| m.id == next).unwrap();
+    assert!(next.player_a.is_some() || next.player_b.is_some());
+}
+
+#[test]
+fn roster_locked_after_start() {
+    let mut conn = db();
+    let t = tournament(&mut conn, &["Ari", "Bo"]);
+    let extra = players::create(&conn, "Cy", None, None).unwrap();
+
+    assert!(tournaments::add_player(&conn, t, extra).is_err());
+    assert!(tournaments::start(&mut conn, t).is_err());
+}
+
+/// Матч двух игроков с маппулом и назначенным первым баном.
+fn ready_match(conn: &mut Connection) -> (i64, i64, i64) {
+    let t = tournament(conn, &["Ari", "Bo"]);
+    let pool = pool_with_tb(conn);
+    tournaments::set_pools(conn, t, &[pool]).unwrap();
+
+    let br = tournaments::bracket_of(conn, t).unwrap();
+    let m = br
+        .matches
+        .iter()
+        .find(|m| m.player_a.is_some() && m.player_b.is_some())
+        .unwrap();
+
+    matches::set_pool(conn, m.id, Some(pool)).unwrap();
+    let (a, b) = (m.player_a.unwrap(), m.player_b.unwrap());
+    matches::set_first_ban(conn, m.id, a).unwrap();
+    (m.id, a, b)
+}
+
+#[test]
+fn ban_order_alternates_then_picks_start_with_second() {
+    let mut conn = db();
+    let (m, a, b) = ready_match(&mut conn);
+
+    // По одному бану на игрока: сначала A, потом B.
+    let st = matches::state(&conn, m).unwrap();
+    assert!(matches!(st.phase, Phase::Ban { actor, .. } if actor == a));
+
+    matches::ban(&conn, m, "NM1").unwrap();
+    let st = matches::state(&conn, m).unwrap();
+    assert!(matches!(st.phase, Phase::Ban { actor, .. } if actor == b));
+
+    matches::ban(&conn, m, "HD1").unwrap();
+
+    // Баны кончились — пикает тот, кто банил вторым.
+    let st = matches::state(&conn, m).unwrap();
+    assert!(matches!(st.phase, Phase::Pick { actor } if actor == b));
+}
+
+#[test]
+fn banned_row_cannot_be_picked() {
+    let mut conn = db();
+    let (m, _, _) = ready_match(&mut conn);
+    matches::ban(&conn, m, "NM1").unwrap();
+    matches::ban(&conn, m, "HD1").unwrap();
+
+    assert!(matches::pick(&conn, m, "NM1").is_err());
+    // И банить дважды тоже нельзя.
+    assert!(matches::ban(&conn, m, "NM1").is_err());
+}
+
+#[test]
+fn tiebreaker_opens_only_at_match_point() {
+    let mut conn = db();
+    let (m, a, b) = ready_match(&mut conn);
+    matches::ban(&conn, m, "NM1").unwrap();
+    matches::ban(&conn, m, "HD1").unwrap();
+
+    // Счёт 0:0, до победы 2 — тайбрейк закрыт.
+    let st = matches::state(&conn, m).unwrap();
+    let tb = st.rows.iter().find(|r| r.mod_tag == "TB").unwrap();
+    assert!(matches!(tb.state, RowState::Locked { .. }));
+    assert!(matches::pick(&conn, m, "TB1").is_err());
+
+    // Разводим счёт 1:1 — тайбрейк открывается.
+    matches::pick(&conn, m, "NM2").unwrap();
+    matches::result(&conn, m, a).unwrap();
+    matches::pick(&conn, m, "HD2").unwrap();
+    matches::result(&conn, m, b).unwrap();
+
+    let st = matches::state(&conn, m).unwrap();
+    assert_eq!((st.match_info.score_a, st.match_info.score_b), (1, 1));
+    assert_eq!(st.match_point.len(), 2, "оба в шаге от победы");
+    let tb = st.rows.iter().find(|r| r.mod_tag == "TB").unwrap();
+    assert!(matches!(tb.state, RowState::Free));
+}
+
+#[test]
+fn undo_rolls_back_result_and_reopens_match() {
+    let mut conn = db();
+    let (m, a, _) = ready_match(&mut conn);
+    matches::ban(&conn, m, "NM1").unwrap();
+    matches::ban(&conn, m, "HD1").unwrap();
+
+    for slot in ["NM2", "HD2"] {
+        matches::pick(&conn, m, slot).unwrap();
+        matches::result(&conn, m, a).unwrap();
+    }
+
+    // Две победы при цели 2 — матч закрыт, победитель уехал дальше.
+    let st = matches::state(&conn, m).unwrap();
+    assert_eq!(st.match_info.status, "finished");
+    assert_eq!(st.match_info.winner_id, Some(a));
+    let next = st.match_info.next_win_slot.unwrap();
+    let after = matches::get(&conn, next).unwrap();
+    assert!(after.player_a == Some(a) || after.player_b == Some(a));
+
+    matches::undo(&conn, m).unwrap();
+
+    let st = matches::state(&conn, m).unwrap();
+    assert_eq!(st.match_info.status, "running");
+    assert_eq!(st.match_info.winner_id, None);
+    assert_eq!(st.match_info.score_a, 1);
+    // И из следующего матча игрока убрали.
+    let after = matches::get(&conn, next).unwrap();
+    assert!(after.player_a != Some(a) && after.player_b != Some(a));
+}
+
+#[test]
+fn changing_pool_blocked_after_first_ban() {
+    let mut conn = db();
+    let (m, _, _) = ready_match(&mut conn);
+    let other = pool_with_tb(&conn);
+
+    matches::set_pool(&conn, m, Some(other)).unwrap();
+    matches::ban(&conn, m, "NM1").unwrap();
+    assert!(matches::set_pool(&conn, m, Some(other)).is_err());
+}
+
+#[test]
+fn manual_result_replaces_log() {
+    let mut conn = db();
+    let (m, a, b) = ready_match(&mut conn);
+    matches::ban(&conn, m, "NM1").unwrap();
+
+    matches::set_manual_result(&conn, m, b, 0, 2).unwrap();
+
+    let st = matches::state(&conn, m).unwrap();
+    assert_eq!(st.match_info.status, "finished");
+    assert_eq!(st.match_info.winner_id, Some(b));
+    assert_eq!((st.match_info.score_a, st.match_info.score_b), (0, 2));
+    assert!(st.match_info.is_manual_edit);
+    // Бан из журнала ушёл вместе с остальной историей.
+    assert!(!st.actions.iter().any(|x| x.kind == "ban"));
+    let _ = a;
+}
+
+#[test]
+fn loser_of_upper_match_drops_into_lower_bracket() {
+    let mut conn = db();
+    // Четверо: у проигравшего первого раунда есть куда падать.
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(&conn, t, &[pool]).unwrap();
+
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+    let m = br
+        .matches
+        .iter()
+        .find(|m| m.bracket == "upper" && m.round == 1)
+        .unwrap()
+        .clone();
+    let (a, b) = (m.player_a.unwrap(), m.player_b.unwrap());
+
+    matches::set_pool(&conn, m.id, Some(pool)).unwrap();
+    matches::set_first_ban(&conn, m.id, a).unwrap();
+    matches::ban(&conn, m.id, "NM1").unwrap();
+    matches::ban(&conn, m.id, "HD1").unwrap();
+    for slot in ["NM2", "HD2"] {
+        matches::pick(&conn, m.id, slot).unwrap();
+        matches::result(&conn, m.id, a).unwrap();
+    }
+
+    // Победитель — выше, проигравший — в нижнюю сетку, а не из турнира.
+    let up = matches::get(&conn, m.next_win_slot.unwrap()).unwrap();
+    assert!(up.player_a == Some(a) || up.player_b == Some(a));
+
+    let down = matches::get(&conn, m.next_lose_slot.unwrap()).unwrap();
+    assert_eq!(down.bracket, "lower");
+    assert!(
+        down.player_a == Some(b) || down.player_b == Some(b),
+        "проигравший должен получить второй шанс в нижней сетке"
+    );
 }

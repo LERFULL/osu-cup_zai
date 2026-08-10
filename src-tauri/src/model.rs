@@ -154,6 +154,10 @@ pub struct LibraryFilter {
     pub length: Range,
     #[serde(default)]
     pub collection_id: Option<i64>,
+    /// Только карты без единого мод-тега. Это место в библиотеке, а не условие:
+    /// сброс фильтра его не трогает, как и коллекцию.
+    #[serde(default)]
+    pub no_mods: bool,
     /// Схлопывать сложности одного набора в одну строку.
     #[serde(default)]
     pub group_sets: bool,
@@ -182,6 +186,7 @@ impl Default for LibraryFilter {
             bpm: Range::default(),
             length: Range::default(),
             collection_id: None,
+            no_mods: false,
             group_sets: false,
             sort: default_sort(),
             dir: default_dir(),
@@ -384,4 +389,229 @@ pub struct Pool {
 pub struct GenReport {
     pub pool: Pool,
     pub notes: Vec<String>,
+}
+
+// ───────────────────────────────────────────────────────────── игроки
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Player {
+    pub id: i64,
+    pub nickname: String,
+    pub osu_user_id: Option<i64>,
+    pub color: String,
+    pub avatar_path: Option<String>,
+    pub note: Option<String>,
+    pub is_archived: bool,
+    pub created_at: String,
+}
+
+/// Личный счёт с конкретным соперником.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerVersus {
+    pub player_id: i64,
+    pub nickname: String,
+    pub wins: i64,
+    pub losses: i64,
+}
+
+/// Всё посчитано по матчам на момент запроса — отдельного счётчика,
+/// который мог бы разойтись с историей, нет.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerStats {
+    pub player_id: i64,
+    pub tournaments: i64,
+    pub tournament_wins: i64,
+    /// Занятые места, по возрастанию: 1, 2, 2, 4…
+    pub placements: Vec<i64>,
+    pub matches: i64,
+    pub match_wins: i64,
+    pub maps: i64,
+    pub map_wins: i64,
+    pub best_mod: Option<String>,
+    pub worst_mod: Option<String>,
+    pub favourite_beatmap: Option<i64>,
+    pub versus: Vec<PlayerVersus>,
+}
+
+// ──────────────────────────────────────────────────────────── турниры
+
+/// До скольких побед играют. Общее число, а по раундам — только там,
+/// где решили иначе: финал часто длиннее группового.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ByRound {
+    pub default: i64,
+    /// Ключ — номер раунда как строка: JSON не умеет числовые ключи.
+    #[serde(default)]
+    pub rounds: std::collections::HashMap<String, i64>,
+}
+
+impl ByRound {
+    pub fn new(default: i64) -> ByRound {
+        ByRound {
+            default,
+            rounds: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn at(&self, round: i64) -> i64 {
+        self.rounds
+            .get(&round.to_string())
+            .copied()
+            .unwrap_or(self.default)
+    }
+}
+
+/// Турнир целиком. С фронта приходит полями, а не структурой, поэтому
+/// только на сериализацию.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tournament {
+    pub id: i64,
+    pub name: String,
+    pub status: String,
+    pub bracket_size: i64,
+    pub target_score: ByRound,
+    pub bans_per_round: ByRound,
+    /// random | higherSeed | lowerSeed — решается на старте каждого матча.
+    pub first_ban: String,
+    pub no_repeat_pool: bool,
+    pub created_at: String,
+    pub finished_at: Option<String>,
+    pub players: Vec<TournamentPlayer>,
+    pub pool_ids: Vec<i64>,
+}
+
+/// Игрок внутри турнира. Цвет свой: в другом турнире у него может быть
+/// другой, а глобальный при этом не меняется.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TournamentPlayer {
+    pub player_id: i64,
+    pub nickname: String,
+    pub seed: Option<i64>,
+    pub color: String,
+    pub placement: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Match {
+    pub id: i64,
+    pub tournament_id: i64,
+    /// upper | lower | grand
+    pub bracket: String,
+    pub round: i64,
+    pub slot_in_bracket: i64,
+    pub player_a: Option<i64>,
+    pub player_b: Option<i64>,
+    pub pool_id: Option<i64>,
+    pub status: String,
+    pub winner_id: Option<i64>,
+    pub is_walkover: bool,
+    pub is_manual_edit: bool,
+    pub first_ban_by: Option<i64>,
+    pub next_win_slot: Option<i64>,
+    pub next_lose_slot: Option<i64>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    /// Счёт по сыгранным картам. Считается из действий, а не хранится.
+    pub score_a: i64,
+    pub score_b: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchAction {
+    pub n: i64,
+    /// ban | pick | result
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub actor_id: Option<i64>,
+    pub slot_label: String,
+    pub winner_id: Option<i64>,
+    pub source: String,
+    pub at: String,
+}
+
+/// Состояние строки маппула в матче.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum RowState {
+    /// Свободна — можно банить или пикать.
+    #[serde(rename = "free")]
+    Free,
+    #[serde(rename = "banned")]
+    Banned { by: Option<i64>, n: i64 },
+    /// Пикнута и играется прямо сейчас: ждём, кто выиграл.
+    #[serde(rename = "playing")]
+    Playing { by: Option<i64> },
+    #[serde(rename = "played")]
+    Played { winner: Option<i64>, n: i64 },
+    /// TB ещё закрыт: откроется на счёте «оба в шаге от победы».
+    #[serde(rename = "locked")]
+    Locked { hint: String },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchRow {
+    pub slot_label: String,
+    #[serde(rename = "mod")]
+    pub mod_tag: String,
+    pub beatmap: Option<Beatmap>,
+    pub star_rating_with_mods: Option<f64>,
+    pub state: RowState,
+}
+
+/// Что матчу делать дальше. Считается из списка действий целиком,
+/// поэтому откат — это просто удаление хвоста.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Phase {
+    /// Матч ещё не начат: не выбран маппул или первый банящий.
+    #[serde(rename = "notStarted")]
+    NotStarted,
+    #[serde(rename = "ban")]
+    Ban {
+        actor: i64,
+        done: i64,
+        total: i64,
+    },
+    #[serde(rename = "pick")]
+    Pick { actor: i64 },
+    /// Карта пикнута — пока не скажут, кто её выиграл, дальше хода нет.
+    #[serde(rename = "result")]
+    Result { slot_label: String },
+    #[serde(rename = "finished")]
+    Finished { winner: Option<i64> },
+}
+
+/// Полное состояние экрана матча: и сам матч, и строки, и чей ход.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchState {
+    #[serde(flatten)]
+    pub match_info: Match,
+    pub tournament_name: String,
+    pub players: Vec<TournamentPlayer>,
+    pub rows: Vec<MatchRow>,
+    pub actions: Vec<MatchAction>,
+    pub phase: Phase,
+    /// До скольких побед играет этот матч.
+    pub target: i64,
+    /// Кому осталась одна победа — метка «матчпоинт».
+    pub match_point: Vec<i64>,
+}
+
+/// Турнир вместе с сеткой — то, из чего рисуется экран турнира.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bracket {
+    #[serde(flatten)]
+    pub tournament: Tournament,
+    pub matches: Vec<Match>,
 }

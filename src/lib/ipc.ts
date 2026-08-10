@@ -6,17 +6,23 @@ import type {
   AppStatus,
   Beatmap,
   BeatmapAttributes,
+  Bracket,
+  ByRound,
   Collection,
   CredentialsCheck,
+  FirstBan,
   Folder,
   GenReport,
   GenRules,
   ImportProgress,
   Label,
   LibraryFilter,
+  MatchState,
   ModTag,
   Page,
   ParsedLinks,
+  Player,
+  PlayerStats,
   Pool,
   PoolField,
   PoolStatus,
@@ -25,6 +31,7 @@ import type {
   Skillset,
   SlotSupply,
   TemplateSlotInput,
+  Tournament,
 } from './types';
 
 // ─────────────────────────────────────────────────── состояние приложения
@@ -45,6 +52,9 @@ export const clearCredentials = () => invoke<void>('clear_credentials');
 
 export const listBeatmaps = (filter: LibraryFilter, offset: number, limit: number) =>
   invoke<Page<Beatmap>>('list_beatmaps', { filter, offset, limit });
+
+/** Сколько карт ещё без мод-тегов — счётчик системного раздела дерева. */
+export const countWithoutMods = () => invoke<number>('count_without_mods');
 
 export const getBeatmap = (beatmapId: number) =>
   invoke<Beatmap | null>('get_beatmap', { beatmapId });
@@ -223,3 +233,114 @@ export const onQueueStatus = (fn: (s: QueueStatus) => void): Promise<UnlistenFn>
 /** Прилетает, когда обложка докачалась и строку можно перерисовать. */
 export const onCoverReady = (fn: (beatmapId: number) => void): Promise<UnlistenFn> =>
   listen<number>('cover:ready', (e) => fn(e.payload));
+
+// ─────────────────────────────────────────────────────────────── игроки
+
+export const listPlayers = (includeArchived = false) =>
+  invoke<Player[]>('list_players', { includeArchived });
+
+export const getPlayer = (id: number) => invoke<Player | null>('get_player', { id });
+
+export const createPlayer = (nickname: string, osuUserId: number | null = null) =>
+  invoke<Player>('create_player', { nickname, osuUserId });
+
+export const updatePlayer = (
+  id: number,
+  nickname: string,
+  osuUserId: number | null,
+  color: string,
+  note: string | null,
+) => invoke<void>('update_player', { id, nickname, osuUserId, color, note });
+
+/** Мягкое удаление: из выбора уходит, история остаётся читаемой. */
+export const archivePlayer = (id: number, archived: boolean) =>
+  invoke<void>('archive_player', { id, archived });
+
+export const deletePlayer = (id: number) => invoke<void>('delete_player', { id });
+
+export const playerStats = (id: number) => invoke<PlayerStats>('player_stats', { id });
+
+// ────────────────────────────────────────────────────────────── турниры
+
+export const listTournaments = () => invoke<Tournament[]>('list_tournaments');
+export const getTournament = (id: number) => invoke<Tournament>('get_tournament', { id });
+
+export const createTournament = (name: string, targetScore: number, bansPerRound: number) =>
+  invoke<Tournament>('create_tournament', { name, targetScore, bansPerRound });
+
+export const renameTournament = (id: number, name: string) =>
+  invoke<void>('rename_tournament', { id, name });
+
+export const setTournamentRules = (
+  id: number,
+  targetScore: ByRound,
+  bansPerRound: ByRound,
+  firstBan: FirstBan,
+  noRepeatPool: boolean,
+) =>
+  invoke<Tournament>('set_tournament_rules', {
+    id,
+    targetScore,
+    bansPerRound,
+    firstBan,
+    noRepeatPool,
+  });
+
+export const deleteTournament = (id: number) => invoke<void>('delete_tournament', { id });
+
+export const addTournamentPlayer = (id: number, playerId: number) =>
+  invoke<void>('add_tournament_player', { id, playerId });
+
+export const removeTournamentPlayer = (id: number, playerId: number) =>
+  invoke<void>('remove_tournament_player', { id, playerId });
+
+/** Сеяние задаётся порядком списка. */
+export const setTournamentSeeds = (id: number, order: number[]) =>
+  invoke<void>('set_tournament_seeds', { id, order });
+
+export const setTournamentPlayerColor = (id: number, playerId: number, color: string) =>
+  invoke<void>('set_tournament_player_color', { id, playerId, color });
+
+export const setTournamentPools = (id: number, poolIds: number[]) =>
+  invoke<void>('set_tournament_pools', { id, poolIds });
+
+/** Строит сетку. Дальше состав участников закрыт. */
+export const startTournament = (id: number) => invoke<Bracket>('start_tournament', { id });
+
+export const tournamentBracket = (id: number) => invoke<Bracket>('tournament_bracket', { id });
+
+export const finishTournament = (id: number) => invoke<Tournament>('finish_tournament', { id });
+
+// ─────────────────────────────────────────────────────────────── матч
+
+// Каждое действие возвращает состояние матча целиком: фаза, счёт и строки
+// считаются на стороне Rust, и держать их копию на фронте незачем.
+
+export const matchState = (id: number) => invoke<MatchState>('match_state', { id });
+
+export const setMatchPool = (id: number, poolId: number | null) =>
+  invoke<MatchState>('set_match_pool', { id, poolId });
+
+export const setMatchFirstBan = (id: number, playerId: number) =>
+  invoke<MatchState>('set_match_first_ban', { id, playerId });
+
+export const banSlot = (id: number, slotLabel: string) =>
+  invoke<MatchState>('ban_slot', { id, slotLabel });
+
+export const pickSlot = (id: number, slotLabel: string) =>
+  invoke<MatchState>('pick_slot', { id, slotLabel });
+
+export const recordResult = (id: number, winnerId: number) =>
+  invoke<MatchState>('record_result', { id, winnerId });
+
+export const undoMatchAction = (id: number) => invoke<MatchState>('undo_match_action', { id });
+
+export const setMatchWalkover = (id: number, winnerId: number) =>
+  invoke<MatchState>('set_match_walkover', { id, winnerId });
+
+export const setMatchManualResult = (
+  id: number,
+  winnerId: number,
+  scoreA: number,
+  scoreB: number,
+) => invoke<MatchState>('set_match_manual_result', { id, winnerId, scoreA, scoreB });

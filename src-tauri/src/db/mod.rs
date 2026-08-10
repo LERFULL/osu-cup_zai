@@ -2,11 +2,15 @@
 //! конкуренции за запись нет, а WAL и busy_timeout закрывают редкие пересечения.
 
 pub mod beatmaps;
+pub mod bracket;
 pub mod collections;
 pub mod generate;
 pub mod labels;
+pub mod matches;
+pub mod players;
 pub mod pools;
 pub mod templates;
+pub mod tournaments;
 
 use std::path::Path;
 use std::sync::Mutex;

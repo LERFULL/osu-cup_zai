@@ -40,6 +40,7 @@ pub fn run() {
             commands::system::clear_cache,
             // библиотека
             commands::library::list_beatmaps,
+            commands::library::count_without_mods,
             commands::library::get_beatmap,
             commands::library::get_set_difficulties,
             commands::library::get_attributes,
@@ -105,6 +106,39 @@ pub fn run() {
             commands::imports::import_links,
             commands::imports::retry_failed,
             commands::imports::cancel_batch,
+            // игроки
+            commands::players::list_players,
+            commands::players::get_player,
+            commands::players::create_player,
+            commands::players::update_player,
+            commands::players::archive_player,
+            commands::players::delete_player,
+            commands::players::player_stats,
+            // турниры
+            commands::tournaments::list_tournaments,
+            commands::tournaments::get_tournament,
+            commands::tournaments::create_tournament,
+            commands::tournaments::rename_tournament,
+            commands::tournaments::set_tournament_rules,
+            commands::tournaments::delete_tournament,
+            commands::tournaments::add_tournament_player,
+            commands::tournaments::remove_tournament_player,
+            commands::tournaments::set_tournament_seeds,
+            commands::tournaments::set_tournament_player_color,
+            commands::tournaments::set_tournament_pools,
+            commands::tournaments::start_tournament,
+            commands::tournaments::tournament_bracket,
+            commands::tournaments::finish_tournament,
+            // матчи
+            commands::matches::match_state,
+            commands::matches::set_match_pool,
+            commands::matches::set_match_first_ban,
+            commands::matches::ban_slot,
+            commands::matches::pick_slot,
+            commands::matches::record_result,
+            commands::matches::undo_match_action,
+            commands::matches::set_match_walkover,
+            commands::matches::set_match_manual_result,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить приложение");

@@ -15,12 +15,16 @@ interface AppState {
   collections: Collection[];
   folders: Folder[];
   labels: Label[];
+  /** Сколько карт ещё без мод-тегов — счётчик системного раздела дерева. */
+  untagged: number;
 
   filter: LibraryFilter;
 
   init: () => Promise<void>;
   go: (route: Route) => void;
   refreshCollections: () => Promise<void>;
+  /** Только счётчик «Без мод-тегов» — после правки тегов одной карты. */
+  refreshUntagged: () => Promise<void>;
   refreshLabels: () => Promise<void>;
   setFilter: (patch: Partial<LibraryFilter>) => void;
   resetFilter: () => void;
@@ -36,6 +40,7 @@ export const useApp = create<AppState>((set, get) => ({
   collections: [],
   folders: [],
   labels: [],
+  untagged: 0,
 
   filter: EMPTY_FILTER,
 
@@ -55,8 +60,18 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   async refreshCollections() {
-    const [collections, folders] = await Promise.all([ipc.listCollections(), ipc.listFolders()]);
-    set({ collections, folders });
+    // Счётчик «Без мод-тегов» меняется от тех же действий, что и состав
+    // коллекций: импорт, удаление, простановка тегов. Читаем их вместе.
+    const [collections, folders, untagged] = await Promise.all([
+      ipc.listCollections(),
+      ipc.listFolders(),
+      ipc.countWithoutMods(),
+    ]);
+    set({ collections, folders, untagged });
+  },
+
+  async refreshUntagged() {
+    set({ untagged: await ipc.countWithoutMods() });
   },
 
   async refreshLabels() {
@@ -68,8 +83,10 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   resetFilter() {
-    // Коллекция — это место, где ты находишься, а не фильтр. Сброс её не трогает.
-    set({ filter: { ...EMPTY_FILTER, collectionId: get().filter.collectionId } });
+    // Коллекция и «Без мод-тегов» — это место, где ты находишься, а не фильтр.
+    // Сброс их не трогает.
+    const { collectionId, noMods } = get().filter;
+    set({ filter: { ...EMPTY_FILTER, collectionId, noMods } });
   },
 
   async finishOnboarding() {
