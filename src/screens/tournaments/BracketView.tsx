@@ -1,26 +1,12 @@
 import { useMemo } from 'react';
 import type { Bracket, BracketSide, Match, Standing, TournamentPlayer } from '@/lib/types';
+import { COL_W, layoutBracket } from './bracketLayout';
 import s from './BracketView.module.css';
 
 interface Props {
   bracket: Bracket;
   onOpenMatch: (id: number) => void;
 }
-
-/** Геометрия сетки. Держим в одном месте: по ней же считаются линии связей. */
-const CARD_H = 64;
-const V_GAP = 20;
-/** Между верхней и нижней сеткой — больше воздуха, чем между матчами. */
-const SIDE_GAP = 54;
-const COL_W = 214;
-const COL_GAP = 62;
-const HEAD_H = 26;
-
-const SIDE_TITLE: Record<BracketSide, string> = {
-  upper: 'Верхняя сетка',
-  lower: 'Нижняя сетка',
-  grand: 'Гранд-финал',
-};
 
 const SIDE_SHORT: Record<BracketSide, string> = {
   upper: 'ВС',
@@ -83,160 +69,9 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
     return map;
   }, [bracket.matches]);
 
-  /**
-   * Раскладка всей сетки одним полотном: колонки — раунды слева направо,
-   * ряды — верхняя сетка, под ней нижняя. Гранд-финал встаёт в свою
-   * колонку справа от обоих финалов, и линии в него идут как везде.
-   */
-  const layout = useMemo(() => {
-    // Матчи, в которые никто не пришёл (обе ветки закончились техпобедами),
-    // в сетке не показываем: играть там нечего, а место они занимают.
-    const shown = bracket.matches.filter((m) => !(m.isWalkover && m.winnerId === null));
-
-    // Колонка матча: раунды верхней и нижней сетки идут своими рядами,
-    // но по одной шкале, а гранд-финал — всегда последняя колонка.
-    const columnsOf = (side: BracketSide) =>
-      [...new Set(shown.filter((m) => m.bracket === side).map((m) => m.round))].sort(
-        (a, b) => a - b,
-      );
-
-    const upperRounds = columnsOf('upper');
-    const lowerRounds = columnsOf('lower');
-    const hasGrand = shown.some((m) => m.bracket === 'grand');
-    const columns = Math.max(upperRounds.length, lowerRounds.length) + (hasGrand ? 1 : 0);
-
-    const columnOf = (m: Match): number => {
-      if (m.bracket === 'grand') return columns - 1;
-      const rounds = m.bracket === 'upper' ? upperRounds : lowerRounds;
-      return Math.max(rounds.indexOf(m.round), 0);
-    };
-
-    // Кто питает этот матч — нужно, чтобы поставить его напротив предков.
-    const sources = new Map<number, number[]>();
-    for (const m of shown) {
-      for (const target of [m.nextWinSlot, m.nextLoseSlot]) {
-        if (target === null || !shown.some((x) => x.id === target)) continue;
-        sources.set(target, [...(sources.get(target) ?? []), m.id]);
-      }
-    }
-
-    // Позиции считаем колонками слева направо: матч встаёт по центру своих
-    // предков, но не наезжая на соседа сверху. Нижняя сетка начинается там,
-    // где кончилась верхняя.
-    const y = new Map<number, number>();
-    const place = (side: BracketSide, from: number): number => {
-      const rounds = side === 'upper' ? upperRounds : lowerRounds;
-      let bottom = from;
-
-      for (const round of rounds) {
-        let cursor = from;
-        const column = shown
-          .filter((m) => m.bracket === side && m.round === round)
-          .sort((a, b) => a.slotInBracket - b.slotInBracket);
-
-        for (const m of column) {
-          const parents = (sources.get(m.id) ?? [])
-            .map((id) => y.get(id))
-            .filter((v): v is number => v !== undefined);
-          const wanted =
-            parents.length > 0 ? parents.reduce((a, b) => a + b, 0) / parents.length : cursor;
-          const at = Math.max(wanted, cursor);
-          y.set(m.id, at);
-          cursor = at + CARD_H + V_GAP;
-          bottom = Math.max(bottom, cursor);
-        }
-      }
-      return bottom;
-    };
-
-    const upperBottom = place('upper', 0);
-    const lowerTop = lowerRounds.length > 0 ? upperBottom - V_GAP + SIDE_GAP : upperBottom;
-    const lowerBottom = place('lower', lowerTop);
-
-    // Гранд-финал — продолжение обеих веток, поэтому встаёт между ними.
-    const grand = shown.find((m) => m.bracket === 'grand');
-    if (grand !== undefined) {
-      const parents = (sources.get(grand.id) ?? [])
-        .map((id) => y.get(id))
-        .filter((v): v is number => v !== undefined);
-      y.set(
-        grand.id,
-        parents.length > 0 ? parents.reduce((a, b) => a + b, 0) / parents.length : 0,
-      );
-    }
-
-    const colX = (column: number) => column * (COL_W + COL_GAP);
-    const height = Math.max(...[...y.values()].map((v) => v + CARD_H), lowerBottom, CARD_H);
-    const width = columns * COL_W + (columns - 1) * COL_GAP;
-
-    // Заголовки колонок: у верхней и нижней сетки свои названия раундов,
-    // поэтому подписываем каждый ряд отдельно.
-    const heads = [
-      ...upperRounds.map((round, i) => ({
-        key: `upper-${round}`,
-        title: roundTitle('upper', round, upperRounds[upperRounds.length - 1] ?? round),
-        x: colX(i),
-        y: 0,
-      })),
-      ...lowerRounds.map((round, i) => ({
-        key: `lower-${round}`,
-        title: roundTitle('lower', round, lowerRounds[lowerRounds.length - 1] ?? round),
-        x: colX(i),
-        y: lowerTop,
-      })),
-      ...(grand === undefined
-        ? []
-        : [
-            {
-              key: 'grand',
-              title: SIDE_TITLE.grand,
-              x: colX(columns - 1),
-              y: Math.max((y.get(grand.id) ?? 0) - HEAD_H - 6, 0),
-            },
-          ]),
-    ];
-
-    // Линии рисуем под карточками: уголком, как в турнирных сетках.
-    // Победитель идёт сплошной, упавший в нижнюю сетку — пунктиром.
-    const links = shown.flatMap((m) => {
-      const from = y.get(m.id);
-      if (from === undefined) return [];
-
-      return ([
-        [m.nextWinSlot, false],
-        [m.nextLoseSlot, true],
-      ] as const).flatMap(([targetId, drop]) => {
-        const target = shown.find((x) => x.id === targetId);
-        const to = target === undefined ? undefined : y.get(target.id);
-        if (target === undefined || to === undefined) return [];
-
-        const x1 = colX(columnOf(m)) + COL_W;
-        const x2 = colX(columnOf(target));
-        const mid = x1 + COL_GAP / 2;
-        const y1 = from + CARD_H / 2;
-        const y2 = to + CARD_H / 2;
-
-        // Цветом идёт только сыгранная связь: путь игрока по сетке
-        // должен читаться, а несыгранная ветка — это ещё не путь.
-        const who = m.winnerId === null ? null : byId.get(m.winnerId) ?? null;
-        const loser =
-          m.winnerId === null
-            ? null
-            : byId.get(m.playerA === m.winnerId ? m.playerB ?? -1 : m.playerA ?? -1) ?? null;
-
-        return [
-          {
-            key: `${m.id}-${target.id}-${drop ? 'lose' : 'win'}`,
-            d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}`,
-            color: (drop ? loser : who)?.color ?? null,
-            drop,
-          },
-        ];
-      });
-    });
-
-    return { shown, columnOf, colX, width, height, heads, links, y };
-  }, [bracket.matches, byId]);
+  // Раскладка — чистая функция в bracketLayout.ts: расположение матчей проще
+  // всего сломать незаметно, поэтому его держат тесты, а не глаз.
+  const layout = useMemo(() => layoutBracket(bracket.matches), [bracket.matches]);
 
   /** Ячейка стороны матча: сеяние, игрок и счёт. */
   function slot(m: Match, side: 'a' | 'b') {
@@ -290,28 +125,27 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
       ) : null}
 
       <div className={s.scroll}>
-        <div className={s.canvas} style={{ width: layout.width, height: layout.height + HEAD_H }}>
+        <div className={s.canvas} style={{ width: layout.width, height: layout.height }}>
           {layout.heads.map((h) => (
             <div key={h.key} className={s.roundTitle} style={{ left: h.x, top: h.y, width: COL_W }}>
-              {h.title}
+              {roundTitle(h.side, h.round, h.lastRound)}
             </div>
           ))}
 
-          <svg
-            className={s.links}
-            width={layout.width}
-            height={layout.height + HEAD_H}
-            aria-hidden
-          >
-            {layout.links.map((l) => (
-              <path
-                key={l.key}
-                d={l.d}
-                transform={`translate(0 ${HEAD_H})`}
-                className={[s.link, l.drop ? s.linkDrop : null].filter(Boolean).join(' ')}
-                {...(l.color !== null ? { style: { stroke: l.color, opacity: 0.85 } } : {})}
-              />
-            ))}
+          <svg className={s.links} width={layout.width} height={layout.height} aria-hidden>
+            {layout.links.map((l) => {
+              // Цветом идёт только сыгранная связь: путь игрока по сетке
+              // должен читаться, а несыгранная ветка — это ещё не путь.
+              const color = l.playerId === null ? null : (byId.get(l.playerId)?.color ?? null);
+              return (
+                <path
+                  key={l.key}
+                  d={l.d}
+                  className={[s.link, l.drop ? s.linkDrop : null].filter(Boolean).join(' ')}
+                  {...(color !== null ? { style: { stroke: color, opacity: 0.85 } } : {})}
+                />
+              );
+            })}
           </svg>
 
           {layout.shown.map((m) => {
@@ -328,7 +162,7 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
                 onClick={() => onOpenMatch(m.id)}
                 style={{
                   left: layout.colX(layout.columnOf(m)),
-                  top: (layout.y.get(m.id) ?? 0) + HEAD_H,
+                  top: layout.topOf(m),
                   width: COL_W,
                 }}
                 title={ready ? shortName(m) : 'Ждёт результатов прошлых матчей'}
