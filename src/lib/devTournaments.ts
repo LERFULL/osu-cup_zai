@@ -18,6 +18,8 @@ import type {
   Player,
   PlayerStats,
   RowState,
+  RuleProblem,
+  Standing,
   Tournament,
   TournamentPlayer,
 } from './types';
@@ -123,7 +125,7 @@ interface Seat {
   nextLose: number | null;
 }
 
-/** Полная сетка на двойное выбывание — та же схема, что в Rust. */
+/** Сетка под фактический состав — та же схема, что в Rust. */
 function buildSeats(size: number, seeded: (number | null)[]): Seat[] {
   const full = bracketSize(Math.max(size, 2));
   const order = seedOrder(full);
@@ -200,7 +202,95 @@ function buildSeats(size: number, seeded: (number | null)[]): Seat[] {
     });
   });
 
-  return seats;
+  return prune(seats);
+}
+
+/**
+ * Срезает со скелета всё, чего в этом составе не будет: матч, в который
+ * приходит меньше двух участников, играть не с кем. Зеркалит `prune`
+ * из `db/bracket.rs`.
+ */
+function prune(seats: Seat[]): Seat[] {
+  // Кто придёт в матч: id известного игрока либо null — победитель матча,
+  // который ещё не сыгран.
+  const arrivals: (number | null)[][] = seats.map((s) =>
+    [s.playerA, s.playerB].filter((p): p is number => p !== null),
+  );
+
+  // Ссылки идут только вперёд, поэтому хватает одного прохода.
+  const kept = seats.map(() => false);
+  seats.forEach((seat, i) => {
+    const here = arrivals[i] ?? [];
+    if (here.length === 1) {
+      if (seat.nextWin !== null) arrivals[seat.nextWin]?.push(here[0] ?? null);
+      return;
+    }
+    if (here.length === 0) return;
+
+    kept[i] = true;
+    for (const next of [seat.nextWin, seat.nextLose]) {
+      if (next !== null) arrivals[next]?.push(null);
+    }
+  });
+
+  // Пропущенные матчи прозрачны: их единственный участник едет дальше
+  // по той же ссылке, поэтому идём по ней до настоящего матча.
+  const resolve = (from: number): number | null => {
+    let idx = from;
+    for (;;) {
+      if (kept[idx] === true) return idx;
+      const next = seats[idx]?.nextWin ?? null;
+      if (next === null || arrivals[idx]?.length !== 1) return null;
+      idx = next;
+    }
+  };
+
+  const index = seats.map(() => -1);
+  const out: Seat[] = [];
+  seats.forEach((seat, i) => {
+    if (kept[i] !== true) return;
+    index[i] = out.length;
+    const here = arrivals[i] ?? [];
+    out.push({ ...seat, playerA: here[0] ?? null, playerB: here[1] ?? null });
+  });
+
+  seats.forEach((seat, i) => {
+    const at = index[i] ?? -1;
+    if (at < 0) return;
+    const target = out[at];
+    if (target === undefined) return;
+
+    const win = seat.nextWin === null ? null : resolve(seat.nextWin);
+    const lose = seat.nextLose === null ? null : resolve(seat.nextLose);
+    target.nextWin = win === null ? null : (index[win] ?? null);
+    target.nextLose = lose === null ? null : (index[lose] ?? null);
+  });
+
+  renumber(out);
+  return out;
+}
+
+/** Номера раундов и мест заново: после срезки в них появляются дыры. */
+function renumber(seats: Seat[]): void {
+  for (const bracket of ['upper', 'lower', 'grand'] as const) {
+    const rounds = [...new Set(seats.filter((s) => s.bracket === bracket).map((s) => s.round))].sort(
+      (a, b) => a - b,
+    );
+    for (const s of seats) {
+      if (s.bracket === bracket) s.round = rounds.indexOf(s.round) + 1;
+    }
+  }
+
+  let prev = '';
+  let slot = 0;
+  for (const s of seats) {
+    const key = `${s.bracket}:${s.round}`;
+    if (key !== prev) {
+      prev = key;
+      slot = 0;
+    }
+    s.slot = slot++;
+  }
 }
 
 // ──────────────────────────────────────────────────────── общее чтение
@@ -256,14 +346,13 @@ function phaseOf(m: DevMatch, target: number, bansTotal: number): Phase {
   const second = other(m, m.firstBanBy);
   if (second === null) return { kind: 'notStarted' };
 
+  // Чей ход по счёту: чётные достаются первому, нечётные — второму.
+  const first = m.firstBanBy;
+  const turn = (n: number) => (n % 2 === 0 ? first : second);
+
   const bans = m.actions.filter((x) => x.type === 'ban').length;
   if (bans < bansTotal * 2) {
-    return {
-      kind: 'ban',
-      actor: bans % 2 === 0 ? m.firstBanBy : second,
-      done: bans,
-      total: bansTotal * 2,
-    };
+    return { kind: 'ban', actor: turn(bans), done: bans, total: bansTotal * 2 };
   }
 
   const [a, b] = score(m);
@@ -278,9 +367,9 @@ function phaseOf(m: DevMatch, target: number, bansTotal: number): Phase {
     return { kind: 'result', slotLabel: live.slotLabel };
   }
 
-  // Пикает тот, кто банил вторым, дальше по очереди.
-  const actor = picks.length % 2 === 0 ? second : m.firstBanBy;
-  return { kind: 'pick', actor };
+  // Очередь сквозная: банил первым — пикает первым, иначе на стыке фаз
+  // один и тот же игрок ходил бы дважды подряд.
+  return { kind: 'pick', actor: turn(bans + picks.length) };
 }
 
 function rowsOf(m: DevMatch, target: number, poolOf: (id: number) => MatchRow[]): MatchRow[] {
@@ -332,12 +421,84 @@ function promote(m: DevMatch) {
   seatPlayer(m.nextLoseSlot, loser);
 }
 
+/**
+ * Закрывает матч и продвигает победителя. Если он был последним в сетке —
+ * закрывает и турнир: как close + finish_if_done в Rust.
+ */
 function close(m: DevMatch, winnerId: number, walkover: boolean) {
   m.status = 'finished';
   m.winnerId = winnerId;
   m.isWalkover = walkover;
   m.finishedAt = new Date().toISOString();
   promote(m);
+
+  const t = tournaments.find((x) => x.id === m.tournamentId);
+  if (t !== undefined) {
+    advanceWalkovers(t);
+    finishIfDone(t);
+  }
+}
+
+/** Сыграна ли сетка целиком. */
+function allPlayed(t: Tournament): boolean {
+  return matches
+    .filter((m) => m.tournamentId === t.id)
+    .every((m) => m.status === 'finished');
+}
+
+/**
+ * Победитель турнира — тот, кто выиграл последний матч сетки. Спрашивать
+ * про гранд-финал нельзя: на двоих его не бывает.
+ */
+function championOf(t: Tournament): number | null {
+  const order = { grand: 0, lower: 1, upper: 2 } as const;
+  const last = matches
+    .filter((m) => m.tournamentId === t.id && m.nextWinSlot === null)
+    .sort((x, y) => order[x.bracket] - order[y.bracket])[0];
+  return last?.winnerId ?? null;
+}
+
+/** Раздаёт места: чем позже вылет, тем выше место — как finish в Rust. */
+function finishTournament(t: Tournament) {
+  const champion = championOf(t);
+  for (const p of t.players) p.placement = null;
+
+  const winner = t.players.find((p) => p.playerId === champion);
+  if (winner !== undefined) winner.placement = 1;
+
+  const order = { grand: 2, lower: 1, upper: 0 } as const;
+  const byExit = matches
+    .filter((m) => m.tournamentId === t.id && m.winnerId !== null)
+    .sort(
+      (x, y) =>
+        order[y.bracket] - order[x.bracket] || y.round - x.round || x.slotInBracket - y.slotInBracket,
+    );
+
+  let place = 2;
+  for (const m of byExit) {
+    const loser = m.playerA === m.winnerId ? m.playerB : m.playerA;
+    if (loser === null || loser === champion) continue;
+    const seat = t.players.find((p) => p.playerId === loser);
+    if (seat === undefined || seat.placement !== null) continue;
+    seat.placement = place++;
+  }
+
+  t.status = 'finished';
+  t.finishedAt = new Date().toISOString();
+}
+
+/** Закрывает турнир, если последний матч сыгран. */
+function finishIfDone(t: Tournament) {
+  if (t.status !== 'running' || !allPlayed(t)) return;
+  finishTournament(t);
+}
+
+/** Отмена результата в последнем матче снимает и итоги турнира. */
+function reopenIfFinished(t: Tournament) {
+  if (t.status !== 'finished' || allPlayed(t)) return;
+  for (const p of t.players) p.placement = null;
+  t.status = 'running';
+  t.finishedAt = null;
 }
 
 /** Пул раздаётся на раунд заранее — как assign_pools в Rust. */
@@ -413,12 +574,15 @@ export function tournamentHandlers(
     const target = at(t.targetScore, m.round);
     const bans = at(t.bansPerRound, m.round);
     const [scoreA, scoreB] = score(m);
+    const phase = phaseOf(m, target, bans);
 
+    // Матчпоинт — это «осталась одна победа», а у доигранного матча впереди
+    // ничего не осталось.
     const matchPoint: number[] = [];
-    if (scoreA === target - 1 && m.playerA !== null) matchPoint.push(m.playerA);
-    if (scoreB === target - 1 && m.playerB !== null) matchPoint.push(m.playerB);
-
-    const rows = rowsOf(m, target, poolRows);
+    if (phase.kind !== 'finished') {
+      if (scoreA === target - 1 && m.playerA !== null) matchPoint.push(m.playerA);
+      if (scoreB === target - 1 && m.playerB !== null) matchPoint.push(m.playerB);
+    }
 
     return {
       ...m,
@@ -426,20 +590,11 @@ export function tournamentHandlers(
       scoreB,
       tournamentName: t.name,
       players: t.players.filter((p) => p.playerId === m.playerA || p.playerId === m.playerB),
-      rows,
+      rows: rowsOf(m, target, poolRows),
       actions: m.actions,
-      phase: phaseOf(m, target, bans),
+      phase,
       target,
       matchPoint,
-      problems:
-        m.poolId === null
-          ? []
-          : checkFeasible({
-              playable: rows.filter((r) => r.mod !== 'TB').length,
-              hasTiebreaker: rows.some((r) => r.mod === 'TB'),
-              target,
-              bansEach: bans,
-            }),
     };
   };
 
@@ -468,6 +623,92 @@ export function tournamentHandlers(
     if (row.state.kind !== 'free') throw new Error(`${slotLabel} уже разыгран`);
   };
 
+  /** Сходятся ли правила с привязанными маппулами — как rule_problems в Rust. */
+  const problemsOf = (t: Tournament): RuleProblem[] => {
+    const rounds: (number | null)[] = [null];
+    for (const key of [
+      ...Object.keys(t.targetScore.rounds),
+      ...Object.keys(t.bansPerRound.rounds),
+    ]) {
+      const n = Number(key);
+      if (Number.isFinite(n) && !rounds.includes(n)) rounds.push(n);
+    }
+
+    const out: RuleProblem[] = [];
+    for (const poolId of t.poolIds) {
+      const rows = poolRows(poolId);
+      const name = poolNames().find((p) => p.id === poolId)?.name ?? `маппул ${poolId}`;
+
+      for (const round of rounds) {
+        const target = round === null ? t.targetScore.default : at(t.targetScore, round);
+        const bansEach = round === null ? t.bansPerRound.default : at(t.bansPerRound, round);
+
+        // Раунд с теми же числами, что и общее правило, ничего не добавит.
+        if (
+          round !== null &&
+          target === t.targetScore.default &&
+          bansEach === t.bansPerRound.default
+        ) {
+          continue;
+        }
+
+        const notes = checkFeasible({
+          playable: rows.filter((r) => r.mod !== 'TB').length,
+          hasTiebreaker: rows.some((r) => r.mod === 'TB'),
+          target,
+          bansEach,
+        });
+        if (notes.length > 0) {
+          out.push({ poolId, poolName: name, round, target, bansEach, notes });
+        }
+      }
+    }
+    return out;
+  };
+
+  /** Итоговая таблица — как standings в Rust. */
+  const standingsOf = (t: Tournament): Standing[] => {
+    if (t.status !== 'finished') return [];
+
+    return t.players
+      .map((p) => {
+        const own = matches.filter(
+          (m) => m.tournamentId === t.id && (m.playerA === p.playerId || m.playerB === p.playerId),
+        );
+
+        let mapWins = 0;
+        let mapLosses = 0;
+        let matchWins = 0;
+        let matchLosses = 0;
+        for (const m of own) {
+          const [a, b] = score(m);
+          const mine = m.playerA === p.playerId ? a : b;
+          mapWins += mine;
+          mapLosses += m.playerA === p.playerId ? b : a;
+          if (m.status !== 'finished' || m.winnerId === null) continue;
+          if (m.winnerId === p.playerId) matchWins += 1;
+          else matchLosses += 1;
+        }
+
+        return {
+          playerId: p.playerId,
+          nickname: p.nickname,
+          color: p.color,
+          placement: p.placement ?? Number.MAX_SAFE_INTEGER,
+          matchWins,
+          matchLosses,
+          mapWins,
+          mapLosses,
+        };
+      })
+      .sort(
+        (x, y) =>
+          x.placement - y.placement ||
+          y.matchWins - x.matchWins ||
+          x.nickname.localeCompare(y.nickname),
+      );
+  };
+
   const bracketOf = (t: Tournament): Bracket => ({
     ...t,
     matches: matches
@@ -476,6 +717,8 @@ export function tournamentHandlers(
         const [scoreA, scoreB] = score(x);
         return { ...x, scoreA, scoreB };
       }),
+    problems: problemsOf(t),
+    standings: standingsOf(t),
   });
 
   return {
@@ -820,11 +1063,7 @@ export function tournamentHandlers(
 
     finish_tournament: (a) => {
       const t = findT(a['id']);
-      t.status = 'finished';
-      t.finishedAt = new Date().toISOString();
-      const grand = matches.find((m) => m.tournamentId === t.id && m.bracket === 'grand');
-      const champion = grand?.winnerId ?? null;
-      for (const p of t.players) p.placement = p.playerId === champion ? 1 : null;
+      finishTournament(t);
       return t;
     },
 
@@ -904,6 +1143,10 @@ export function tournamentHandlers(
         m.finishedAt = null;
       }
       m.status = m.actions.length > 0 ? 'running' : 'pending';
+
+      // Этот матч мог быть последним в сетке — турнир уже подвёл итоги.
+      const t = tournaments.find((x) => x.id === m.tournamentId);
+      if (t !== undefined) reopenIfFinished(t);
       return stateOf(m);
     },
 

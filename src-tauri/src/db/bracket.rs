@@ -49,9 +49,13 @@ pub fn seed_order(size: usize) -> Vec<usize> {
     order
 }
 
-/// Полная сетка на `size` мест. `seeded[i]` — id игрока на позиции сеяния
-/// `i + 1`, либо `None`, если место пустое (тогда соперник проходит дальше
-/// технической победой — это решает уже вызывающий код).
+/// Сетка под фактический состав. `seeded[i]` — id игрока на позиции сеяния
+/// `i + 1`, либо `None`, если место пустое.
+///
+/// Скелет считается на ближайшую степень двойки, а потом с него срезается
+/// всё, чего на самом деле не будет: при пятерых на восьми местах трое
+/// сильнейших проходят первый раунд сами, и рисовать им матч с пустотой
+/// незачем. Смотри `prune`.
 ///
 /// Раунды нижней сетки чередуются: в чётных к выбывшим из верхней сетки
 /// приходит новая партия, в нечётных играют между собой уже упавшие.
@@ -173,7 +177,7 @@ pub fn build(size: usize, seeded: &[Option<i64>]) -> Vec<Seat> {
     });
 
     link(&mut seats, &upper, &lower, grand);
-    seats
+    prune(seats)
 }
 
 /// Проставляет «победитель туда, проигравший сюда».
@@ -224,9 +228,171 @@ fn link(seats: &mut [Seat], upper: &[Vec<usize>], lower: &[Vec<usize>], grand: u
     }
 }
 
+/// Кто придёт в матч: конкретный игрок — по сеянию или проходом без игры —
+/// либо победитель матча, который ещё не сыгран.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Arrival {
+    Known(i64),
+    Unknown,
+}
+
+fn known(a: &Arrival) -> Option<i64> {
+    match a {
+        Arrival::Known(id) => Some(*id),
+        Arrival::Unknown => None,
+    }
+}
+
+/// Куда ссылка ведёт на самом деле: пропущенные матчи прозрачны.
+///
+/// У пропущенного матча участник ровно один, и он едет дальше по той же
+/// ссылке — значит, идём по ней, пока не встретим настоящий матч.
+fn resolve(seats: &[Seat], kept: &[bool], arrivals: &[Vec<Arrival>], from: usize) -> Option<usize> {
+    let mut idx = from;
+    loop {
+        if kept[idx] {
+            return Some(idx);
+        }
+        match seats[idx].next_win {
+            Some(next) if arrivals[idx].len() == 1 => idx = next,
+            _ => return None,
+        }
+    }
+}
+
+/// Срезает со скелета всё, чего в этом составе не будет.
+///
+/// Матч, в который приходит меньше двух участников, играть не с кем: один
+/// проходит дальше сам, а если не пришёл никто — ветка обрывается. Из
+/// восьмиместного скелета на пятерых так остаются ровно восемь настоящих
+/// матчей, а не одиннадцать, три из которых — техпобеды над пустотой.
+fn prune(seats: Vec<Seat>) -> Vec<Seat> {
+    let mut arrivals: Vec<Vec<Arrival>> = seats
+        .iter()
+        .map(|s| {
+            [s.player_a, s.player_b]
+                .iter()
+                .filter_map(|p| p.map(Arrival::Known))
+                .collect()
+        })
+        .collect();
+
+    // Ссылки идут только вперёд, поэтому хватает одного прохода: к моменту
+    // разбора матча все, кто в него ведёт, уже посчитаны.
+    let mut kept = vec![false; seats.len()];
+    for i in 0..seats.len() {
+        let here = arrivals[i].clone();
+        if here.len() == 1 {
+            if let Some(next) = seats[i].next_win {
+                arrivals[next].push(here[0]);
+            }
+            continue;
+        }
+        if here.is_empty() {
+            continue;
+        }
+
+        kept[i] = true;
+        for next in [seats[i].next_win, seats[i].next_lose]
+            .into_iter()
+            .flatten()
+        {
+            arrivals[next].push(Arrival::Unknown);
+        }
+    }
+
+    // Место в матче сохраняем: если сверху ждут победителя, а снизу уже стоит
+    // прошедший без игры, менять их местами значит перекрутить линии сетки.
+    let mut out: Vec<Seat> = Vec::new();
+    let mut index = vec![usize::MAX; seats.len()];
+    for (i, seat) in seats.iter().enumerate() {
+        if !kept[i] {
+            continue;
+        }
+        index[i] = out.len();
+        out.push(Seat {
+            player_a: arrivals[i].first().and_then(known),
+            player_b: arrivals[i].get(1).and_then(known),
+            ..seat.clone()
+        });
+    }
+
+    for (i, seat) in seats.iter().enumerate() {
+        if index[i] == usize::MAX {
+            continue;
+        }
+        let win = seat
+            .next_win
+            .and_then(|n| resolve(&seats, &kept, &arrivals, n));
+        let lose = seat
+            .next_lose
+            .and_then(|n| resolve(&seats, &kept, &arrivals, n));
+        let target = &mut out[index[i]];
+        target.next_win = win.map(|t| index[t]);
+        target.next_lose = lose.map(|t| index[t]);
+    }
+
+    renumber(&mut out);
+    out
+}
+
+/// Номера раундов и мест — заново: после срезки в них появляются дыры,
+/// а по номеру раунда считаются и правила матча, и подписи колонок.
+fn renumber(seats: &mut [Seat]) {
+    for bracket in ["upper", "lower", "grand"] {
+        let mut rounds: Vec<i64> = seats
+            .iter()
+            .filter(|s| s.bracket == bracket)
+            .map(|s| s.round)
+            .collect();
+        rounds.sort_unstable();
+        rounds.dedup();
+
+        for s in seats.iter_mut().filter(|s| s.bracket == bracket) {
+            let at = rounds.iter().position(|r| *r == s.round).unwrap_or(0);
+            s.round = at as i64 + 1;
+        }
+    }
+
+    // Порядок в списке — сверху вниз внутри раунда, поэтому места просто
+    // пересчитываем подряд, начиная заново на каждом новом раунде.
+    let mut prev: Option<(&str, i64)> = None;
+    let mut slot = 0;
+    for s in seats.iter_mut() {
+        if prev != Some((s.bracket, s.round)) {
+            prev = Some((s.bracket, s.round));
+            slot = 0;
+        }
+        s.slot = slot;
+        slot += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Полный состав на `n` мест: игроки с id от единицы.
+    fn full(n: usize) -> Vec<Option<i64>> {
+        (1..=n as i64).map(Some).collect()
+    }
+
+    /// Состав из `players` человек на сетке в `size` мест: хвост пуст.
+    fn partial(size: usize, players: usize) -> Vec<Option<i64>> {
+        (0..size)
+            .map(|i| {
+                if i < players {
+                    Some(i as i64 + 1)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn count(seats: &[Seat], bracket: &str) -> usize {
+        seats.iter().filter(|s| s.bracket == bracket).count()
+    }
 
     #[test]
     fn size_rounds_up_to_power_of_two() {
@@ -247,12 +413,12 @@ mod tests {
 
     #[test]
     fn every_match_leads_somewhere() {
-        let seats = build(8, &vec![None; 8]);
-        let grand = seats.iter().position(|s| s.bracket == "grand").unwrap();
+        let seats = build(8, &full(8));
+        let last = seats.len() - 1;
 
         for (i, s) in seats.iter().enumerate() {
-            if i == grand {
-                assert_eq!(s.next_win, None, "гранд-финал никуда не ведёт");
+            if i == last {
+                assert_eq!(s.next_win, None, "последний матч никуда не ведёт");
             } else {
                 assert!(s.next_win.is_some(), "матч {i} ведёт победителя в никуда");
             }
@@ -269,22 +435,18 @@ mod tests {
     #[test]
     fn double_elimination_gives_everyone_two_lives() {
         // На 8 участников: 7 матчей верхней + 6 нижней + гранд-финал.
-        let seats = build(8, &vec![None; 8]);
-        let upper = seats.iter().filter(|s| s.bracket == "upper").count();
-        let lower = seats.iter().filter(|s| s.bracket == "lower").count();
-        let grand = seats.iter().filter(|s| s.bracket == "grand").count();
+        let seats = build(8, &full(8));
 
-        assert_eq!(upper, 7);
-        assert_eq!(grand, 1);
+        assert_eq!(count(&seats, "upper"), 7);
+        assert_eq!(count(&seats, "grand"), 1);
         // Каждый, кроме победителя верхней сетки, должен где-то проиграть
         // второй раз: матчей нижней сетки на один меньше, чем её участников.
-        assert_eq!(lower, 6);
+        assert_eq!(count(&seats, "lower"), 6);
     }
 
     #[test]
     fn first_round_seats_seeded_players() {
-        let players: Vec<Option<i64>> = (1..=4).map(Some).collect();
-        let seats = build(4, &players);
+        let seats = build(4, &full(4));
         let first: Vec<_> = seats
             .iter()
             .filter(|s| s.bracket == "upper" && s.round == 1)
@@ -298,7 +460,7 @@ mod tests {
 
     #[test]
     fn losers_of_first_round_meet_in_lower_bracket() {
-        let seats = build(4, &vec![None; 4]);
+        let seats = build(4, &full(4));
         let first: Vec<usize> = seats
             .iter()
             .enumerate()
@@ -309,5 +471,82 @@ mod tests {
         // Оба проигравших первого раунда попадают в один и тот же матч.
         assert_eq!(seats[first[0]].next_lose, seats[first[1]].next_lose);
         assert!(seats[first[0]].next_lose.is_some());
+    }
+
+    #[test]
+    fn incomplete_roster_gets_a_bracket_of_its_own_size() {
+        // Пятеро на восьми местах: трое сильнейших проходят первый раунд
+        // сами, и матча у них там нет. Всего на двойном выбывании играется
+        // 2n-2 матча — восемь, а не одиннадцать.
+        let seats = build(8, &partial(8, 5));
+        assert_eq!(seats.len(), 8, "лишние матчи должны быть срезаны");
+
+        let first: Vec<_> = seats
+            .iter()
+            .filter(|s| s.bracket == "upper" && s.round == 1)
+            .collect();
+        assert_eq!(first.len(), 1, "в первом раунде играет только одна пара");
+        assert_eq!((first[0].player_a, first[0].player_b), (Some(4), Some(5)));
+
+        // Ни в одном матче не осталось места, в которое некому прийти.
+        for (i, s) in seats.iter().enumerate() {
+            let waiting = s.player_a.is_none()
+                && s.player_b.is_none()
+                && !seats
+                    .iter()
+                    .any(|src| src.next_win == Some(i) || src.next_lose == Some(i));
+            assert!(!waiting, "матч {i} заперт: игроки не придут");
+        }
+    }
+
+    #[test]
+    fn bye_puts_the_player_straight_into_the_next_round() {
+        // Трое: второй с третьим играют, первый ждёт их в финале верхней.
+        let seats = build(4, &partial(4, 3));
+        let semi = seats
+            .iter()
+            .find(|s| s.bracket == "upper" && s.round == 1)
+            .unwrap();
+        assert_eq!((semi.player_a, semi.player_b), (Some(2), Some(3)));
+
+        let upper_final = seats
+            .iter()
+            .find(|s| s.bracket == "upper" && s.round == 2)
+            .unwrap();
+        assert_eq!(
+            upper_final.player_a,
+            Some(1),
+            "прошедший без игры уже сидит"
+        );
+        assert_eq!(upper_final.player_b, None, "второе место ждёт победителя");
+    }
+
+    #[test]
+    fn two_players_play_a_single_match() {
+        // Нижней сетки на двоих нет, значит и гранд-финалу неоткуда взяться:
+        // второго участника в него не приведёт ни одна ветка.
+        let seats = build(2, &full(2));
+        assert_eq!(seats.len(), 1);
+        assert_eq!((seats[0].player_a, seats[0].player_b), (Some(1), Some(2)));
+        assert_eq!(seats[0].next_win, None);
+    }
+
+    #[test]
+    fn rounds_are_numbered_without_gaps() {
+        // На пятерых первый раунд нижней сетки вырезается целиком —
+        // оставшиеся не должны начинаться со второго.
+        let seats = build(8, &partial(8, 5));
+        for bracket in ["upper", "lower", "grand"] {
+            let mut rounds: Vec<i64> = seats
+                .iter()
+                .filter(|s| s.bracket == bracket)
+                .map(|s| s.round)
+                .collect();
+            rounds.sort_unstable();
+            rounds.dedup();
+
+            let expected: Vec<i64> = (1..=rounds.len() as i64).collect();
+            assert_eq!(rounds, expected, "раунды {bracket} идут с пропусками");
+        }
     }
 }

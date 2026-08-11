@@ -4,7 +4,7 @@ use anyhow::Result;
 use rusqlite::{params, Connection};
 
 use super::bracket;
-use crate::model::{Bracket, ByRound, Match, Tournament, TournamentPlayer};
+use crate::model::{Bracket, ByRound, Match, RuleProblem, Standing, Tournament, TournamentPlayer};
 
 pub fn row_to_match(row: &rusqlite::Row) -> rusqlite::Result<Match> {
     Ok(Match {
@@ -592,10 +592,208 @@ pub fn bracket_of(conn: &Connection, id: i64) -> Result<Bracket> {
         fill_scores(conn, m)?;
     }
 
+    let problems = rule_problems(conn, &tournament)?;
+    let standings = if tournament.status == "finished" {
+        standings(&tournament, &matches)
+    } else {
+        Vec::new()
+    };
+
     Ok(Bracket {
         tournament,
         matches,
+        problems,
+        standings,
     })
+}
+
+/// Сходятся ли правила с привязанными маппулами.
+///
+/// И то и другое выбирают здесь же, на экране турнира, и порознь каждое
+/// число выглядит разумным: девять карт, по два бана каждому, игра до
+/// четырёх побед. Проверяем, пока сетка ещё не построена.
+pub fn rule_problems(conn: &Connection, t: &Tournament) -> Result<Vec<RuleProblem>> {
+    // Раунды, для которых правило задано отдельно, плюс общее правило.
+    let mut rounds: Vec<Option<i64>> = vec![None];
+    let mut extra: Vec<i64> = t
+        .target_score
+        .rounds
+        .keys()
+        .chain(t.bans_per_round.rounds.keys())
+        .filter_map(|k| k.parse::<i64>().ok())
+        .collect();
+    extra.sort_unstable();
+    extra.dedup();
+    rounds.extend(extra.into_iter().map(Some));
+
+    let mut out = Vec::new();
+    for pool_id in &t.pool_ids {
+        let Ok(pool) = super::pools::get(conn, *pool_id) else {
+            continue;
+        };
+        let playable = pool.slots.iter().filter(|s| s.mod_tag != "TB").count() as i64;
+        let has_tiebreaker = pool.slots.iter().any(|s| s.mod_tag == "TB");
+
+        for round in &rounds {
+            let (target, bans_each) = match round {
+                Some(r) => (t.target_score.at(*r), t.bans_per_round.at(*r)),
+                None => (t.target_score.default, t.bans_per_round.default),
+            };
+
+            // Раунд с теми же числами, что и общее правило, ничего не добавит.
+            if round.is_some()
+                && (target, bans_each) == (t.target_score.default, t.bans_per_round.default)
+            {
+                continue;
+            }
+
+            let notes = super::feasible::check(super::feasible::Demand {
+                playable,
+                has_tiebreaker,
+                target,
+                bans_each,
+            });
+            if notes.is_empty() {
+                continue;
+            }
+
+            out.push(RuleProblem {
+                pool_id: pool.id,
+                pool_name: pool.name.clone(),
+                round: *round,
+                target,
+                bans_each,
+                notes,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Итоговая таблица: места и то, чем они добыты.
+fn standings(t: &Tournament, matches: &[Match]) -> Vec<Standing> {
+    let mut out: Vec<Standing> = t
+        .players
+        .iter()
+        .map(|p| {
+            let own = matches
+                .iter()
+                .filter(|m| m.player_a == Some(p.player_id) || m.player_b == Some(p.player_id));
+
+            let mut row = Standing {
+                player_id: p.player_id,
+                nickname: p.nickname.clone(),
+                color: p.color.clone(),
+                placement: p.placement.unwrap_or(i64::MAX),
+                match_wins: 0,
+                match_losses: 0,
+                map_wins: 0,
+                map_losses: 0,
+            };
+
+            for m in own {
+                let mine = if m.player_a == Some(p.player_id) {
+                    m.score_a
+                } else {
+                    m.score_b
+                };
+                let theirs = if m.player_a == Some(p.player_id) {
+                    m.score_b
+                } else {
+                    m.score_a
+                };
+                row.map_wins += mine;
+                row.map_losses += theirs;
+
+                if m.status != "finished" || m.winner_id.is_none() {
+                    continue;
+                }
+                if m.winner_id == Some(p.player_id) {
+                    row.match_wins += 1;
+                } else {
+                    row.match_losses += 1;
+                }
+            }
+            row
+        })
+        .collect();
+
+    // Места считаются в `finish`; здесь только раскладываем по возрастанию.
+    out.sort_by(|a, b| {
+        a.placement
+            .cmp(&b.placement)
+            .then_with(|| b.match_wins.cmp(&a.match_wins))
+            .then_with(|| a.nickname.cmp(&b.nickname))
+    });
+    out
+}
+
+/// Победитель турнира — тот, кто выиграл последний матч сетки.
+///
+/// Спрашивать про гранд-финал нельзя: на двоих его не бывает, там всё
+/// решает единственный матч верхней сетки.
+fn champion_of(conn: &Connection, id: i64) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row(
+            "SELECT winner_id FROM matches
+              WHERE tournament_id = ?1 AND next_win_slot IS NULL
+              ORDER BY CASE bracket WHEN 'grand' THEN 0 WHEN 'lower' THEN 1 ELSE 2 END
+              LIMIT 1",
+            params![id],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten())
+}
+
+/// Сыграна ли сетка целиком.
+fn all_played(conn: &Connection, id: i64) -> Result<bool> {
+    let left: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM matches WHERE tournament_id = ?1 AND status <> 'finished'",
+        params![id],
+        |r| r.get(0),
+    )?;
+    Ok(left == 0)
+}
+
+/// Закрывает турнир, если последний матч сыгран.
+///
+/// Зовётся после каждого закрытого матча: досматривать сетку глазами и
+/// нажимать «завершить» — работа, которую видно из журнала.
+pub fn finish_if_done(conn: &Connection, id: i64) -> Result<bool> {
+    let status: String = conn.query_row(
+        "SELECT status FROM tournaments WHERE id = ?1",
+        params![id],
+        |r| r.get(0),
+    )?;
+    if status != "running" || !all_played(conn, id)? {
+        return Ok(false);
+    }
+    finish(conn, id)?;
+    Ok(true)
+}
+
+/// Возвращает завершённый турнир в игру: отмена результата в последнем
+/// матче снимает и места, и дату окончания.
+pub fn reopen_if_finished(conn: &Connection, id: i64) -> Result<()> {
+    let status: String = conn.query_row(
+        "SELECT status FROM tournaments WHERE id = ?1",
+        params![id],
+        |r| r.get(0),
+    )?;
+    if status != "finished" || all_played(conn, id)? {
+        return Ok(());
+    }
+
+    conn.execute(
+        "UPDATE tournament_players SET placement = NULL WHERE tournament_id = ?1",
+        params![id],
+    )?;
+    conn.execute(
+        "UPDATE tournaments SET status = 'running', finished_at = NULL WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
 }
 
 /// Итоговые места: чем позже вылет, тем выше место.
@@ -609,14 +807,14 @@ pub fn finish(conn: &Connection, id: i64) -> Result<()> {
     )?;
     anyhow::ensure!(unfinished == 0, "в сетке остались несыгранные матчи");
 
-    let champion: Option<i64> = conn
-        .query_row(
-            "SELECT winner_id FROM matches WHERE tournament_id = ?1 AND bracket = 'grand' LIMIT 1",
-            params![id],
-            |r| r.get(0),
-        )
-        .ok()
-        .flatten();
+    let champion = champion_of(conn, id)?;
+
+    // Места проставляем с нуля: турнир могли переоткрыть отменой действия
+    // и доиграть иначе.
+    conn.execute(
+        "UPDATE tournament_players SET placement = NULL WHERE tournament_id = ?1",
+        params![id],
+    )?;
 
     if let Some(champion) = champion {
         conn.execute(

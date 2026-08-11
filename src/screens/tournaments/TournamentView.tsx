@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Empty, Field, Switch } from '@/components';
-import type { Bracket, Player, Pool, PoolOverlap } from '@/lib/types';
+import type { Bracket, Player, Pool, PoolOverlap, RuleProblem } from '@/lib/types';
 import * as ipc from '@/lib/ipc';
 import { BracketView } from './BracketView';
 import { MatchView } from './MatchView';
@@ -9,6 +9,12 @@ import s from './TournamentView.module.css';
 interface Props {
   id: number;
   onClose: () => void;
+}
+
+/** Для какого правила нестыковка: общего или отдельного раунда. */
+function problemWhere(p: RuleProblem): string {
+  const rule = `до ${p.target} побед, банов по ${p.bansEach}`;
+  return p.round === null ? `${p.poolName} · ${rule}` : `${p.poolName} · раунд ${p.round}: ${rule}`;
 }
 
 /**
@@ -80,6 +86,8 @@ export function TournamentView({ id, onClose }: Props) {
   // Сетка построена, но турнир ещё не запущен: её можно рассмотреть,
   // пересобрать с другим сеянием или вернуть состав в черновик.
   const seeded = t.status === 'seeded';
+  const done = t.status === 'finished';
+  const champion = t.players.find((p) => p.placement === 1) ?? null;
 
   async function guard(work: () => Promise<unknown>) {
     try {
@@ -100,7 +108,9 @@ export function TournamentView({ id, onClose }: Props) {
         <span className={s.sub}>
           {draft
             ? `${t.players.length} игроков · ${t.poolIds.length} маппулов`
-            : `сетка на ${t.bracketSize} · до ${t.targetScore.default} побед`}
+            : done
+              ? `сыгран · ${t.players.length} игроков`
+              : `${t.players.length} игроков · до ${t.targetScore.default} побед`}
         </span>
 
         <div className={s.right}>
@@ -136,6 +146,21 @@ export function TournamentView({ id, onClose }: Props) {
         <div className={s.pending}>
           Сетка построена. Посмотри, всё ли устраивает: пока турнир не запущен, её можно
           пересобрать или поменять состав.
+        </div>
+      ) : null}
+
+      {/* На построенной сетке правила уже не поменять, но знать о нестыковке
+          всё равно лучше до первого матча, чем в его середине. */}
+      {seeded && t.problems.length > 0 ? (
+        <div className={s.error}>
+          Правила и маппул не сходятся: {t.problems[0]?.notes[0]}. Верни турнир к составу,
+          чтобы поправить.
+        </div>
+      ) : null}
+
+      {done && champion !== null ? (
+        <div className={s.finished}>
+          Турнир завершён · победитель {champion.nickname}
         </div>
       ) : null}
 
@@ -248,6 +273,31 @@ export function TournamentView({ id, onClose }: Props) {
                           <span className={s.overlapPools}>{o.pools.join(', ')}</span>
                         </div>
                       ))}
+                    </div>
+                  ) : null}
+
+                  {/* Правила и маппулы задаются рядом, а не сходятся друг
+                      с другом легко: узнать об этом посреди матча поздно. */}
+                  {t.problems.length > 0 ? (
+                    <div className={s.problems}>
+                      <div className={s.problemTitle}>Правила и маппул не сходятся</div>
+                      {t.problems.map((p) => (
+                        <div
+                          key={`${p.poolId}-${p.round ?? 'all'}`}
+                          className={s.problem}
+                        >
+                          <span className={s.problemWhere}>{problemWhere(p)}</span>
+                          {p.notes.map((note) => (
+                            <span key={note} className={s.problemNote}>
+                              {note}
+                            </span>
+                          ))}
+                        </div>
+                      ))}
+                      <span className={s.problemHint}>
+                        Поправь число банов, счёт до победы или состав маппула — иначе матч
+                        не доиграется.
+                      </span>
                     </div>
                   ) : null}
                 </>

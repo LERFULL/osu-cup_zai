@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "opener:allow-open-url",
+    "opener:allow-default-urls",
     {
       "identifier": "core:window:allow-start-dragging"
     }

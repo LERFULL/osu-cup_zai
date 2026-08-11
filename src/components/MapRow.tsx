@@ -226,7 +226,7 @@ export function MapRow(props: MapRowProps) {
           </span>
         )}
 
-        {props.kind === 'ban' && <span className={s.banx}>✕ бан {props.n}</span>}
+        {props.kind === 'ban' && <span className={s.banx}>✕ BAN {props.n}</span>}
 
         {props.kind === 'live' && (
           <span className={s.nowtag}>

@@ -280,19 +280,6 @@ export function MatchView({ id, onClose }: Props) {
 
           <div className={s.turn}>{turnLine(state, name)}</div>
 
-          {state.problems.length > 0 ? (
-            <div className={s.problems}>
-              {state.problems.map((p) => (
-                <div key={p} className={s.problem}>
-                  <span aria-hidden>⚠</span> {p}
-                </div>
-              ))}
-              <span className={s.problemHint}>
-                Поправь правила турнира или маппул — иначе матч не доиграется.
-              </span>
-            </div>
-          ) : null}
-
           {state.poolId === null ? (
             <div className={s.setup}>
               <div className={s.setupTitle}>Маппул матча</div>

@@ -97,9 +97,10 @@ fn other(m: &Match, player_id: i64) -> Option<i64> {
 
 /// Считает по журналу, что матчу делать дальше.
 ///
-/// Баны идут по очереди, начиная с назначенного; затем пики — тоже по
-/// очереди, но первым пикает тот, кто банил вторым. После каждого пика
-/// ждём результат: без него следующий ход невозможен.
+/// Ходы идут строго по очереди, начиная с назначенного первым: банил
+/// первым — пикает первым. Очередь сквозная, банов и пиков вместе, иначе
+/// на стыке фаз один и тот же игрок ходил бы дважды подряд. После каждого
+/// пика ждём результат: без него следующий ход невозможен.
 fn phase_of(m: &Match, target: i64, bans_total: i64, actions: &[MatchAction]) -> Phase {
     if m.status == "finished" {
         return Phase::Finished { winner: m.winner_id };
@@ -111,12 +112,13 @@ fn phase_of(m: &Match, target: i64, bans_total: i64, actions: &[MatchAction]) ->
         return Phase::NotStarted;
     };
 
+    // Чей ход по счёту: чётные достаются первому, нечётные — второму.
+    let turn = |n: i64| if n % 2 == 0 { first } else { second };
+
     let bans = actions.iter().filter(|a| a.kind == "ban").count() as i64;
     if bans < bans_total * 2 {
-        // Чередуем: первый, второй, первый…
-        let actor = if bans % 2 == 0 { first } else { second };
         return Phase::Ban {
-            actor,
+            actor: turn(bans),
             done: bans,
             total: bans_total * 2,
         };
@@ -146,9 +148,9 @@ fn phase_of(m: &Match, target: i64, bans_total: i64, actions: &[MatchAction]) ->
         return Phase::Result { slot_label };
     }
 
-    // Первым пикает тот, кто банил вторым.
-    let actor = if picks % 2 == 0 { second } else { first };
-    Phase::Pick { actor }
+    Phase::Pick {
+        actor: turn(bans + picks),
+    }
 }
 
 /// Тайбрейк открывается, когда обоим осталась одна победа.
@@ -236,26 +238,17 @@ pub fn state(conn: &Connection, match_id: i64) -> Result<MatchState> {
     let phase = phase_of(&m, target, bans, &actions);
     let rows = rows_of(conn, &m, target, &actions)?;
 
+    // Матчпоинт — это «осталась одна победа», а у доигранного матча впереди
+    // ничего не осталось: у проигравшего при 4:3 метка висела бы как насмешка.
     let mut match_point = Vec::new();
-    if m.score_a == target - 1 {
-        match_point.extend(m.player_a);
+    if !matches!(phase, Phase::Finished { .. }) {
+        if m.score_a == target - 1 {
+            match_point.extend(m.player_a);
+        }
+        if m.score_b == target - 1 {
+            match_point.extend(m.player_b);
+        }
     }
-    if m.score_b == target - 1 {
-        match_point.extend(m.player_b);
-    }
-
-    // Правила и маппул задавались порознь — сверяем их до первого бана.
-    let problems = if m.pool_id.is_some() {
-        let playable = rows.iter().filter(|r| r.mod_tag != "TB").count() as i64;
-        super::feasible::check(super::feasible::Demand {
-            playable,
-            has_tiebreaker: rows.iter().any(|r| r.mod_tag == "TB"),
-            target,
-            bans_each: bans,
-        })
-    } else {
-        Vec::new()
-    };
 
     Ok(MatchState {
         tournament_name: t.name.clone(),
@@ -270,7 +263,6 @@ pub fn state(conn: &Connection, match_id: i64) -> Result<MatchState> {
         phase,
         target,
         match_point,
-        problems,
         match_info: m,
     })
 }
@@ -392,7 +384,9 @@ pub fn undo(conn: &Connection, match_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Закрывает матч и продвигает победителя по сетке.
+/// Закрывает матч и продвигает победителя по сетке. Если этот матч был
+/// Закрывает матч и продвигает победителя по сетке. Если этот матч был
+/// последним — закрывает и турнир: искать «завершить» глазами не нужно.
 fn close(conn: &Connection, match_id: i64, winner_id: i64, walkover: bool) -> Result<()> {
     conn.execute(
         "UPDATE matches
@@ -401,7 +395,12 @@ fn close(conn: &Connection, match_id: i64, winner_id: i64, walkover: bool) -> Re
           WHERE id = ?1",
         params![match_id, winner_id, walkover as i64],
     )?;
-    super::tournaments::promote(conn, match_id)
+    super::tournaments::promote(conn, match_id)?;
+
+    let m = get(conn, match_id)?;
+    super::tournaments::advance_walkovers(conn, m.tournament_id)?;
+    super::tournaments::finish_if_done(conn, m.tournament_id)?;
+    Ok(())
 }
 
 /// Возвращает матч в игру: убирает его результат и вычищает игроков,
@@ -447,6 +446,9 @@ fn reopen(conn: &Connection, match_id: i64) -> Result<()> {
           WHERE id = ?1",
         params![match_id],
     )?;
+
+    // Этот матч мог быть последним в сетке — тогда турнир уже подвёл итоги.
+    super::tournaments::reopen_if_finished(conn, m.tournament_id)?;
     Ok(())
 }
 

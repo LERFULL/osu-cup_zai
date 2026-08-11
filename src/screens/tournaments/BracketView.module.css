@@ -23,36 +23,116 @@
   font-size: 16px;
 }
 
-.side {
-  min-width: 0;
+/* ── итоги турнира */
+
+.results {
+  padding: 16px;
+  border: 1px solid rgba(255, 111, 177, 0.28);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 111, 177, 0.09), rgba(255, 111, 177, 0.02));
 }
 
-/* Верхняя сетка и гранд-финал стоят в один ряд: победитель верхней уходит
-   в гранд-финал направо, и разрывать эту линию незачем. Гранд-финал узкий,
-   поэтому места он почти не занимает. */
-.top {
-  display: flex;
-  align-items: flex-start;
-  gap: 26px;
-  min-width: 0;
-}
-
-.top .side:first-child {
-  flex: 1;
-  min-width: 0;
-}
-
-.top .side:last-child {
-  flex: 0 0 auto;
-}
-
-.sideTitle {
-  margin-bottom: 11px;
+.resultsTitle {
+  margin-bottom: 13px;
   color: var(--txt3);
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.podium {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+/* Цвет игрока ведёт всю карточку — на пьедестале это единственное место,
+   где он крупнее полоски. */
+.step {
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--card);
+}
+
+.stepFirst {
+  border-color: color-mix(in srgb, var(--who) 55%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--who) 14%, var(--card)), var(--card));
+  box-shadow: 0 0 22px color-mix(in srgb, var(--who) 16%, transparent);
+}
+
+.place {
+  margin-bottom: 7px;
+  color: var(--txt3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.stepFirst .place {
+  color: var(--who);
+}
+
+.podiumNick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.podiumScore {
+  margin-top: 5px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.tableRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tablePlace {
+  width: 18px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+}
+
+.tableNick {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tableScore {
+  margin-left: auto;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.side {
+  min-width: 0;
 }
 
 /* Сетка шире экрана на больших турнирах — колонки уезжают вбок. */
@@ -88,6 +168,13 @@
   stroke: var(--line);
   stroke-width: 1.5;
   transition: stroke 0.2s;
+}
+
+/* Падение в нижнюю сетку — тоже путь, но не победный: рисуем пунктиром,
+   иначе он спорит со сплошной линией победителя за то же место. */
+.linkDrop {
+  stroke-dasharray: 3 4;
+  opacity: 0.5;
 }
 
 .match {

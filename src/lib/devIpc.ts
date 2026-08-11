@@ -429,6 +429,17 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     for (const m of maps) if (set.has(m.beatmapId) && !m.mods.includes(mod)) m.mods.push(mod);
     return undefined;
   },
+  bulk_remove_mod: (a) => {
+    const mod = String(a['mod']) as ModTag;
+    const set = new Set(ids(a, 'beatmapIds'));
+    for (const m of maps) if (set.has(m.beatmapId)) m.mods = m.mods.filter((x) => x !== mod);
+    return undefined;
+  },
+  bulk_clear_mods: (a) => {
+    const set = new Set(ids(a, 'beatmapIds'));
+    for (const m of maps) if (set.has(m.beatmapId)) m.mods = [];
+    return undefined;
+  },
   bulk_add_skillset: (a) => {
     const k = String(a['skillset']) as Skillset;
     const set = new Set(ids(a, 'beatmapIds'));

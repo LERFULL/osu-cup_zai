@@ -126,6 +126,24 @@ pub async fn bulk_add_mod(
 }
 
 #[tauri::command]
+pub async fn bulk_remove_mod(
+    state: State<'_, Arc<AppState>>,
+    beatmap_ids: Vec<i64>,
+    r#mod: String,
+) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| beatmaps::bulk_remove_mod(tx, &beatmap_ids, &r#mod))
+}
+
+#[tauri::command]
+pub async fn bulk_clear_mods(state: State<'_, Arc<AppState>>, beatmap_ids: Vec<i64>) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| beatmaps::bulk_clear_mods(tx, &beatmap_ids))
+}
+
+#[tauri::command]
 pub async fn bulk_add_skillset(
     state: State<'_, Arc<AppState>>,
     beatmap_ids: Vec<i64>,

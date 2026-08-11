@@ -675,9 +675,22 @@ pub struct MatchState {
     pub target: i64,
     /// Кому осталась одна победа — метка «матчпоинт».
     pub match_point: Vec<i64>,
-    /// Правила и маппул не сходятся: карт не хватит доиграть до конца.
-    /// Пустой список — всё в порядке.
-    pub problems: Vec<String>,
+}
+
+/// Правила турнира и маппул не сходятся: карт не хватит доиграть матч.
+///
+/// Считается на экране турнира, где и то и другое выбирают: узнать об этом
+/// посреди матча — значит узнать поздно.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleProblem {
+    pub pool_id: i64,
+    pub pool_name: String,
+    /// Раунд, для которого правило задано отдельно. `None` — общее правило.
+    pub round: Option<i64>,
+    pub target: i64,
+    pub bans_each: i64,
+    pub notes: Vec<String>,
 }
 
 /// Турнир вместе с сеткой — то, из чего рисуется экран турнира.
@@ -687,4 +700,22 @@ pub struct Bracket {
     #[serde(flatten)]
     pub tournament: Tournament,
     pub matches: Vec<Match>,
+    /// Правила и привязанные маппулы, которые не сходятся между собой.
+    pub problems: Vec<RuleProblem>,
+    /// Итоги: кто какое место занял. Заполняется у завершённого турнира.
+    pub standings: Vec<Standing>,
+}
+
+/// Строка итоговой таблицы турнира.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Standing {
+    pub player_id: i64,
+    pub nickname: String,
+    pub color: String,
+    pub placement: i64,
+    pub match_wins: i64,
+    pub match_losses: i64,
+    pub map_wins: i64,
+    pub map_losses: i64,
 }

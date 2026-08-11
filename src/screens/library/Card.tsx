@@ -79,7 +79,7 @@ export function Card({ beatmapId, onClose, onChanged, onSaved, onDeleted, onOpen
         latest.current = before;
         setMap(before);
         onChanged(before);
-        setFailed(String(e));
+        setFailed(`Не сохранилось: ${String(e)}`);
       })
       .then(() => onSaved?.());
   }
@@ -135,7 +135,7 @@ export function Card({ beatmapId, onClose, onChanged, onSaved, onDeleted, onOpen
       onDeleted([beatmapId]);
       onClose();
     } catch (e) {
-      setFailed(String(e));
+      setFailed(`Не удалилось: ${String(e)}`);
     }
   }
 
@@ -148,7 +148,7 @@ export function Card({ beatmapId, onClose, onChanged, onSaved, onDeleted, onOpen
       onDeleted([x.beatmapId]);
       if (x.beatmapId === beatmapId) onClose();
     } catch (e) {
-      setFailed(String(e));
+      setFailed(`Не удалилось: ${String(e)}`);
     }
   }
 
@@ -159,6 +159,24 @@ export function Card({ beatmapId, onClose, onChanged, onSaved, onDeleted, onOpen
       (m) => ({ ...m, note }),
       (m) => ipc.setBeatmapNote(m.beatmapId, m.note ?? ''),
     );
+  }
+
+  /**
+   * Открыть страницу карты в браузере. Сложность адресуем через набор:
+   * `/b/<id>` уводит на страницу набора без выбранной сложности, а на
+   * старых картах и вовсе может не открыться.
+   */
+  async function openOnOsu(m: Beatmap) {
+    const url =
+      m.beatmapsetId === null
+        ? `https://osu.ppy.sh/beatmaps/${m.beatmapId}`
+        : `https://osu.ppy.sh/beatmapsets/${m.beatmapsetId}#osu/${m.beatmapId}`;
+    try {
+      await openUrl(url);
+    } catch (e) {
+      // Молча не открывшаяся ссылка выглядит как сломанная кнопка.
+      setFailed(`Не открылось: ${String(e)}`);
+    }
   }
 
   return (
@@ -291,12 +309,10 @@ export function Card({ beatmapId, onClose, onChanged, onSaved, onDeleted, onOpen
         />
       </Section>
 
-      {failed !== null ? <div className={s.failed}>Не сохранилось: {failed}</div> : null}
+      {failed !== null ? <div className={s.failed}>{failed}</div> : null}
 
       <div className={s.actions}>
-        <Button onClick={() => void openUrl(`https://osu.ppy.sh/b/${map.beatmapId}`)}>
-          Открыть на osu! ↗
-        </Button>
+        <Button onClick={() => void openOnOsu(map)}>Открыть на osu! ↗</Button>
         <Button variant="danger" onClick={() => void removeThis()}>
           Убрать из библиотеки
         </Button>

@@ -6,8 +6,8 @@
   bottom: 18px;
   left: 18px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
   border: 1px solid var(--line);
@@ -23,11 +23,95 @@
   flex: 0 0 auto;
 }
 
+/* Мод-теги — главное на этой панели: они в ряд, а не в меню. */
+.mods {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+
+.mod {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s, border-color 0.13s;
+}
+
+.mod:hover:not(:disabled) {
+  background: var(--card2);
+  color: var(--txt);
+}
+
+.mod:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Тег стоит у всех выделенных — следующее нажатие снимет его. */
+.modAll {
+  border-color: rgba(255, 111, 177, 0.55);
+  background: rgba(255, 111, 177, 0.16);
+  color: var(--txt);
+}
+
+/* Тег стоит у части: состояние промежуточное, и это должно быть видно —
+   иначе непонятно, поставит нажатие тег или снимет. */
+.modSome {
+  border-color: rgba(255, 111, 177, 0.3);
+  border-style: dashed;
+  color: var(--txt);
+}
+
+.modCount {
+  color: var(--pink);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.clearMods {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--txt3);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.clearMods:hover:not(:disabled) {
+  background: rgba(255, 107, 107, 0.14);
+  color: var(--red);
+}
+
+.clearMods:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 7px;
+  margin-left: auto;
 }
 
 /* Якорь для выпадающего меню кнопки. */

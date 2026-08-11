@@ -922,6 +922,24 @@ pub fn bulk_add_mod(conn: &Connection, ids: &[i64], m: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn bulk_remove_mod(conn: &Connection, ids: &[i64], m: &str) -> Result<()> {
+    let mut stmt = conn.prepare("DELETE FROM beatmap_mods WHERE beatmap_id = ?1 AND mod = ?2")?;
+    for id in ids {
+        stmt.execute(params![id, m])?;
+    }
+    Ok(())
+}
+
+/// Снимает с карт все мод-теги разом: разметить пачку заново обычно проще,
+/// чем снимать теги по одному.
+pub fn bulk_clear_mods(conn: &Connection, ids: &[i64]) -> Result<()> {
+    let mut stmt = conn.prepare("DELETE FROM beatmap_mods WHERE beatmap_id = ?1")?;
+    for id in ids {
+        stmt.execute(params![id])?;
+    }
+    Ok(())
+}
+
 pub fn bulk_add_skillset(conn: &Connection, ids: &[i64], skillset: &str) -> Result<()> {
     let mut stmt = conn.prepare(
         "INSERT OR IGNORE INTO beatmap_skillsets (beatmap_id, skillset, suggested) VALUES (?1, ?2, 0)",

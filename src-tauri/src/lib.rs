@@ -51,6 +51,8 @@ pub fn run() {
             commands::library::set_beatmap_skillsets,
             commands::library::set_beatmap_note,
             commands::library::bulk_add_mod,
+            commands::library::bulk_remove_mod,
+            commands::library::bulk_clear_mods,
             commands::library::bulk_add_skillset,
             // метки
             commands::library::list_labels,

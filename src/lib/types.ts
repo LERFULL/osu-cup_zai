@@ -542,6 +542,36 @@ export interface Match {
 /** Турнир вместе с сеткой. */
 export interface Bracket extends Tournament {
   matches: Match[];
+  /** Правила и привязанные маппулы, которые не сходятся между собой. */
+  problems: RuleProblem[];
+  /** Итоги. Заполняются у завершённого турнира. */
+  standings: Standing[];
+}
+
+/**
+ * Правила турнира и маппул не сходятся: карт не хватит доиграть матч.
+ * Считается там, где и то и другое выбирают, — на экране турнира.
+ */
+export interface RuleProblem {
+  poolId: number;
+  poolName: string;
+  /** Раунд, для которого правило задано отдельно. `null` — общее правило. */
+  round: number | null;
+  target: number;
+  bansEach: number;
+  notes: string[];
+}
+
+/** Строка итоговой таблицы турнира. */
+export interface Standing {
+  playerId: number;
+  nickname: string;
+  color: string;
+  placement: number;
+  matchWins: number;
+  matchLosses: number;
+  mapWins: number;
+  mapLosses: number;
 }
 
 // ─────────────────────────────────────────────────────────────── матч
@@ -592,6 +622,4 @@ export interface MatchState extends Match {
   target: number;
   /** Кому осталась одна победа. */
   matchPoint: number[];
-  /** Правила и маппул не сходятся: карт не хватит доиграть. */
-  problems: string[];
 }

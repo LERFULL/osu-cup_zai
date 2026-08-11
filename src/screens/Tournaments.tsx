@@ -14,8 +14,9 @@ const STATUS_LABEL: Record<Tournament['status'], string> = {
 
 /** Сводка турнира одной строкой: состав и стадия. */
 function shape(t: Tournament): string {
+  // Размер сетки не показываем: он округлён вверх до степени двойки, и
+  // «3 игрока · сетка на 4» читается как ошибка, а не как устройство сетки.
   const parts = [`${t.players.length} игроков`];
-  if (t.bracketSize > 0) parts.push(`сетка на ${t.bracketSize}`);
   parts.push(`до ${t.targetScore.default} побед`);
   if (t.poolIds.length > 0) parts.push(`${t.poolIds.length} маппулов`);
   return parts.join(' · ');

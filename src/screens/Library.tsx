@@ -478,12 +478,14 @@ export default function Library() {
         {picked.size > 0 ? (
           <Bulk
             ids={[...picked]}
+            selected={shown.filter((r) => picked.has(r.map.beatmapId)).map((r) => r.map)}
             collections={collections}
             here={here}
             onClear={clearPicked}
             onChanged={async () => {
               await reload();
               await refreshCollections();
+              void refreshUntagged();
               bumpSummary();
             }}
             onDelete={removePicked}

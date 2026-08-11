@@ -89,6 +89,13 @@ export const setBeatmapNote = (beatmapId: number, note: string) =>
 export const bulkAddMod = (beatmapIds: number[], mod: ModTag) =>
   invoke<void>('bulk_add_mod', { beatmapIds, mod });
 
+export const bulkRemoveMod = (beatmapIds: number[], mod: ModTag) =>
+  invoke<void>('bulk_remove_mod', { beatmapIds, mod });
+
+/** Снять с выделенных карт все мод-теги разом. */
+export const bulkClearMods = (beatmapIds: number[]) =>
+  invoke<void>('bulk_clear_mods', { beatmapIds });
+
 export const bulkAddSkillset = (beatmapIds: number[], skillset: Skillset) =>
   invoke<void>('bulk_add_skillset', { beatmapIds, skillset });
 

@@ -91,6 +91,65 @@
   font-size: 11px;
 }
 
+/* Правила и маппулы выбираются рядом, а сходятся не всегда: девять карт,
+   по два бана каждому и игра до четырёх побед по отдельности выглядят
+   разумно. Показываем это здесь, а не в середине матча. */
+.problems {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid rgba(255, 107, 107, 0.34);
+  border-radius: 10px;
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.problemTitle {
+  margin-bottom: 8px;
+  color: var(--red);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.problem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 0;
+}
+
+.problem + .problem {
+  border-top: 1px solid rgba(255, 107, 107, 0.14);
+}
+
+.problemWhere {
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.problemNote {
+  color: var(--txt);
+  font-size: 12.5px;
+}
+
+.problemHint {
+  display: block;
+  margin-top: 8px;
+  color: var(--txt3);
+  font-size: 11.5px;
+}
+
+/* Турнир сыгран: полоса того же места, что и «сетка построена». */
+.finished {
+  margin: 0 24px 12px;
+  padding: 10px 13px;
+  border: 1px solid rgba(255, 111, 177, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 111, 177, 0.1);
+  color: var(--txt2);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
 /* Сетка построена, но не запущена: состояние важнее любой другой подсказки
    на экране, поэтому идёт полосой над самой сеткой. */
 .pending {
