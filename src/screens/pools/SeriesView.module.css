@@ -1,0 +1,428 @@
+/* Экран серии: шапка, сводка пятью числами, рост сложности, список пулов,
+   повторы. Всё в той же центрированной колонке, что и остальные экраны. */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 17px 24px 13px;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--txt);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.022em;
+  white-space: nowrap;
+  cursor: text;
+  transition: border-color 0.13s;
+}
+
+.title:hover {
+  border-color: var(--line);
+}
+
+.dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.kind {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--txt2);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sub {
+  flex: 0 0 auto;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.right {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.wrap {
+  position: relative;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 24px 28px;
+  overflow-y: auto;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+/* ─────────────────────────────────────────── сводка пятью числами */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.card {
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+/* Повторы в турнирной серии — это ошибка, и число должно бросаться в глаза. */
+.alarm {
+  border-color: rgba(255, 107, 107, 0.35);
+}
+
+.alarm .big {
+  color: var(--red);
+}
+
+.big {
+  font-family: var(--mono);
+  font-size: 19px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.small {
+  margin-top: 2px;
+  color: var(--txt3);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+/* ──────────────────────────────────────────────────────── панели */
+
+.panel {
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.h3 {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.hint {
+  margin: 0 0 8px;
+  color: var(--txt3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+/* ───────────────────────────────────── рост сложности по раундам */
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11.5px;
+}
+
+.stepName {
+  flex: 0 0 96px;
+  overflow: hidden;
+  color: var(--txt2);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.from,
+.to {
+  flex: 0 0 30px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.to {
+  text-align: right;
+}
+
+.track {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.trackEmpty {
+  flex: 1;
+  color: var(--txt3);
+  font-size: 11px;
+}
+
+.range {
+  position: absolute;
+  top: 0;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(91, 200, 245, 0.55), rgba(255, 111, 177, 0.7));
+}
+
+/* Точка среднего: по ней видно, куда смещён пул внутри своего размаха. */
+.avg {
+  position: absolute;
+  top: -2px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--txt);
+  box-shadow: 0 0 8px rgba(255, 111, 177, 0.5);
+}
+
+.below {
+  flex: 0 0 auto;
+  color: var(--gold);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+/* ────────────────────────────────────────────── список маппулов */
+
+.pool {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.pool:last-child {
+  border-bottom: 0;
+}
+
+.grip {
+  flex: 0 0 12px;
+  color: var(--txt3);
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.13s;
+}
+
+.pool:hover .grip {
+  opacity: 1;
+}
+
+.grip:active {
+  cursor: grabbing;
+}
+
+.poolLabel {
+  flex: 0 0 84px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+  cursor: text;
+  transition: border-color 0.13s, color 0.13s;
+}
+
+.poolLabel:hover {
+  border-color: var(--line);
+  color: var(--txt);
+}
+
+.poolMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s;
+}
+
+.poolMain:hover {
+  background: var(--card2);
+}
+
+.poolName {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--txt);
+  font-size: 12.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(91, 200, 245, 0.14);
+  color: var(--cyan);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.locked {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(255, 208, 59, 0.14);
+  color: var(--gold);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.poolShape {
+  color: var(--txt3);
+  font-size: 10.5px;
+}
+
+.poolStars,
+.poolFilled {
+  flex: 0 0 auto;
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.poolWarn {
+  flex: 0 0 52px;
+  color: var(--gold);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.poolOk {
+  flex: 0 0 52px;
+}
+
+.poolX {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--txt3);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.13s, background 0.13s, color 0.13s;
+}
+
+.pool:hover .poolX {
+  opacity: 1;
+}
+
+.poolX:hover {
+  background: rgba(255, 107, 107, 0.16);
+  color: var(--red);
+}
+
+/* ─────────────────────────────────────────────────────── повторы */
+
+.repeat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.repeat:last-child {
+  border-bottom: 0;
+}
+
+.repeatName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repeatWhere {
+  flex: 0 0 auto;
+  color: var(--txt3);
+  font-size: 11px;
+}
+
+.error {
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: rgba(255, 138, 138, 0.1);
+  color: #ff8a8a;
+  font-size: 12px;
+  line-height: 1.5;
+}

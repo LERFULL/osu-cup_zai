@@ -126,14 +126,14 @@ pub struct Collection {
 
 // ─────────────────────────────────────────────────────────────── фильтр
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Range {
     pub min: Option<f64>,
     pub max: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryFilter {
     #[serde(default)]
@@ -276,21 +276,256 @@ pub struct QueueStatus {
 
 /// Правила генерации. Все поля с `default`, поэтому старый шаблон
 /// с неполным JSON читается без ошибки.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// У каждого правила своя строгость: строгое не выполнилось — слот остался
+/// пустым, мягкое — слот заполнился, а нарушение попало в отчёт. «Только
+/// ranked» и потолок длины строгие по умолчанию: их обходят осознанно.
+/// Разброс BPM и баланс скилсетов — мягкие: это пожелания к пулу целиком,
+/// и запирать ими отдельный слот бессмысленно.
+///
+/// `no_repeat_mapper` и `no_repeat_from_pools` уехали в исключения, чтобы всё
+/// «чего не берём» лежало в одном месте. Поля тут больше нет — миграция 003
+/// перенесла их значения и вычистила из JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenRules {
     #[serde(default)]
-    pub no_repeat_mapper: bool,
-    #[serde(default)]
-    pub no_repeat_from_pools: Vec<i64>,
-    #[serde(default)]
     pub min_bpm_spread: Option<f64>,
     #[serde(default)]
+    pub min_bpm_spread_strict: bool,
+    #[serde(default)]
     pub ranked_only: bool,
+    #[serde(default = "yes")]
+    pub ranked_only_strict: bool,
     #[serde(default)]
     pub balance_skillsets: bool,
     #[serde(default)]
+    pub balance_skillsets_strict: bool,
+    #[serde(default)]
     pub length_max: Option<i64>,
+    #[serde(default = "yes")]
+    pub length_max_strict: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for GenRules {
+    fn default() -> Self {
+        Self {
+            min_bpm_spread: None,
+            min_bpm_spread_strict: false,
+            ranked_only: false,
+            ranked_only_strict: true,
+            balance_skillsets: false,
+            balance_skillsets_strict: false,
+            length_max: None,
+            length_max_strict: true,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────── источники карт
+
+/// Откуда брать карты. `Filter` — сохранённые условия без коллекции: так
+/// «текущий фильтр библиотеки» становится источником, не превращаясь в
+/// умную коллекцию, которой потом никто не пользуется.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Source {
+    #[serde(rename = "library")]
+    Library,
+    #[serde(rename = "collection")]
+    Collection { id: i64 },
+    #[serde(rename = "filter")]
+    Filter { filter: LibraryFilter },
+}
+
+/// Набор источников уровня. `union` — все сливаются в один набор, `ordered` —
+/// берём из первого, чего не хватило, добираем из второго.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSet {
+    #[serde(default)]
+    pub items: Vec<Source>,
+    #[serde(default = "union")]
+    pub mode: String,
+}
+
+fn union() -> String {
+    "union".into()
+}
+
+impl Default for SourceSet {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            mode: union(),
+        }
+    }
+}
+
+impl SourceSet {
+    /// Пустой набор ничего не задаёт: уровень наследует источники выше.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    pub fn ordered(&self) -> bool {
+        // Один источник по приоритету — это тот же union: переключатель
+        // в панели при этом скрыт, но данные могли остаться от прошлого раза.
+        self.mode == "ordered" && self.items.len() > 1
+    }
+}
+
+/// Источник с названием и числом карт — то, что показывает панель.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceInfo {
+    pub source: Source,
+    pub name: String,
+    pub count: i64,
+    /// Коллекция-источник удалена. Правило при этом не применяется молча.
+    pub missing: bool,
+}
+
+/// Какие источники применяются к пулу и откуда они пришли.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveSources {
+    pub set: SourceSet,
+    pub items: Vec<SourceInfo>,
+    /// «свои», «от серии — Осень 2026», «от шаблона», «вся библиотека».
+    pub origin: String,
+    /// Есть ли у самого уровня свои источники: панели нужно знать,
+    /// показывать «унаследовано» или нет.
+    pub own: bool,
+    pub total: i64,
+}
+
+// ─────────────────────────────────────────────────── исключения
+
+/// Чего не берём. Всё «нельзя» в одном перечислении: разбросанное по
+/// правилам, полям и галочкам, оно не читается целиком ни в одном месте.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum ExclusionTarget {
+    #[serde(rename = "pool")]
+    Pool { id: i64 },
+    #[serde(rename = "series")]
+    Series { id: i64 },
+    /// Всё, что стояло в маппулах этого турнира.
+    #[serde(rename = "tournament")]
+    Tournament { id: i64 },
+    #[serde(rename = "recentTournaments")]
+    RecentTournaments { count: i64 },
+    /// Карты, которые этот игрок уже играл.
+    #[serde(rename = "playedBy")]
+    PlayedBy { player_id: i64 },
+    #[serde(rename = "mapper")]
+    Mapper { name: String },
+    /// Руками отобранные карты.
+    #[serde(rename = "beatmaps")]
+    Beatmaps { ids: Vec<i64> },
+    /// Не два пула одного маппера внутри пула. Про состав, а не про id,
+    /// поэтому считается во время подбора.
+    #[serde(rename = "sameMapperInside")]
+    SameMapperInside,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Exclusion {
+    pub id: i64,
+    pub target: ExclusionTarget,
+    pub strict: bool,
+    pub enabled: bool,
+    /// Читаемое имя цели: «Осень — раунд 1», «Серия „Зима 2026“».
+    pub label: String,
+    /// Откуда пришло: `None` — своё, иначе «серия „Осень 2026“».
+    pub inherited_from: Option<String>,
+    /// Цель удалена — исключение не применяется, но и не исчезает само:
+    /// правило, пропавшее незаметно, хуже неработающего.
+    pub missing: bool,
+    /// Сколько карт отсекает от общего набора кандидатов пула.
+    pub cut: i64,
+}
+
+// ──────────────────────────────────────────────────────── серии
+
+/// Группа маппулов. Турнирная знает про раунды и не повторяет карты внутри
+/// себя, свободная — просто ящик: архив сезона, «мои любимые NM-пулы».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Series {
+    pub id: i64,
+    pub name: String,
+    /// tournament | free
+    pub kind: String,
+    pub color: Option<String>,
+    pub note: Option<String>,
+    pub sources: Option<SourceSet>,
+    pub exclusions: Vec<Exclusion>,
+    pub no_repeat_inside: bool,
+    /// Значение по умолчанию для строк пулов серии.
+    pub display_fields: Option<Vec<String>>,
+    pub position: i64,
+    pub created_at: String,
+    pub pools: Vec<SeriesPool>,
+}
+
+/// Пул внутри серии — ровно то, что показывает её список: метка раунда,
+/// состав одной строкой и сколько предупреждений внутри.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesPool {
+    pub pool_id: i64,
+    pub position: i64,
+    pub label: Option<String>,
+    pub name: String,
+    pub status: String,
+    pub version: i64,
+    pub is_locked: bool,
+    pub shape: String,
+    pub slots: i64,
+    pub filled: i64,
+    pub stars_min: Option<f64>,
+    pub stars_max: Option<f64>,
+    pub stars_avg: Option<f64>,
+    pub warnings: i64,
+}
+
+/// Размах звёзд одного пула серии — строка диаграммы роста сложности.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesStep {
+    pub pool_id: i64,
+    pub label: String,
+    pub stars_min: Option<f64>,
+    pub stars_max: Option<f64>,
+    pub stars_avg: Option<f64>,
+    /// Средняя ниже предыдущего пула. Предупреждение мягкое: бывает намеренно.
+    pub below_previous: bool,
+}
+
+/// Сводка серии: пять чисел сверху экрана и всё, что за ними стоит.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesStats {
+    pub pools: i64,
+    pub maps_total: i64,
+    pub maps_unique: i64,
+    /// Карт, встречающихся в двух и более пулах серии.
+    pub repeats: i64,
+    pub stars_min: Option<f64>,
+    pub stars_max: Option<f64>,
+    pub mappers: i64,
+    pub mappers_repeated: i64,
+    /// Карт, которые уже стояли в маппулах прошлых турниров.
+    pub played_before: i64,
+    pub steps: Vec<SeriesStep>,
+    pub repeat_rows: Vec<PoolOverlap>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -332,22 +567,56 @@ pub struct PoolTemplate {
     pub id: i64,
     pub name: String,
     pub rules: GenRules,
+    #[serde(default)]
+    pub sources: Option<SourceSet>,
+    /// Только на выход: правятся исключения отдельными командами, а не
+    /// сохранением шаблона целиком.
+    #[serde(default, skip_deserializing)]
+    pub exclusions: Vec<Exclusion>,
     pub created_at: String,
     pub slots: Vec<TemplateSlot>,
 }
 
-/// Сколько карт нужно под слот и сколько нашлось в его источнике.
+/// Что именно отсекло карты и сколько. Ответ на «почему слот пустой»:
+/// не «мало карт», а «диапазон звёзд отрезал 214, исключение прошлого
+/// турнира — ещё 38».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Blocker {
+    pub reason: String,
+    pub cut: i64,
+}
+
+/// Сколько карт нужно под слот и сколько осталось после всех правил.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SlotSupply {
     pub position: i64,
+    pub slot_label: String,
     #[serde(rename = "mod")]
     pub mod_tag: String,
     pub need: i64,
+    /// Подходит под мод, звёзды и скилсеты — до исключений.
+    pub matching: i64,
+    /// Из них отсечено исключениями.
+    pub excluded: i64,
     pub available: i64,
+    /// По убыванию отсечённого.
+    pub blockers: Vec<Blocker>,
+    /// Откуда пришли источники слота: «свои», «от серии — Осень 2026».
+    pub origin: String,
 }
 
 // ────────────────────────────────────────────────────────── маппулы
+
+/// Что не так со строкой. Строгое нарушение — красная иконка, мягкое — жёлтая.
+/// Строгих после генерации быть не может: они появляются только при ручной правке.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotWarning {
+    pub text: String,
+    pub strict: bool,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -361,9 +630,11 @@ pub struct PoolSlot {
     pub star_rating_with_mods: Option<f64>,
     pub fm_mods: Vec<String>,
     pub position: i64,
+    /// Свои источники слота. `None` — наследует пул.
+    pub sources: Option<SourceSet>,
     /// Заполняется только при чтении одного пула — в списке карты не нужны.
     pub beatmap: Option<Beatmap>,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<SlotWarning>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -373,14 +644,38 @@ pub struct Pool {
     pub name: String,
     pub template_id: Option<i64>,
     pub template_name: Option<String>,
-    pub folder_id: Option<i64>,
+    pub series_id: Option<i64>,
+    pub series_name: Option<String>,
+    /// tournament | free — от типа зависит, можно ли повторять карты.
+    pub series_kind: Option<String>,
+    /// Метка раунда внутри серии: «раунд 1», «финал».
+    pub series_label: Option<String>,
+    pub series_position: i64,
     pub status: String,
     pub version: i64,
     pub parent_pool_id: Option<i64>,
     pub display_fields: Vec<String>,
+    /// Свои источники пула. `None` — наследует серия или шаблон.
+    pub sources: Option<SourceSet>,
+    /// Сыгранный пул неизменяем: правка уводит в свежую копию.
     pub is_locked: bool,
     pub created_at: String,
     pub slots: Vec<PoolSlot>,
+}
+
+/// Строка отчёта генерации: адрес и цифры, а не «что-то не сошлось».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenNote {
+    pub pool_id: Option<i64>,
+    pub pool_name: String,
+    /// Слот, к которому относится заметка. `None` — про пул целиком.
+    pub slot_label: Option<String>,
+    pub text: String,
+    /// Правило было строгим: слот остался пустым, а не заполнился с оговоркой.
+    pub strict: bool,
+    /// Что и сколько отсекло — раскрывается под строкой отчёта.
+    pub blockers: Vec<Blocker>,
 }
 
 /// Итог генерации: сам пул и то, что не получилось выдержать.
@@ -388,10 +683,47 @@ pub struct Pool {
 #[serde(rename_all = "camelCase")]
 pub struct GenReport {
     pub pool: Pool,
-    pub notes: Vec<String>,
+    pub notes: Vec<GenNote>,
 }
 
-/// Карта, попавшая сразу в несколько маппулов одного турнира.
+/// Что применяется к пулу: источники, исключения, правила и запас по слотам.
+///
+/// Отдельной командой, а не полем пула: считать это при каждом чтении списка
+/// маппулов — десятки запросов на пул, а нужно оно только в открытой панели.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolWhence {
+    pub sources: EffectiveSources,
+    /// Унаследованные сверху, потом свои.
+    pub exclusions: Vec<Exclusion>,
+    pub rules: GenRules,
+    /// Откуда правила: «от шаблона „Стандарт 1v1“» или «своих правил нет».
+    pub rules_origin: String,
+    pub supply: Vec<SlotSupply>,
+    /// Звёзды под модами не посчитаны: без ключа или пока не докачались.
+    pub stars_pending: i64,
+}
+
+/// Что показывать в панели подбора карты в слот.
+///
+/// Исключения применяются и здесь: иначе руками можно поставить карту, которую
+/// генерация никогда бы не взяла. Но убранные карты именно скрыты, а не
+/// выброшены — строка «скрыто 74 карты по исключениям» с кнопкой «показать
+/// всё» честнее молча урезанного списка.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotPicker {
+    /// Фильтр библиотеки, суженный под слот: тот же, по которому шла генерация.
+    pub filter: LibraryFilter,
+    /// Сколько карт остаётся после всех правил.
+    pub available: i64,
+    /// Карты, отсечённые строгими исключениями.
+    pub hidden: Vec<i64>,
+    /// Откуда пришли источники слота: «свои», «от серии — Осень 2026».
+    pub origin: String,
+}
+
+/// Карта, попавшая сразу в несколько маппулов одного турнира или серии.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PoolOverlap {
@@ -400,6 +732,8 @@ pub struct PoolOverlap {
     pub name: String,
     /// Названия маппулов, в которых она встретилась.
     pub pools: Vec<String>,
+    /// Их id, в том же порядке — чтобы можно было перекатить последний.
+    pub pool_ids: Vec<i64>,
 }
 
 /// Сколько карт под каждым мод-тегом. Карта с несколькими тегами

@@ -6,10 +6,10 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::now_iso;
+use super::{exclusions::Owner, now_iso, sources};
 use crate::error::{AppError, Result};
 use crate::model::{
-    GenRules, LibraryFilter, PoolTemplate, Range, SlotSupply, TemplateSlot, TemplateSlotInput,
+    GenRules, LibraryFilter, PoolTemplate, Range, SourceSet, TemplateSlot, TemplateSlotInput,
 };
 
 fn row_to_slot(row: &rusqlite::Row) -> rusqlite::Result<TemplateSlot> {
@@ -30,7 +30,7 @@ fn row_to_slot(row: &rusqlite::Row) -> rusqlite::Result<TemplateSlot> {
     })
 }
 
-fn slots_of(conn: &Connection, template_id: i64) -> Result<Vec<TemplateSlot>> {
+pub fn slots_of(conn: &Connection, template_id: i64) -> Result<Vec<TemplateSlot>> {
     let mut stmt = conn.prepare(
         "SELECT id, mod, count, star_min, star_max, source_collection_id,
                 required_skillsets, position
@@ -51,16 +51,19 @@ fn row_to_template(row: &rusqlite::Row) -> rusqlite::Result<PoolTemplate> {
         id: row.get("id")?,
         name: row.get("name")?,
         rules: serde_json::from_str(&rules).unwrap_or_default(),
+        sources: sources::parse(row.get("sources")?),
+        exclusions: Vec::new(),
         created_at: row.get("created_at")?,
         slots: Vec::new(),
     })
 }
 
+const COLS: &str = "id, name, rules, sources, created_at";
+
 pub fn list(conn: &Connection) -> Result<Vec<PoolTemplate>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, rules, created_at FROM pool_templates
-         ORDER BY is_builtin DESC, id ASC",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLS} FROM pool_templates ORDER BY is_builtin DESC, id ASC"
+    ))?;
     let rows = stmt.query_map([], row_to_template)?;
 
     let mut out = Vec::new();
@@ -69,6 +72,10 @@ pub fn list(conn: &Connection) -> Result<Vec<PoolTemplate>> {
     }
     for t in out.iter_mut() {
         t.slots = slots_of(conn, t.id)?;
+        t.exclusions = super::exclusions::to_model(
+            &super::exclusions::ready(conn, &[(Owner::Template(t.id), None)])?,
+            &std::collections::HashSet::new(),
+        );
     }
     Ok(out)
 }
@@ -76,7 +83,7 @@ pub fn list(conn: &Connection) -> Result<Vec<PoolTemplate>> {
 pub fn get(conn: &Connection, id: i64) -> Result<PoolTemplate> {
     let mut found = conn
         .query_row(
-            "SELECT id, name, rules, created_at FROM pool_templates WHERE id = ?1",
+            &format!("SELECT {COLS} FROM pool_templates WHERE id = ?1"),
             params![id],
             row_to_template,
         )
@@ -84,6 +91,11 @@ pub fn get(conn: &Connection, id: i64) -> Result<PoolTemplate> {
         .ok_or_else(|| AppError::Other("Шаблон не найден".into()))?;
 
     found.slots = slots_of(conn, id)?;
+
+    // Счётчик отсечённого считается вместе с запасом слота — здесь набора
+    // кандидатов ещё нет, поэтому в списке шаблона он нулевой.
+    let ready = super::exclusions::ready(conn, &[(Owner::Template(id), None)])?;
+    found.exclusions = super::exclusions::to_model(&ready, &std::collections::HashSet::new());
     Ok(found)
 }
 
@@ -107,6 +119,15 @@ pub fn set_rules(conn: &Connection, id: i64, rules: &GenRules) -> Result<()> {
     conn.execute(
         "UPDATE pool_templates SET rules = ?2 WHERE id = ?1",
         params![id, serde_json::to_string(rules)?],
+    )?;
+    Ok(())
+}
+
+/// Источники шаблона. `None` — вся библиотека, если серия и пул своих не задали.
+pub fn set_sources(conn: &Connection, id: i64, set: Option<&SourceSet>) -> Result<()> {
+    conn.execute(
+        "UPDATE pool_templates SET sources = ?2 WHERE id = ?1",
+        params![id, sources::dump(set)?],
     )?;
     Ok(())
 }
@@ -145,8 +166,8 @@ pub fn set_slots(conn: &Connection, id: i64, slots: &[TemplateSlotInput]) -> Res
 
 pub fn duplicate(conn: &Connection, id: i64) -> Result<PoolTemplate> {
     conn.execute(
-        "INSERT INTO pool_templates (name, rules, is_builtin, created_at)
-         SELECT name || ' — копия', rules, 0, ?2 FROM pool_templates WHERE id = ?1",
+        "INSERT INTO pool_templates (name, rules, sources, is_builtin, created_at)
+         SELECT name || ' — копия', rules, sources, 0, ?2 FROM pool_templates WHERE id = ?1",
         params![id, now_iso()],
     )?;
     let new_id = conn.last_insert_rowid();
@@ -161,61 +182,54 @@ pub fn duplicate(conn: &Connection, id: i64) -> Result<PoolTemplate> {
         params![id, new_id],
     )?;
 
+    super::exclusions::copy(conn, Owner::Template(id), Owner::Template(new_id))?;
     get(conn, new_id)
 }
 
 /// Удаление шаблона не трогает пулы, скатанные по нему: у пула останется
 /// `template_id = NULL`, а карты и слоты на месте.
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
+    super::exclusions::delete_all(conn, Owner::Template(id))?;
     conn.execute("DELETE FROM pool_templates WHERE id = ?1", params![id])?;
     Ok(())
 }
 
-// ────────────────────────────────────── сколько карт есть под слоты
+// ────────────────────────────────────── условия слота одним фильтром
 
-/// Фильтр, эквивалентный слоту: его источник, диапазон звёзд, мод и скилсеты
-/// плюс те правила шаблона, которые сужают выбор карт.
-///
-/// Тем же фильтром открывается панель подбора карты в слот — иначе руками
-/// можно было бы поставить карту, которую генерация никогда бы не взяла.
-pub fn slot_filter(slot: &TemplateSlot, rules: &GenRules) -> LibraryFilter {
+/// Условия самого слота: мод, диапазон звёзд, скилсеты. Без правил шаблона —
+/// от них зависит, что считать отсечённым, и `supply` применяет их по одному.
+pub fn slot_base(slot: &TemplateSlot) -> LibraryFilter {
     LibraryFilter {
         mods: vec![slot.mod_tag.clone()],
         skillsets: slot.required_skillsets.clone(),
-        statuses: if rules.ranked_only {
-            vec!["ranked".to_string()]
-        } else {
-            vec![]
-        },
         stars: Range {
             min: slot.star_min,
             max: slot.star_max,
         },
-        length: Range {
-            min: None,
-            max: rules.length_max.map(|l| l as f64),
-        },
-        collection_id: slot.source_collection_id,
         ..LibraryFilter::default()
     }
 }
 
-/// Сколько карт нужно под каждый слот и сколько подходит в его источнике.
-/// Считается по одному слоту независимо: пересечения между слотами тут не
-/// видны, их ловит уже сама генерация.
-pub fn supply(conn: &Connection, id: i64) -> Result<Vec<SlotSupply>> {
-    let template = get(conn, id)?;
-    let mut out = Vec::new();
+/// Фильтр, эквивалентный слоту: его условия плюс те правила, которые заданы
+/// строгими. Мягкие правила сюда не попадают — они работают весами при
+/// подборе, а не фильтром: иначе «по возможности» ничем не отличалось бы
+/// от «строго».
+///
+/// Тем же фильтром открывается панель подбора карты в слот — иначе руками
+/// можно было бы поставить карту, которую генерация никогда бы не взяла.
+pub fn slot_filter(slot: &TemplateSlot, rules: &GenRules) -> LibraryFilter {
+    let mut f = slot_base(slot);
 
-    for slot in &template.slots {
-        let filter = slot_filter(slot, &template.rules);
-        let ids = super::beatmaps::ids_for(conn, &filter)?;
-        out.push(SlotSupply {
-            position: slot.position,
-            mod_tag: slot.mod_tag.clone(),
-            need: slot.count,
-            available: ids.len() as i64,
-        });
+    if rules.ranked_only && rules.ranked_only_strict {
+        f.statuses = vec!["ranked".to_string()];
     }
-    Ok(out)
+    if rules.length_max_strict {
+        if let Some(max) = rules.length_max {
+            f.length.max = Some(max as f64);
+        }
+    }
+    // Коллекция-источник слота — самый узкий уровень источников. Остальные
+    // уровни накладывает `sources::tiers`, который тоже получает этот фильтр.
+    f.collection_id = slot.source_collection_id;
+    f
 }

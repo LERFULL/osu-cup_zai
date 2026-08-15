@@ -1,14 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Button,
-  Chip,
-  Empty,
-  Menu,
-  MenuItem,
-  RangeSlider,
-  SlotLine,
-  Switch,
-} from '@/components';
+import { Button, Chip, Empty, Menu, MenuItem, RangeSlider, SlotLine } from '@/components';
 import {
   MOD_TAGS,
   SKILLSETS,
@@ -17,12 +8,14 @@ import {
   type ModTag,
   type PoolTemplate,
   type SlotSupply,
+  type SourceSet,
   type TemplateSlot,
 } from '@/lib/types';
 import { maps, slotConditions, slots as slotsWord } from '@/lib/format';
 import { useReorder } from '@/lib/useReorder';
 import * as ipc from '@/lib/ipc';
 import { useApp } from '@/store/app';
+import { ExclusionsBlock, RulesBlock, SourcesBlock } from './Rules';
 import s from './TemplateEditor.module.css';
 
 interface Props {
@@ -38,6 +31,8 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
   const { collections } = useApp();
   const [name, setName] = useState('');
   const [rules, setRules] = useState<GenRules | null>(null);
+  const [sources, setSources] = useState<SourceSet | null>(null);
+  const [template, setTemplate] = useState<PoolTemplate | null>(null);
   const [draft, setDraft] = useState<Draft[]>([]);
   const [supply, setSupply] = useState<SlotSupply[]>([]);
   const [open, setOpen] = useState<number | null>(null);
@@ -58,8 +53,10 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
   }, [id]);
 
   function apply(t: PoolTemplate) {
+    setTemplate(t);
     setName(t.name);
     setRules(t.rules);
+    setSources(t.sources);
     setDraft(t.slots);
     setDirty(false);
   }
@@ -82,7 +79,7 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
 
   const reorder = useReorder({ count: draft.length, onDrop: move });
 
-  if (rules === null) {
+  if (rules === null || template === null) {
     return (
       <div className={s.screen}>
         {error !== null ? (
@@ -108,8 +105,7 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
       {
         id: -Date.now(),
         mod,
-        // TB в пуле ровно один — предлагать другое количество незачем.
-        count: mod === 'TB' ? 1 : 1,
+        count: 1,
         starMin: null,
         starMax: null,
         sourceCollectionId: null,
@@ -133,6 +129,7 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
         id,
         name,
         rules as GenRules,
+        sources,
         draft.map((x) => ({
           mod: x.mod,
           count: x.count,
@@ -166,7 +163,7 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
   }
 
   const total = draft.reduce((n, x) => n + x.count, 0);
-  const sourceName = (cid: number | null) =>
+  const sourceLabel = (cid: number | null) =>
     cid === null ? null : (collections.find((c) => c.id === cid)?.name ?? null);
 
   // Предупреждения показываем только по сохранённому составу: пока правки
@@ -176,19 +173,19 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
     : supply
         .filter((x) => x.available < x.need)
         .map((x) => {
-          const slot = draft[x.position];
-          const where = sourceName(slot?.sourceCollectionId ?? null);
-          const place = where !== null ? `«${where}»` : 'библиотеке';
+          const top = x.blockers[0];
           return {
             key: `${x.position}-${x.mod}`,
-            mod: x.mod,
-            // При нуле карт слот просто останется пустым — обещать «сработает»
-            // в этом случае было бы враньём.
-            title: x.available === 0 ? `Под слот ${x.mod} карт нет` : `Под слот ${x.mod} карт впритык`,
+            title:
+              x.available === 0
+                ? `Под слот ${x.mod} карт нет`
+                : `Под слот ${x.mod} карт впритык`,
             text:
               x.available === 0
-                ? `В ${place} нет ни одной подходящей карты, а нужно ${x.need}. Эти слоты останутся пустыми.`
-                : `В ${place} подходит ${maps(x.available)}, а нужно ${x.need}. Генерация сработает, но разнообразия не будет.`,
+                ? `Нужно ${x.need}, а подходит ноль. Эти слоты останутся пустыми.`
+                : `Подходит ${maps(x.available)}, а нужно ${x.need}. Генерация сработает, но разнообразия не будет.`,
+            // Самый крупный отсекатель — это и есть ответ, что расширять.
+            cut: top !== undefined ? `Больше всех отрезало: ${top.reason} (−${top.cut})` : null,
           };
         });
 
@@ -292,7 +289,7 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
                       slot.starMin,
                       slot.starMax,
                       slot.requiredSkillsets,
-                      sourceName(slot.sourceCollectionId),
+                      sourceLabel(slot.sourceCollectionId),
                     )}
                   </span>
                 </SlotLine>
@@ -312,17 +309,18 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
                     </div>
 
                     <label className={s.pick}>
-                      <span className={s.pickLabel}>Откуда брать карты</span>
+                      <span className={s.pickLabel}>Коллекция только для этого слота</span>
                       <select
                         className={s.select}
                         value={slot.sourceCollectionId ?? ''}
                         onChange={(e) =>
                           edit(i, {
-                            sourceCollectionId: e.target.value === '' ? null : Number(e.target.value),
+                            sourceCollectionId:
+                              e.target.value === '' ? null : Number(e.target.value),
                           })
                         }
                       >
-                        <option value="">Вся библиотека</option>
+                        <option value="">Как у шаблона</option>
                         {collections.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
@@ -377,96 +375,30 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
           </section>
 
           <section className={s.panel}>
-            <h3 className={s.h3}>Правила генерации</h3>
+            <h3 className={s.h3}>Откуда берём</h3>
 
-            <Switch
-              checked={rules.noRepeatMapper}
-              onChange={(v) => {
-                setRules({ ...rules, noRepeatMapper: v });
+            <SourcesBlock
+              set={sources}
+              onChange={(next) => {
+                setSources(next);
                 setDirty(true);
               }}
-              note="Одна карта на маппера во всём пуле"
-            >
-              Не повторять маппера
-            </Switch>
+            />
 
-            <Switch
-              checked={rules.rankedOnly}
-              onChange={(v) => {
-                setRules({ ...rules, rankedOnly: v });
+            <ExclusionsBlock
+              owner="template"
+              ownerId={id}
+              items={template.exclusions}
+              onChanged={load}
+            />
+
+            <RulesBlock
+              rules={rules}
+              onChange={(next) => {
+                setRules(next);
                 setDirty(true);
               }}
-            >
-              Только ranked
-            </Switch>
-
-            <Switch
-              checked={rules.balanceSkillsets}
-              onChange={(v) => {
-                setRules({ ...rules, balanceSkillsets: v });
-                setDirty(true);
-              }}
-              note="Поровну aim и speed, насколько хватит карт"
-            >
-              Держать баланс aim / speed
-            </Switch>
-
-            <Switch
-              checked={rules.minBpmSpread !== null}
-              onChange={(v) => {
-                setRules({ ...rules, minBpmSpread: v ? 40 : null });
-                setDirty(true);
-              }}
-              note="Чтобы весь пул не оказался в одном темпе"
-            >
-              Разброс BPM не меньше
-            </Switch>
-            {rules.minBpmSpread !== null ? (
-              <div className={s.inline}>
-                <input
-                  className={s.number}
-                  type="number"
-                  min={5}
-                  max={200}
-                  step={5}
-                  value={rules.minBpmSpread}
-                  onChange={(e) => {
-                    setRules({ ...rules, minBpmSpread: Number(e.target.value) });
-                    setDirty(true);
-                  }}
-                  aria-label="Минимальный разброс BPM"
-                />
-                <span className={s.unit}>BPM</span>
-              </div>
-            ) : null}
-
-            <Switch
-              checked={rules.lengthMax !== null}
-              onChange={(v) => {
-                setRules({ ...rules, lengthMax: v ? 300 : null });
-                setDirty(true);
-              }}
-            >
-              Не брать карты длиннее
-            </Switch>
-            {rules.lengthMax !== null ? (
-              <div className={s.inline}>
-                <input
-                  className={s.number}
-                  type="number"
-                  min={30}
-                  max={900}
-                  step={15}
-                  value={rules.lengthMax}
-                  onChange={(e) => {
-                    setRules({ ...rules, lengthMax: Number(e.target.value) });
-                    setDirty(true);
-                  }}
-                  aria-label="Максимальная длина карты в секундах"
-                />
-                <span className={s.unit}>секунд</span>
-              </div>
-            ) : null}
+            />
           </section>
 
           <div className={s.footer}>
@@ -489,7 +421,8 @@ export function TemplateEditor({ id, onClose, onGenerated }: Props) {
               <div>
                 <div className={s.warnTitle}>{w.title}</div>
                 <div className={s.hint}>
-                  {w.text} Расширь диапазон звёзд или добавь карт в источник.
+                  {w.text}
+                  {w.cut !== null ? ` ${w.cut}.` : ''}
                 </div>
               </div>
             </div>

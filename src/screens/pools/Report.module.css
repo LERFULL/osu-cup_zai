@@ -1,0 +1,157 @@
+/* Отчёт генерации. Красное — строгое нарушение (слот пустой),
+   жёлтое — мягкое (слот заполнен, но правило нарушено). */
+
+.report {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card2);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 111, 177, 0.16);
+  color: var(--pink);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.close {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--txt3);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.close:hover {
+  background: var(--card);
+  color: var(--txt);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+}
+
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s;
+}
+
+.line:disabled {
+  cursor: default;
+}
+
+.line:hover:not(:disabled) {
+  background: var(--card2);
+}
+
+.hard {
+  flex: 0 0 auto;
+  color: var(--red);
+  font-size: 11px;
+}
+
+.soft {
+  flex: 0 0 auto;
+  color: var(--gold);
+  font-size: 11px;
+}
+
+.pool {
+  flex: 0 0 auto;
+  color: var(--txt3);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.slot {
+  flex: 0 0 auto;
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+}
+
+.more {
+  flex: 0 0 auto;
+  color: var(--txt3);
+  font-size: 10px;
+}
+
+.blockers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 12px 6px 32px;
+  padding: 7px 10px;
+  border-left: 2px solid rgba(255, 107, 107, 0.4);
+  border-radius: 0 8px 8px 0;
+  background: var(--card2);
+}
+
+.blocker {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11.5px;
+}
+
+.reason {
+  flex: 1;
+  min-width: 0;
+  color: var(--txt2);
+}
+
+.num {
+  flex: 0 0 auto;
+  color: var(--pink);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}

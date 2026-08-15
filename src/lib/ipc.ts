@@ -10,6 +10,8 @@ import type {
   ByRound,
   Collection,
   CredentialsCheck,
+  ExclusionOwner,
+  ExclusionTarget,
   FirstBan,
   Folder,
   GenReport,
@@ -29,9 +31,15 @@ import type {
   PoolOverlap,
   PoolStatus,
   PoolTemplate,
+  PoolWhence,
   QueueStatus,
+  Series,
+  SeriesKind,
+  SeriesStats,
   Skillset,
+  SlotPicker,
   SlotSupply,
+  SourceSet,
   TemplateSlotInput,
   Tournament,
 } from './types';
@@ -148,25 +156,28 @@ export const listTemplates = () => invoke<PoolTemplate[]>('list_templates');
 export const getTemplate = (id: number) => invoke<PoolTemplate>('get_template', { id });
 export const createTemplate = (name: string) => invoke<PoolTemplate>('create_template', { name });
 
-/** Редактор сохраняется целиком — имя, правила и слоты одной транзакцией. */
+/** Редактор сохраняется целиком — имя, правила, источники и слоты одной транзакцией. */
 export const saveTemplate = (
   id: number,
   name: string,
   rules: GenRules,
+  sources: SourceSet | null,
   slots: TemplateSlotInput[],
-) => invoke<PoolTemplate>('save_template', { id, name, rules, slots });
+) => invoke<PoolTemplate>('save_template', { id, name, rules, sources, slots });
 
 export const duplicateTemplate = (id: number) => invoke<PoolTemplate>('duplicate_template', { id });
 export const deleteTemplate = (id: number) => invoke<void>('delete_template', { id });
 
-/** Сколько карт нужно под каждый слот и сколько нашлось в источнике. */
+/** Запас по слотам шаблона: что подходит и что отсекло остальное. */
 export const templateSupply = (id: number) => invoke<SlotSupply[]>('template_supply', { id });
 
 // ────────────────────────────────────────────────────────── маппулы
 
 export const listPools = () => invoke<Pool[]>('list_pools');
 export const getPool = (id: number) => invoke<Pool>('get_pool', { id });
-export const createPool = (name: string) => invoke<Pool>('create_pool', { name });
+
+export const createPool = (name: string, seriesId: number | null = null) =>
+  invoke<Pool>('create_pool', { name, seriesId });
 
 /** Возвращает id пула, в который ушла правка: у сыгранного он будет новым. */
 export const renamePool = (id: number, name: string) => invoke<number>('rename_pool', { id, name });
@@ -177,6 +188,10 @@ export const setPoolStatus = (id: number, status: PoolStatus) =>
 export const setPoolDisplayFields = (id: number, fields: PoolField[]) =>
   invoke<void>('set_pool_display_fields', { id, fields });
 
+/** Свои источники пула. `null` — вернуть наследование серии или шаблона. */
+export const setPoolSources = (id: number, sources: SourceSet | null) =>
+  invoke<Pool>('set_pool_sources', { id, sources });
+
 export const duplicatePool = (id: number) => invoke<Pool>('duplicate_pool', { id });
 export const deletePool = (id: number) => invoke<void>('delete_pool', { id });
 
@@ -186,45 +201,134 @@ export const deletePool = (id: number) => invoke<void>('delete_pool', { id });
 export const setSlotBeatmap = (poolId: number, position: number, beatmapId: number | null) =>
   invoke<Pool>('set_slot_beatmap', { poolId, position, beatmapId });
 
-export const setSlotPinned = (poolId: number, position: number, pinned: boolean) =>
-  invoke<Pool>('set_slot_pinned', { poolId, position, pinned });
+/** Пакетное действие над выделением: одно закрепление на все слоты. */
+export const setSlotsPinned = (poolId: number, positions: number[], pinned: boolean) =>
+  invoke<Pool>('set_slots_pinned', { poolId, positions, pinned });
 
 export const setSlotFmMods = (poolId: number, position: number, mods: string[]) =>
   invoke<Pool>('set_slot_fm_mods', { poolId, position, mods });
 
-export const setSlotMod = (poolId: number, position: number, mod: ModTag) =>
-  invoke<Pool>('set_slot_mod', { poolId, position, mod });
+export const setSlotsMod = (poolId: number, positions: number[], mod: ModTag) =>
+  invoke<Pool>('set_slots_mod', { poolId, positions, mod });
+
+/** Свои источники выделенных слотов. `null` — вернуть наследование пула. */
+export const setSlotsSources = (
+  poolId: number,
+  positions: number[],
+  sources: SourceSet | null,
+) => invoke<Pool>('set_slots_sources', { poolId, positions, sources });
 
 export const addPoolSlot = (poolId: number, mod: ModTag) =>
   invoke<Pool>('add_pool_slot', { poolId, mod });
 
-export const removePoolSlot = (poolId: number, position: number) =>
-  invoke<Pool>('remove_pool_slot', { poolId, position });
+export const removePoolSlots = (poolId: number, positions: number[]) =>
+  invoke<Pool>('remove_pool_slots', { poolId, positions });
 
 /** Новый порядок задаётся списком нынешних позиций. */
 export const reorderPoolSlots = (poolId: number, order: number[]) =>
   invoke<Pool>('reorder_pool_slots', { poolId, order });
 
-/** Фильтр библиотеки, суженный под слот: тот же, по которому шла генерация. */
-export const getSlotFilter = (poolId: number, position: number) =>
-  invoke<LibraryFilter>('slot_filter', { poolId, position });
+/** Фильтр слота и карты, скрытые исключениями, — для панели подбора. */
+export const slotPicker = (poolId: number, position: number) =>
+  invoke<SlotPicker>('slot_picker', { poolId, position });
 
-export const generatePool = (templateId: number, name: string) =>
-  invoke<GenReport>('generate_pool', { templateId, name });
+/** Источники, исключения, правила и запас — содержимое панели «Откуда берём». */
+export const poolWhence = (poolId: number) => invoke<PoolWhence>('pool_whence', { poolId });
 
-/** Серия маппулов под турнир: карты внутри серии не повторяются. */
-export const generatePoolSeries = (templateId: number, names: string[]) =>
-  invoke<GenReport[]>('generate_pool_series', { templateId, names });
-
-/** Карты, попавшие сразу в несколько маппулов турнира. */
-export const tournamentPoolOverlaps = (id: number) =>
-  invoke<PoolOverlap[]>('tournament_pool_overlaps', { id });
+export const generatePool = (templateId: number, name: string, seriesId: number | null = null) =>
+  invoke<GenReport>('generate_pool', { templateId, name, seriesId });
 
 export const rerollPool = (poolId: number, keepPinned: boolean) =>
   invoke<GenReport>('reroll_pool', { poolId, keepPinned });
 
-export const rerollSlot = (poolId: number, position: number) =>
-  invoke<GenReport>('reroll_slot', { poolId, position });
+/** Перекат выделенных слотов: остальные карты остаются на местах. */
+export const rerollSlots = (poolId: number, positions: number[]) =>
+  invoke<GenReport>('reroll_slots', { poolId, positions });
+
+// ─────────────────────────────────────────────────────── исключения
+
+export const addExclusion = (
+  ownerKind: ExclusionOwner,
+  ownerId: number,
+  target: ExclusionTarget,
+  strict: boolean,
+) => invoke<void>('add_exclusion', { ownerKind, ownerId, target, strict });
+
+export const removeExclusion = (id: number) => invoke<void>('remove_exclusion', { id });
+
+export const setExclusionStrict = (id: number, strict: boolean) =>
+  invoke<void>('set_exclusion_strict', { id, strict });
+
+export const setExclusionEnabled = (id: number, enabled: boolean) =>
+  invoke<void>('set_exclusion_enabled', { id, enabled });
+
+// ───────────────────────────────────────────────────────────── серии
+
+export const listSeries = () => invoke<Series[]>('list_series');
+export const getSeries = (id: number) => invoke<Series>('get_series', { id });
+
+export const createSeries = (name: string, kind: SeriesKind) =>
+  invoke<Series>('create_series', { name, kind });
+
+export const renameSeries = (id: number, name: string) =>
+  invoke<void>('rename_series', { id, name });
+
+export const setSeriesColor = (id: number, color: string | null) =>
+  invoke<void>('set_series_color', { id, color });
+
+export const setSeriesNote = (id: number, note: string | null) =>
+  invoke<void>('set_series_note', { id, note });
+
+/**
+ * Смена типа. Непустой ответ — повторы, из-за которых тип не сменился:
+ * турнирная серия обещает, что карты в ней не повторяются.
+ */
+export const setSeriesKind = (id: number, kind: SeriesKind) =>
+  invoke<PoolOverlap[]>('set_series_kind', { id, kind });
+
+export const setSeriesNoRepeat = (id: number, value: boolean) =>
+  invoke<PoolOverlap[]>('set_series_no_repeat', { id, value });
+
+export const setSeriesSources = (id: number, sources: SourceSet | null) =>
+  invoke<Series>('set_series_sources', { id, sources });
+
+export const setSeriesDisplayFields = (id: number, fields: PoolField[] | null) =>
+  invoke<void>('set_series_display_fields', { id, fields });
+
+export const duplicateSeries = (id: number) => invoke<Series>('duplicate_series', { id });
+
+/** Удаление серии не удаляет маппулы: они возвращаются в общий список. */
+export const deleteSeries = (id: number) => invoke<void>('delete_series', { id });
+
+export const reorderSeries = (ids: number[]) => invoke<void>('reorder_series', { ids });
+
+/** Непустой ответ — повторы, из-за которых пул не перенесён. */
+export const addPoolToSeries = (seriesId: number, poolId: number) =>
+  invoke<PoolOverlap[]>('add_pool_to_series', { seriesId, poolId });
+
+export const removePoolFromSeries = (poolId: number) =>
+  invoke<void>('remove_pool_from_series', { poolId });
+
+export const reorderSeriesPools = (seriesId: number, poolIds: number[]) =>
+  invoke<Series>('reorder_series_pools', { seriesId, poolIds });
+
+export const setSeriesPoolLabel = (poolId: number, label: string | null) =>
+  invoke<void>('set_series_pool_label', { poolId, label });
+
+export const seriesStats = (id: number) => invoke<SeriesStats>('series_stats', { id });
+export const seriesRepeats = (id: number) => invoke<PoolOverlap[]>('series_repeats', { id });
+
+/** Серия под турнир: создаётся сама серия и `count` пулов в ней. */
+export const generateSeries = (templateId: number, name: string, count: number) =>
+  invoke<GenReport[]>('generate_series', { templateId, name, count });
+
+/** Скатать серию целиком: карты каждого следующего пула вычитаются из набора. */
+export const rollSeries = (seriesId: number, keepPinned: boolean) =>
+  invoke<GenReport[]>('roll_series', { seriesId, keepPinned });
+
+/** Перекатить карту в том пуле, где она повторилась. */
+export const rerollRepeat = (poolId: number, beatmapId: number) =>
+  invoke<GenReport>('reroll_repeat', { poolId, beatmapId });
 
 // ────────────────────────────────────────────────────────────── импорт
 
@@ -343,6 +447,10 @@ export const confirmTournament = (id: number) => invoke<Bracket>('confirm_tourna
 export const reopenTournament = (id: number) => invoke<Bracket>('reopen_tournament', { id });
 
 export const tournamentBracket = (id: number) => invoke<Bracket>('tournament_bracket', { id });
+
+/** Карты, попавшие сразу в несколько маппулов турнира. */
+export const tournamentPoolOverlaps = (id: number) =>
+  invoke<PoolOverlap[]>('tournament_pool_overlaps', { id });
 
 export const finishTournament = (id: number) => invoke<Tournament>('finish_tournament', { id });
 

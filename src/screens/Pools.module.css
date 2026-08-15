@@ -1,7 +1,15 @@
+/* Дерево слева, содержимое выбранного узла справа — как в библиотеке карт. */
 .screen {
   display: flex;
-  flex-direction: column;
   height: 100%;
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -19,15 +27,18 @@
   letter-spacing: -0.022em;
 }
 
+.count {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .right {
   display: flex;
   gap: 8px;
   align-items: center;
   margin-left: auto;
-}
-
-.tabs {
-  padding: 0 24px 12px;
 }
 
 .body {
@@ -43,13 +54,14 @@
   margin: 0 auto;
 }
 
-.head {
-  margin: 22px 0 10px;
-  color: var(--txt3);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+.error {
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: rgba(255, 138, 138, 0.1);
+  color: #ff8a8a;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .card {
@@ -94,6 +106,25 @@
 .locked {
   background: rgba(255, 255, 255, 0.06);
   color: var(--txt3);
+}
+
+/* Серия маппула: по клику уводит на её экран. */
+.tag {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.13s, color 0.13s;
+}
+
+.tag:hover {
+  border-color: rgba(255, 111, 177, 0.45);
+  color: var(--txt);
 }
 
 .shape {

@@ -1,0 +1,207 @@
+/* Панель «Откуда берём» — фиксированная колонка справа, 320 px.
+   К ней возвращаются постоянно, поэтому она не всплывает и ничего не закрывает. */
+
+.panel {
+  display: flex;
+  flex: 0 0 320px;
+  flex-direction: column;
+  width: 320px;
+  border-left: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 0 16px;
+  overflow-y: auto;
+}
+
+/* Запас прибит к низу панели: он отвечает на «почему слот пустой»,
+   и искать его прокруткой неправильно. */
+.supply {
+  flex: 0 0 auto;
+  max-height: 46%;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+  overflow-y: auto;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.h4 {
+  margin: 0;
+  color: var(--txt3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.pending {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowWrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s;
+}
+
+.row:hover {
+  background: var(--card2);
+}
+
+.label {
+  flex: 0 0 34px;
+  color: var(--mod, var(--txt));
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.label[data-mod='NM'] {
+  --mod: var(--nm);
+}
+.label[data-mod='HD'] {
+  --mod: var(--hd);
+}
+.label[data-mod='HR'] {
+  --mod: var(--hr);
+}
+.label[data-mod='DT'] {
+  --mod: var(--dt);
+}
+.label[data-mod='FM'] {
+  --mod: var(--fm);
+}
+.label[data-mod='EZ'] {
+  --mod: var(--ez);
+}
+.label[data-mod='TB'] {
+  --mod: var(--tb);
+}
+
+.need {
+  flex: 0 0 auto;
+  color: var(--txt3);
+  font-size: 11.5px;
+}
+
+.have {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Карт впритык — генерация сработает, но разнообразия не будет. */
+.tight {
+  color: var(--gold);
+}
+
+/* Ноль карт — слот останется пустым. */
+.zero {
+  color: var(--red);
+}
+
+.warn {
+  color: var(--gold);
+}
+
+.bad {
+  color: var(--red);
+}
+
+.blockers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px;
+  padding: 7px 9px;
+  border-left: 2px solid rgba(255, 111, 177, 0.35);
+  border-radius: 0 8px 8px 0;
+  background: var(--card2);
+}
+
+.blocker {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.reason {
+  flex: 1;
+  min-width: 0;
+  color: var(--txt2);
+}
+
+.num {
+  flex: 0 0 auto;
+  color: var(--pink);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.blockerFoot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
+}
+
+.hint {
+  color: var(--txt3);
+  font-size: 11px;
+}
+
+.link {
+  border: 0;
+  background: none;
+  color: var(--pink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.link:hover {
+  text-decoration: underline;
+}

@@ -1,4 +1,12 @@
-import type { LibraryFilter, ModTag, Pool, PoolTemplate, Range } from './types';
+import type {
+  Collection,
+  LibraryFilter,
+  ModTag,
+  Pool,
+  PoolTemplate,
+  Range,
+  Source,
+} from './types';
 
 /** Секунды в mm:ss. */
 export function formatLength(seconds: number | null | undefined): string {
@@ -81,6 +89,28 @@ function range(r: Range, fmt: (n: number) => string): string | null {
 
 export function slots(n: number): string {
   return `${n} ${plural(n, 'слот', 'слота', 'слотов')}`;
+}
+
+export function poolsWord(n: number): string {
+  return `${n} ${plural(n, 'маппул', 'маппула', 'маппулов')}`;
+}
+
+/** Диапазон звёзд одной строкой: «5.0—6.4», «5.0», «—». */
+export function starsRange(min: number | null, max: number | null): string {
+  if (min === null && max === null) return '—';
+  if (min !== null && max !== null) {
+    return min.toFixed(1) === max.toFixed(1) ? min.toFixed(1) : `${min.toFixed(1)}—${max.toFixed(1)}`;
+  }
+  return (min ?? max ?? 0).toFixed(1);
+}
+
+/** Название источника для чипа. Коллекцию ищем по списку — id ни о чём. */
+export function sourceName(src: Source, collections: Collection[]): string {
+  if (src.kind === 'library') return 'вся библиотека';
+  if (src.kind === 'collection') {
+    return collections.find((c) => c.id === src.id)?.name ?? `коллекция ${src.id} удалена`;
+  }
+  return `фильтр: ${filterSummary(src.filter)}`;
 }
 
 /** Состав шаблона одной строкой: «NM×4 · HD×2 · TB×1». */

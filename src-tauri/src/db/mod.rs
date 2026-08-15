@@ -4,12 +4,16 @@
 pub mod beatmaps;
 pub mod bracket;
 pub mod collections;
+pub mod exclusions;
 pub mod feasible;
 pub mod generate;
 pub mod labels;
 pub mod matches;
 pub mod players;
 pub mod pools;
+pub mod series;
+pub mod sources;
+pub mod supply;
 pub mod templates;
 pub mod tournaments;
 
@@ -28,12 +32,16 @@ const SCHEMA_V1: &str = include_str!("schema.sql");
 /// запускал приложение, схема применена, а шаблонов ещё нет.
 const BUILTIN_TEMPLATES: &str = include_str!("migrations/002_builtin_templates.sql");
 
-/// Миграции по возрастанию версии. Чтобы добавить версию 3, допиши пару
-/// `(3, include_str!("migrations/003_...sql"))` — цикл применит её сам.
-const MIGRATIONS: &[(i64, &str)] = &[(1, SCHEMA_V1), (2, BUILTIN_TEMPLATES)];
+/// Серии, источники и исключения. Здесь есть ALTER TABLE, поэтому, в отличие
+/// от схемы, выражение не идемпотентно: применяется ровно один раз по версии.
+const SERIES: &str = include_str!("migrations/003_series_sources_exclusions.sql");
+
+/// Миграции по возрастанию версии. Чтобы добавить версию 4, допиши пару
+/// `(4, include_str!("migrations/004_...sql"))` — цикл применит её сам.
+const MIGRATIONS: &[(i64, &str)] = &[(1, SCHEMA_V1), (2, BUILTIN_TEMPLATES), (3, SERIES)];
 
 /// Версия схемы, которую ожидает текущий код.
-const TARGET_VERSION: i64 = 2;
+const TARGET_VERSION: i64 = 3;
 
 pub struct Db {
     conn: Mutex<Connection>,

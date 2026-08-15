@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Chip, Empty, MapRow, Panel } from '@/components';
-import type { Beatmap, LibraryFilter, PoolSlot } from '@/lib/types';
+import type { Beatmap, PoolSlot, SlotPicker } from '@/lib/types';
 import { EMPTY_FILTER } from '@/lib/types';
-import { coverUrl, filterSummary } from '@/lib/format';
+import { coverUrl, filterSummary, maps } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import s from './Picker.module.css';
 
@@ -23,11 +23,15 @@ type Scope = 'slot' | 'all';
  * Подбор карты в слот. По умолчанию видно ровно то, из чего выбирала бы
  * генерация — иначе руками можно поставить карту, которую шаблон не взял бы,
  * и потом гадать, почему пул выглядит не так.
+ *
+ * Исключённые карты скрыты, но посчитаны: строка «скрыто 74 карты» с кнопкой
+ * «показать всё» честнее молча урезанного списка.
  */
 export function Picker({ poolId, slot, taken, onPick, onImport, onClose }: Props) {
   const [scope, setScope] = useState<Scope>('slot');
   const [query, setQuery] = useState('');
-  const [slotFilter, setSlotFilter] = useState<LibraryFilter | null>(null);
+  const [rules, setRules] = useState<SlotPicker | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
   const [items, setItems] = useState<Beatmap[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -39,8 +43,8 @@ export function Picker({ poolId, slot, taken, onPick, onImport, onClose }: Props
     let alive = true;
     void (async () => {
       try {
-        const f = await ipc.getSlotFilter(poolId, slot.position);
-        if (alive) setSlotFilter(f);
+        const found = await ipc.slotPicker(poolId, slot.position);
+        if (alive) setRules(found);
       } catch (e) {
         if (alive) setError(String(e));
       }
@@ -51,7 +55,7 @@ export function Picker({ poolId, slot, taken, onPick, onImport, onClose }: Props
   }, [poolId, slot.position]);
 
   useEffect(() => {
-    if (scope === 'slot' && slotFilter === null) return;
+    if (scope === 'slot' && rules === null) return;
 
     let alive = true;
     setLoading(true);
@@ -61,8 +65,8 @@ export function Picker({ poolId, slot, taken, onPick, onImport, onClose }: Props
       void (async () => {
         try {
           const base =
-            scope === 'slot' && slotFilter !== null
-              ? slotFilter
+            scope === 'slot' && rules !== null
+              ? rules.filter
               : { ...EMPTY_FILTER, mods: [slot.mod] };
           const page = await ipc.listBeatmaps({ ...base, query }, 0, 200);
           if (!alive) return;
@@ -81,17 +85,22 @@ export function Picker({ poolId, slot, taken, onPick, onImport, onClose }: Props
       alive = false;
       clearTimeout(timer);
     };
-  }, [scope, slotFilter, query, slot.mod]);
+  }, [scope, rules, query, slot.mod]);
+
+  const banned = new Set(rules?.hidden ?? []);
+  const applyExclusions = scope === 'slot' && !showHidden;
+  const shown = applyExclusions ? items.filter((m) => !banned.has(m.beatmapId)) : items;
+  const cutOff = items.length - shown.length;
 
   const conditions =
-    scope === 'slot' && slotFilter !== null
-      ? filterSummary({ ...slotFilter, query: '' })
+    scope === 'slot' && rules !== null
+      ? filterSummary({ ...rules.filter, query: '' })
       : `мод ${slot.mod}`;
 
   return (
     <Panel
       title={`Карта в слот ${slot.slotLabel}`}
-      subtitle={`${total} подходит · ${conditions}`}
+      subtitle={`${scope === 'slot' && rules !== null ? rules.available : total} подходит · ${conditions}`}
       onClose={onClose}
     >
       <input
@@ -112,9 +121,26 @@ export function Picker({ poolId, slot, taken, onPick, onImport, onClose }: Props
         <Chip onClick={onImport}>своя карта</Chip>
       </div>
 
+      {rules !== null && scope === 'slot' ? (
+        <div className={s.origin}>источник: {rules.origin}</div>
+      ) : null}
+
+      {cutOff > 0 || (showHidden && banned.size > 0 && scope === 'slot') ? (
+        <div className={s.hidden}>
+          <span>
+            {showHidden
+              ? `${maps(banned.size)} нарушают исключения`
+              : `скрыто ${maps(cutOff)} по исключениям`}
+          </span>
+          <button className={s.link} onClick={() => setShowHidden(!showHidden)} type="button">
+            {showHidden ? 'скрыть' : 'показать всё'}
+          </button>
+        </div>
+      ) : null}
+
       {error !== null ? (
         <Empty title="Не получилось прочитать библиотеку" note={error} />
-      ) : items.length === 0 && !loading ? (
+      ) : shown.length === 0 && !loading ? (
         <Empty
           title="Ничего не нашлось"
           note={
@@ -125,9 +151,10 @@ export function Picker({ poolId, slot, taken, onPick, onImport, onClose }: Props
         />
       ) : (
         <div className={s.list}>
-          {items.map((m) => {
+          {shown.map((m) => {
             const busy = taken.has(m.beatmapId) && m.beatmapId !== slot.beatmapId;
             const suits = m.mods.includes(slot.mod);
+            const excluded = banned.has(m.beatmapId);
             return (
               <div key={m.beatmapId} className={s.row}>
                 <MapRow
@@ -143,10 +170,11 @@ export function Picker({ poolId, slot, taken, onPick, onImport, onClose }: Props
                   selected={slot.beatmapId === m.beatmapId}
                   onClick={() => onPick(m)}
                 />
-                {busy || !suits ? (
+                {busy || !suits || excluded ? (
                   <div className={s.tags}>
                     {busy ? <span className={s.busy}>уже в пуле</span> : null}
                     {suits ? null : <span className={s.other}>без тега {slot.mod}</span>}
+                    {excluded ? <span className={s.busy}>под исключением</span> : null}
                   </div>
                 ) : null}
               </div>

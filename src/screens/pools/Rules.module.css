@@ -1,0 +1,325 @@
+/* Блоки «Откуда берём»: источники, исключения, правила.
+   Используются и в панели пула, и в правилах серии, и в редакторе шаблона —
+   одно и то же должно выглядеть одинаково во всех трёх местах. */
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.block:last-child {
+  border-bottom: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.h4 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--txt3);
+}
+
+/* Переключатель «объединять / по приоритету». */
+.mode {
+  border: 0;
+  background: none;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.13s;
+}
+
+.mode:hover {
+  color: var(--txt);
+}
+
+/* Откуда пришло унаследованное — иначе непонятно, почему список серый. */
+.from {
+  color: var(--txt3);
+  font-size: 11.5px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  padding: 3px 6px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.item:hover {
+  background: var(--card2);
+}
+
+/* Унаследованное показано серым: править его надо там, где оно задано. */
+.dim {
+  color: var(--txt3);
+}
+
+.offItem .itemName {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.itemName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Порядок источника при режиме «по приоритету». */
+.rank {
+  flex: 0 0 auto;
+  width: 15px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: center;
+}
+
+.num {
+  flex: 0 0 auto;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Сколько карт отсекло это исключение. */
+.cut {
+  flex: 0 0 auto;
+  min-width: 34px;
+  color: var(--pink);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Цель правила удалена: применить его нельзя, но и молча убрать — тоже. */
+.gone {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 107, 107, 0.16);
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.strict,
+.strictDim {
+  flex: 0 0 auto;
+  min-width: 48px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--txt3);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.strict {
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s, border-color 0.13s;
+}
+
+.strict:hover:not(:disabled) {
+  background: var(--card2);
+  color: var(--txt);
+}
+
+.strict:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Строгое правило гасит слот — и выглядит весомее мягкого. */
+.hard {
+  border-color: rgba(255, 111, 177, 0.45);
+  background: rgba(255, 111, 177, 0.14);
+  color: var(--txt);
+}
+
+.strictDim {
+  border-style: dashed;
+}
+
+.eye,
+.x {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--txt3);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.eye:hover {
+  color: var(--txt);
+  background: var(--card2);
+}
+
+.eyeOff {
+  color: var(--txt3);
+  opacity: 0.7;
+}
+
+.x:hover {
+  background: rgba(255, 107, 107, 0.16);
+  color: var(--red);
+}
+
+.none {
+  padding: 2px 6px;
+  color: var(--txt3);
+  font-size: 11.5px;
+}
+
+.addWrap {
+  position: relative;
+  align-self: flex-start;
+}
+
+.add {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.13s, color 0.13s;
+}
+
+.add:hover {
+  border-color: rgba(255, 111, 177, 0.45);
+  color: var(--txt);
+}
+
+/* ───────────────────────────────────────────────────────────── правила */
+
+.rule {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ruleBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 0 4px 34px;
+}
+
+.number {
+  width: 68px;
+  height: 27px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--txt);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+}
+
+.number:focus {
+  border-color: rgba(255, 111, 177, 0.5);
+}
+
+.unit {
+  color: var(--txt3);
+  font-size: 11.5px;
+}
+
+/* ─────────────────────────────────────────── правила серии отдельным листом */
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sheetTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.sheetBody {
+  padding: 2px 16px 12px;
+}
+
+.kinds {
+  display: flex;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+
+.error {
+  margin: 10px 16px 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 107, 107, 0.1);
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 600;
+}

@@ -47,6 +47,11 @@ export function useReorder({ count, onDrop }: Options): Reorder {
   // движения, а перерисовывать из-за них нечего.
   const geom = useRef({ startY: 0, rowH: 0 });
 
+  // Куда встанет строка — тоже в ref. Читать это из обновляющей функции
+  // setDrag нельзя: в строгом режиме React зовёт её дважды, и перестановка
+  // применялась бы два раза — вторая отменяла бы первую.
+  const aim = useRef<DragState | null>(null);
+
   const handleProps = useCallback(
     (index: number) => ({
       style: { cursor: 'grab', touchAction: 'none' },
@@ -65,14 +70,18 @@ export function useReorder({ count, onDrop }: Options): Reorder {
           next instanceof HTMLElement ? next.getBoundingClientRect().top - rect.bottom : 0;
         geom.current = { startY: e.clientY, rowH: rect.height + Math.max(0, gap) };
 
-        setDrag({ from: index, to: index, offset: 0 });
+        const start = { from: index, to: index, offset: 0 };
+        aim.current = start;
+        setDrag(start);
 
         const move = (ev: PointerEvent) => {
           const offset = ev.clientY - geom.current.startY;
           const step = geom.current.rowH || 1;
           const shift = Math.round(offset / step);
           const to = Math.min(Math.max(index + shift, 0), count - 1);
-          setDrag({ from: index, to, offset });
+          const state = { from: index, to, offset };
+          aim.current = state;
+          setDrag(state);
         };
 
         const up = () => {
@@ -80,12 +89,10 @@ export function useReorder({ count, onDrop }: Options): Reorder {
           window.removeEventListener('pointerup', up);
           window.removeEventListener('pointercancel', up);
 
-          setDrag((current) => {
-            if (current !== null && current.from !== current.to) {
-              onDrop(current.from, current.to);
-            }
-            return null;
-          });
+          const done = aim.current;
+          aim.current = null;
+          setDrag(null);
+          if (done !== null && done.from !== done.to) onDrop(done.from, done.to);
         };
 
         window.addEventListener('pointermove', move);

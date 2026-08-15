@@ -295,24 +295,177 @@ export interface QueueStatus {
 
 // ─────────────────────────────────────────────── шаблоны маппулов
 
+/**
+ * Правила генерации. У каждого своя строгость: строгое не выполнилось —
+ * слот остался пустым, мягкое — слот заполнился, а нарушение попало в отчёт.
+ *
+ * «Не повторять маппера» и «не брать из этих маппулов» переехали в исключения:
+ * всё «чего не берём» лежит в одном месте.
+ */
 export interface GenRules {
-  noRepeatMapper: boolean;
-  /** Маппулы, карты из которых брать нельзя. */
-  noRepeatFromPools: number[];
   minBpmSpread: number | null;
+  minBpmSpreadStrict: boolean;
   rankedOnly: boolean;
+  rankedOnlyStrict: boolean;
   balanceSkillsets: boolean;
+  balanceSkillsetsStrict: boolean;
   lengthMax: number | null;
+  lengthMaxStrict: boolean;
 }
 
 export const EMPTY_RULES: GenRules = {
-  noRepeatMapper: false,
-  noRepeatFromPools: [],
   minBpmSpread: null,
+  minBpmSpreadStrict: false,
   rankedOnly: false,
+  rankedOnlyStrict: true,
   balanceSkillsets: false,
+  balanceSkillsetsStrict: false,
   lengthMax: null,
+  lengthMaxStrict: true,
 };
+
+// ─────────────────────────────────────────────────── источники карт
+
+/** Откуда брать карты. */
+export type Source =
+  | { kind: 'library' }
+  | { kind: 'collection'; id: number }
+  | { kind: 'filter'; filter: LibraryFilter };
+
+/** `union` — все источники сливаются, `ordered` — по приоритету. */
+export type SourceMode = 'union' | 'ordered';
+
+export interface SourceSet {
+  items: Source[];
+  mode: SourceMode;
+}
+
+/** Источник с названием и числом карт — то, что показывает панель. */
+export interface SourceInfo {
+  source: Source;
+  name: string;
+  count: number;
+  /** Коллекция-источник удалена. Правило при этом не применяется молча. */
+  missing: boolean;
+}
+
+/** Какие источники применяются и откуда они пришли. */
+export interface EffectiveSources {
+  set: SourceSet;
+  items: SourceInfo[];
+  /** «свои», «от серии — Осень 2026», «вся библиотека». */
+  origin: string;
+  /** Есть ли у самого уровня свои источники. */
+  own: boolean;
+  total: number;
+}
+
+// ───────────────────────────────────────────────────── исключения
+
+/** Чего не берём. Всё «нельзя» в одном перечислении. */
+export type ExclusionTarget =
+  | { kind: 'pool'; id: number }
+  | { kind: 'series'; id: number }
+  | { kind: 'tournament'; id: number }
+  | { kind: 'recentTournaments'; count: number }
+  | { kind: 'playedBy'; playerId: number }
+  | { kind: 'mapper'; name: string }
+  | { kind: 'beatmaps'; ids: number[] }
+  | { kind: 'sameMapperInside' };
+
+export const EXCLUSION_KINDS = [
+  'pool',
+  'series',
+  'tournament',
+  'recentTournaments',
+  'playedBy',
+  'mapper',
+  'beatmaps',
+  'sameMapperInside',
+] as const;
+export type ExclusionKind = (typeof EXCLUSION_KINDS)[number];
+
+/** Кому принадлежит исключение. */
+export type ExclusionOwner = 'series' | 'pool' | 'template';
+
+export interface Exclusion {
+  id: number;
+  target: ExclusionTarget;
+  strict: boolean;
+  enabled: boolean;
+  /** Читаемое имя цели: «Осень — раунд 1», «Серия „Зима 2026“». */
+  label: string;
+  /** Откуда пришло: `null` — своё, иначе «серия „Осень 2026“». */
+  inheritedFrom: string | null;
+  /** Цель удалена — правило не применяется, но и не исчезает само. */
+  missing: boolean;
+  /** Сколько карт отсекает от общего набора кандидатов. */
+  cut: number;
+}
+
+// ────────────────────────────────────────────────────────── серии
+
+export type SeriesKind = 'tournament' | 'free';
+
+export interface Series {
+  id: number;
+  name: string;
+  kind: SeriesKind;
+  color: string | null;
+  note: string | null;
+  sources: SourceSet | null;
+  exclusions: Exclusion[];
+  noRepeatInside: boolean;
+  /** Значение по умолчанию для строк пулов серии. */
+  displayFields: PoolField[] | null;
+  position: number;
+  createdAt: string;
+  pools: SeriesPool[];
+}
+
+/** Пул внутри серии — ровно то, что показывает её список. */
+export interface SeriesPool {
+  poolId: number;
+  position: number;
+  label: string | null;
+  name: string;
+  status: PoolStatus;
+  version: number;
+  isLocked: boolean;
+  /** «NM×4 · HD×2 · TB×1». */
+  shape: string;
+  slots: number;
+  filled: number;
+  starsMin: number | null;
+  starsMax: number | null;
+  starsAvg: number | null;
+  warnings: number;
+}
+
+/** Строка диаграммы роста сложности. */
+export interface SeriesStep {
+  poolId: number;
+  label: string;
+  starsMin: number | null;
+  starsMax: number | null;
+  starsAvg: number | null;
+  /** Средняя ниже предыдущего пула. Предупреждение мягкое. */
+  belowPrevious: boolean;
+}
+
+export interface SeriesStats {
+  pools: number;
+  mapsTotal: number;
+  mapsUnique: number;
+  repeats: number;
+  starsMin: number | null;
+  starsMax: number | null;
+  mappers: number;
+  mappersRepeated: number;
+  playedBefore: number;
+  steps: SeriesStep[];
+  repeatRows: PoolOverlap[];
+}
 
 export interface TemplateSlot {
   id: number;
@@ -332,16 +485,33 @@ export interface PoolTemplate {
   id: number;
   name: string;
   rules: GenRules;
+  sources: SourceSet | null;
+  exclusions: Exclusion[];
   createdAt: string;
   slots: TemplateSlot[];
 }
 
-/** Сколько карт нужно под слот и сколько нашлось в его источнике. */
+/** Что и сколько отсекло карты. */
+export interface Blocker {
+  reason: string;
+  cut: number;
+}
+
+/** Сколько карт нужно под слот и сколько осталось после всех правил. */
 export interface SlotSupply {
   position: number;
+  slotLabel: string;
   mod: ModTag;
   need: number;
+  /** Подходит под мод, звёзды и скилсеты — до исключений. */
+  matching: number;
+  /** Из них отсечено исключениями. */
+  excluded: number;
   available: number;
+  /** По убыванию отсечённого. */
+  blockers: Blocker[];
+  /** Откуда пришли источники слота. */
+  origin: string;
 }
 
 // ────────────────────────────────────────────────────────── маппулы
@@ -362,6 +532,12 @@ export const POOL_FIELDS = [
 ] as const;
 export type PoolField = (typeof POOL_FIELDS)[number];
 
+/** Что не так со строкой. Строгое — красным, мягкое — жёлтым. */
+export interface SlotWarning {
+  text: string;
+  strict: boolean;
+}
+
 export interface PoolSlot {
   id: number;
   slotLabel: string;
@@ -371,9 +547,11 @@ export interface PoolSlot {
   starRatingWithMods: number | null;
   fmMods: string[];
   position: number;
+  /** Свои источники слота. `null` — наследует пул. */
+  sources: SourceSet | null;
   /** Есть только при чтении одного пула — в списке карты не нужны. */
   beatmap: Beatmap | null;
-  warnings: string[];
+  warnings: SlotWarning[];
 }
 
 export interface Pool {
@@ -381,30 +559,72 @@ export interface Pool {
   name: string;
   templateId: number | null;
   templateName: string | null;
-  folderId: number | null;
+  seriesId: number | null;
+  seriesName: string | null;
+  seriesKind: SeriesKind | null;
+  /** Метка раунда внутри серии: «раунд 1», «финал». */
+  seriesLabel: string | null;
+  seriesPosition: number;
   status: PoolStatus;
   version: number;
   parentPoolId: number | null;
   displayFields: PoolField[];
+  /** Свои источники пула. `null` — наследует серия или шаблон. */
+  sources: SourceSet | null;
   /** Сыгранный пул неизменяем: правка уводит в свежую копию. */
   isLocked: boolean;
   createdAt: string;
   slots: PoolSlot[];
 }
 
+/** Строка отчёта генерации: адрес и цифры, а не «что-то не сошлось». */
+export interface GenNote {
+  poolId: number | null;
+  poolName: string;
+  /** Слот, к которому относится заметка. `null` — про пул целиком. */
+  slotLabel: string | null;
+  text: string;
+  /** Правило было строгим: слот остался пустым. */
+  strict: boolean;
+  blockers: Blocker[];
+}
+
 /** Итог генерации: сам пул и то, что не получилось выдержать. */
 export interface GenReport {
   pool: Pool;
-  notes: string[];
+  notes: GenNote[];
 }
 
-/** Карта, попавшая сразу в несколько маппулов одного турнира. */
+/** Что применяется к пулу — содержимое панели «Откуда берём». */
+export interface PoolWhence {
+  sources: EffectiveSources;
+  /** Унаследованные сверху, потом свои. */
+  exclusions: Exclusion[];
+  rules: GenRules;
+  rulesOrigin: string;
+  supply: SlotSupply[];
+  /** Звёзды под модами ещё не посчитаны. */
+  starsPending: number;
+}
+
+/** Что показывать в панели подбора карты в слот. */
+export interface SlotPicker {
+  filter: LibraryFilter;
+  available: number;
+  /** Карты, отсечённые строгими исключениями. */
+  hidden: number[];
+  origin: string;
+}
+
+/** Карта, попавшая сразу в несколько маппулов турнира или серии. */
 export interface PoolOverlap {
   beatmapId: number;
   /** «Исполнитель — название», как в строке карты. */
   name: string;
   /** Названия маппулов, в которых она встретилась. */
   pools: string[];
+  /** Их id, в том же порядке. */
+  poolIds: number[];
 }
 
 // ─────────────────────────────────────────────────────────────── игроки

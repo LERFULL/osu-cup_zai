@@ -2,10 +2,15 @@ use std::sync::Arc;
 
 use tauri::State;
 
-use crate::db::{generate, pools as pool_db, templates as tpl_db};
+use crate::db::exclusions::Owner;
+use crate::db::{
+    exclusions as ex_db, generate, pools as pool_db, series as series_db, supply as supply_db,
+    templates as tpl_db,
+};
 use crate::error::Result;
 use crate::model::{
-    GenReport, GenRules, LibraryFilter, Pool, PoolTemplate, SlotSupply, TemplateSlotInput,
+    ExclusionTarget, GenReport, GenRules, Pool, PoolTemplate, PoolWhence, SlotPicker, SlotSupply,
+    SourceSet, TemplateSlotInput,
 };
 use crate::state::AppState;
 
@@ -29,19 +34,22 @@ pub async fn create_template(
     state.db.with(|conn| tpl_db::create(conn, &name))
 }
 
-/// Редактор сохраняется целиком: имя, правила и все слоты одной транзакцией.
-/// Частичное сохранение оставило бы шаблон с новыми правилами и старыми слотами.
+/// Редактор сохраняется целиком: имя, правила, источники и все слоты одной
+/// транзакцией. Частичное сохранение оставило бы шаблон с новыми правилами
+/// и старыми слотами.
 #[tauri::command]
 pub async fn save_template(
     state: State<'_, Arc<AppState>>,
     id: i64,
     name: String,
     rules: GenRules,
+    sources: Option<SourceSet>,
     slots: Vec<TemplateSlotInput>,
 ) -> Result<PoolTemplate> {
     state.db.with_tx(|tx| {
         tpl_db::rename(tx, id, &name)?;
         tpl_db::set_rules(tx, id, &rules)?;
+        tpl_db::set_sources(tx, id, sources.as_ref())?;
         tpl_db::set_slots(tx, id, &slots)?;
         tpl_db::get(tx, id)
     })
@@ -57,15 +65,16 @@ pub async fn duplicate_template(
 
 #[tauri::command]
 pub async fn delete_template(state: State<'_, Arc<AppState>>, id: i64) -> Result<()> {
-    state.db.with(|conn| tpl_db::delete(conn, id))
+    state.db.with_tx(|tx| tpl_db::delete(tx, id))
 }
 
+/// Сколько карт подходит под каждый слот шаблона и что отсекло остальные.
 #[tauri::command]
 pub async fn template_supply(
     state: State<'_, Arc<AppState>>,
     id: i64,
 ) -> Result<Vec<SlotSupply>> {
-    state.db.with(|conn| tpl_db::supply(conn, id))
+    state.db.with(|conn| supply_db::template_supply(conn, id))
 }
 
 // ─────────────────────────────────────────────────────────── маппулы
@@ -81,9 +90,16 @@ pub async fn get_pool(state: State<'_, Arc<AppState>>, id: i64) -> Result<Pool> 
 }
 
 #[tauri::command]
-pub async fn create_pool(state: State<'_, Arc<AppState>>, name: String) -> Result<Pool> {
+pub async fn create_pool(
+    state: State<'_, Arc<AppState>>,
+    name: String,
+    series_id: Option<i64>,
+) -> Result<Pool> {
     state.db.with_tx(|tx| {
         let id = pool_db::create(tx, &name, None)?;
+        if let Some(sid) = series_id {
+            series_db::add_pool(tx, sid, id)?;
+        }
         pool_db::get(tx, id)
     })
 }
@@ -117,6 +133,20 @@ pub async fn set_pool_display_fields(
         .with(|conn| pool_db::set_display_fields(conn, id, &fields))
 }
 
+/// Свои источники пула. `null` — вернуть наследование серии или шаблона.
+#[tauri::command]
+pub async fn set_pool_sources(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    sources: Option<SourceSet>,
+) -> Result<Pool> {
+    state.db.with_tx(|tx| {
+        let target = pool_db::writable(tx, id)?;
+        pool_db::set_sources(tx, target, sources.as_ref())?;
+        pool_db::get(tx, target)
+    })
+}
+
 #[tauri::command]
 pub async fn duplicate_pool(state: State<'_, Arc<AppState>>, id: i64) -> Result<Pool> {
     state.db.with_tx(|tx| {
@@ -127,13 +157,14 @@ pub async fn duplicate_pool(state: State<'_, Arc<AppState>>, id: i64) -> Result<
 
 #[tauri::command]
 pub async fn delete_pool(state: State<'_, Arc<AppState>>, id: i64) -> Result<()> {
-    state.db.with(|conn| pool_db::delete(conn, id))
+    state.db.with_tx(|tx| pool_db::delete(tx, id))
 }
 
 // ─────────────────────────────────────────────────────────────── слоты
 //
-// Правка слота может уехать в свежую копию, если пул уже сыгран, поэтому
-// каждая такая команда возвращает пул целиком — вместе с его настоящим id.
+// Слоты адресуются позицией, а не id: правка сыгранного пула уводит запись
+// в свежую копию, где id слотов уже другие, а порядок тот же. Каждая команда
+// возвращает пул целиком — вместе с его настоящим id.
 
 #[tauri::command]
 pub async fn set_slot_beatmap(
@@ -151,18 +182,17 @@ pub async fn set_slot_beatmap(
     })
 }
 
+/// Закрепить или открепить выделенные слоты — одним действием, а не по одному.
 #[tauri::command]
-pub async fn set_slot_pinned(
+pub async fn set_slots_pinned(
     state: State<'_, Arc<AppState>>,
     pool_id: i64,
-    position: i64,
+    positions: Vec<i64>,
     pinned: bool,
 ) -> Result<Pool> {
     state.db.with_tx(|tx| {
         let target = pool_db::writable(tx, pool_id)?;
-        let pool = pool_db::get(tx, target)?;
-        let slot = slot_at(&pool, position)?;
-        pool_db::set_slot_pinned(tx, slot, pinned)?;
+        pool_db::set_slots_pinned(tx, target, &positions, pinned)?;
         pool_db::get(tx, target)
     })
 }
@@ -184,15 +214,30 @@ pub async fn set_slot_fm_mods(
 }
 
 #[tauri::command]
-pub async fn set_slot_mod(
+pub async fn set_slots_mod(
     state: State<'_, Arc<AppState>>,
     pool_id: i64,
-    position: i64,
+    positions: Vec<i64>,
     r#mod: String,
 ) -> Result<Pool> {
     state.db.with_tx(|tx| {
         let target = pool_db::writable(tx, pool_id)?;
-        pool_db::change_slot_mod(tx, target, position, &r#mod)?;
+        pool_db::change_slots_mod(tx, target, &positions, &r#mod)?;
+        pool_db::get(tx, target)
+    })
+}
+
+/// Свои источники выделенных слотов. `null` — вернуть наследование пула.
+#[tauri::command]
+pub async fn set_slots_sources(
+    state: State<'_, Arc<AppState>>,
+    pool_id: i64,
+    positions: Vec<i64>,
+    sources: Option<SourceSet>,
+) -> Result<Pool> {
+    state.db.with_tx(|tx| {
+        let target = pool_db::writable(tx, pool_id)?;
+        pool_db::set_slots_sources(tx, target, &positions, sources.as_ref())?;
         pool_db::get(tx, target)
     })
 }
@@ -211,14 +256,14 @@ pub async fn add_pool_slot(
 }
 
 #[tauri::command]
-pub async fn remove_pool_slot(
+pub async fn remove_pool_slots(
     state: State<'_, Arc<AppState>>,
     pool_id: i64,
-    position: i64,
+    positions: Vec<i64>,
 ) -> Result<Pool> {
     state.db.with_tx(|tx| {
         let target = pool_db::writable(tx, pool_id)?;
-        pool_db::remove_slot(tx, target, position)?;
+        pool_db::remove_slots(tx, target, &positions)?;
         pool_db::get(tx, target)
     })
 }
@@ -244,22 +289,11 @@ pub async fn generate_pool(
     state: State<'_, Arc<AppState>>,
     template_id: i64,
     name: String,
+    series_id: Option<i64>,
 ) -> Result<GenReport> {
     state
         .db
-        .with_tx(|tx| generate::generate(tx, template_id, &name))
-}
-
-/// Серия маппулов под турнир: карты внутри серии не повторяются.
-#[tauri::command]
-pub async fn generate_pool_series(
-    state: State<'_, Arc<AppState>>,
-    template_id: i64,
-    names: Vec<String>,
-) -> Result<Vec<GenReport>> {
-    state
-        .db
-        .with_tx(|tx| generate::generate_series(tx, template_id, &names))
+        .with_tx(|tx| generate::generate(tx, template_id, &name, series_id))
 }
 
 #[tauri::command]
@@ -273,49 +307,76 @@ pub async fn reroll_pool(
         .with_tx(|tx| generate::reroll(tx, pool_id, keep_pinned))
 }
 
+/// Перекат выделенных слотов: остальные карты остаются на местах.
 #[tauri::command]
-pub async fn reroll_slot(
+pub async fn reroll_slots(
+    state: State<'_, Arc<AppState>>,
+    pool_id: i64,
+    positions: Vec<i64>,
+) -> Result<GenReport> {
+    state
+        .db
+        .with_tx(|tx| generate::reroll_slots(tx, pool_id, &positions))
+}
+
+/// Что применяется к пулу: источники, исключения, правила и запас по слотам.
+#[tauri::command]
+pub async fn pool_whence(state: State<'_, Arc<AppState>>, pool_id: i64) -> Result<PoolWhence> {
+    state.db.with(|conn| generate::whence(conn, pool_id))
+}
+
+/// Фильтр слота и карты, скрытые исключениями, — для панели подбора.
+#[tauri::command]
+pub async fn slot_picker(
     state: State<'_, Arc<AppState>>,
     pool_id: i64,
     position: i64,
-) -> Result<GenReport> {
+) -> Result<SlotPicker> {
+    state
+        .db
+        .with(|conn| generate::slot_candidates(conn, pool_id, position))
+}
+
+// ───────────────────────────────────────────────────────── исключения
+
+/// Исключение у серии, пула или шаблона. Владелец приходит парой
+/// «вид + id»: список у всех трёх устроен одинаково.
+#[tauri::command]
+pub async fn add_exclusion(
+    state: State<'_, Arc<AppState>>,
+    owner_kind: String,
+    owner_id: i64,
+    target: ExclusionTarget,
+    strict: bool,
+) -> Result<()> {
     state.db.with_tx(|tx| {
-        let target = pool_db::writable(tx, pool_id)?;
-        let pool = pool_db::get(tx, target)?;
-        let slot = slot_at(&pool, position)?;
-        generate::reroll_slot(tx, target, slot)
+        let owner = Owner::parse(&owner_kind, owner_id)?;
+        ex_db::add(tx, owner, &target, strict)?;
+        Ok(())
     })
 }
 
-/// Фильтр библиотеки, суженный под слот: тот же, по которому шла генерация.
-/// Без него панель подбора предлагала бы карты, которые генерация не взяла бы.
 #[tauri::command]
-pub async fn slot_filter(
+pub async fn remove_exclusion(state: State<'_, Arc<AppState>>, id: i64) -> Result<()> {
+    state.db.with_tx(|tx| ex_db::remove(tx, id))
+}
+
+#[tauri::command]
+pub async fn set_exclusion_strict(
     state: State<'_, Arc<AppState>>,
-    pool_id: i64,
-    position: i64,
-) -> Result<LibraryFilter> {
-    state.db.with(|conn| {
-        let pool = pool_db::get(conn, pool_id)?;
-        let index = index_at(&pool, position)?;
-        let mod_tag = pool.slots[index].mod_tag.clone();
+    id: i64,
+    strict: bool,
+) -> Result<()> {
+    state.db.with(|conn| ex_db::set_strict(conn, id, strict))
+}
 
-        let Some(template_id) = pool.template_id else {
-            return Ok(LibraryFilter {
-                mods: vec![mod_tag],
-                ..LibraryFilter::default()
-            });
-        };
-
-        let template = tpl_db::get(conn, template_id)?;
-        match template.slots.iter().find(|t| t.mod_tag == mod_tag) {
-            Some(slot) => Ok(tpl_db::slot_filter(slot, &template.rules)),
-            None => Ok(LibraryFilter {
-                mods: vec![mod_tag],
-                ..LibraryFilter::default()
-            }),
-        }
-    })
+#[tauri::command]
+pub async fn set_exclusion_enabled(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    enabled: bool,
+) -> Result<()> {
+    state.db.with(|conn| ex_db::set_enabled(conn, id, enabled))
 }
 
 // ──────────────────────────────────────────────────────── мелочи

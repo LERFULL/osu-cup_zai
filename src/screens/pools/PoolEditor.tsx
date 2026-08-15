@@ -1,25 +1,30 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Chip, Empty, MapRow, Menu, MenuItem, MenuSeparator } from '@/components';
 import {
   MOD_TAGS,
   POOL_FIELDS,
   type Beatmap,
+  type GenNote,
+  type ModTag,
   type Pool,
   type PoolField,
   type PoolSlot,
+  type PoolWhence,
 } from '@/lib/types';
-import { coverUrl, formatLength, poolAverageStars } from '@/lib/format';
+import { coverUrl, formatLength, poolAverageStars, slots as slotsWord } from '@/lib/format';
 import { FM_CHOICES, derive } from '@/lib/derive';
 import { useReorder } from '@/lib/useReorder';
 import * as ipc from '@/lib/ipc';
 import { Import } from '../library/Import';
 import { Picker } from './Picker';
+import { Report } from './Report';
+import { Whence } from './Whence';
 import s from './PoolEditor.module.css';
 
 interface Props {
   id: number;
-  /** Заметки генерации: что не удалось выдержать. Показываются один раз. */
-  notes: string[];
+  /** Заметки генерации: что не удалось выдержать. */
+  notes: GenNote[];
   onClose: () => void;
 }
 
@@ -37,18 +42,27 @@ const FIELD_NAMES: Record<PoolField, string> = {
 
 export function PoolEditor({ id, notes, onClose }: Props) {
   const [pool, setPool] = useState<Pool | null>(null);
+  const [whence, setWhence] = useState<PoolWhence | null>(null);
   // Правки сыгранного пула уезжают в копию: дальше работаем с её id.
   const [current, setCurrent] = useState(id);
   const [picking, setPicking] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [hints, setHints] = useState<string[]>(notes);
+  const [hints, setHints] = useState<GenNote[]>(notes);
+  const [showReport, setShowReport] = useState(notes.length > 0);
   const [busy, setBusy] = useState(false);
+  const [panel, setPanel] = useState(true);
+
+  /** Выделенные слоты — по позициям: id меняются при уходе в новую версию. */
+  const [picked, setPicked] = useState<ReadonlySet<number>>(new Set());
+  const anchor = useRef<number | null>(null);
 
   const load = useCallback(async (poolId: number) => {
     try {
-      setPool(await ipc.getPool(poolId));
+      const [p, w] = await Promise.all([ipc.getPool(poolId), ipc.poolWhence(poolId)]);
+      setPool(p);
+      setWhence(w);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -63,6 +77,8 @@ export function PoolEditor({ id, notes, onClose }: Props) {
   function accept(next: Pool) {
     setPool(next);
     if (next.id !== current) setCurrent(next.id);
+    // Запас и исключения зависят от состава: перечитываем их вместе с пулом.
+    void ipc.poolWhence(next.id).then(setWhence).catch(() => undefined);
   }
 
   async function guard(work: () => Promise<void>) {
@@ -77,35 +93,42 @@ export function PoolEditor({ id, notes, onClose }: Props) {
     }
   }
 
-  /** Порядок слотов уходит в базу один раз — на отпускании. */
-  const applyOrder = useCallback(
-    (from: number, to: number) => {
-      setPool((prev) => {
-        if (prev === null) return prev;
+  // Слоты и id пула для перетаскивания — через ref: ручка строки создаётся
+  // один раз, а порядок и сам пул меняются на каждом переносе.
+  const latest = useRef<{ id: number; slots: PoolSlot[] }>({ id, slots: [] });
+  latest.current = { id: pool?.id ?? id, slots: pool?.slots ?? [] };
 
-        const next = [...prev.slots];
-        const [moved] = next.splice(from, 1);
-        if (moved === undefined) return prev;
-        next.splice(to, 0, moved);
+  /**
+   * Порядок слотов уходит в базу один раз — на отпускании.
+   *
+   * Новый список считается снаружи `setPool`: обновляющую функцию React в
+   * строгом режиме зовёт дважды, и запрос из неё уходил бы тоже дважды —
+   * вторая перестановка отменяла бы первую.
+   */
+  const applyOrder = useCallback((from: number, to: number) => {
+    const { id: poolId, slots } = latest.current;
+    const list = [...slots];
+    const [moved] = list.splice(from, 1);
+    if (moved === undefined) return;
+    list.splice(to, 0, moved);
 
-        // Показываем новый порядок сразу, не дожидаясь ответа: иначе строка
-        // на миг отскакивала бы назад.
-        void ipc
-          .reorderPoolSlots(
-            prev.id,
-            next.map((x) => x.position),
-          )
-          .then((saved) => {
-            setPool(saved);
-            if (saved.id !== prev.id) setCurrent(saved.id);
-          })
-          .catch((e: unknown) => setError(String(e)));
+    // Показываем новый порядок сразу: иначе строка на миг отскакивала бы назад.
+    setPool((prev) => (prev === null ? prev : { ...prev, slots: list }));
+    // Метки слотов после переноса другие — выделение по позициям уже не про те строки.
+    setPicked(new Set());
 
-        return { ...prev, slots: next };
-      });
-    },
-    [],
-  );
+    void ipc
+      .reorderPoolSlots(
+        poolId,
+        list.map((x) => x.position),
+      )
+      .then((saved) => {
+        setPool(saved);
+        if (saved.id !== poolId) setCurrent(saved.id);
+        void ipc.poolWhence(saved.id).then(setWhence).catch(() => undefined);
+      })
+      .catch((e: unknown) => setError(String(e)));
+  }, []);
 
   const reorder = useReorder({ count: pool?.slots.length ?? 0, onDrop: applyOrder });
 
@@ -129,6 +152,10 @@ export function PoolEditor({ id, notes, onClose }: Props) {
   const pinned = p.slots.filter((x) => x.pinned).length;
   const filled = p.slots.filter((x) => x.beatmapId !== null).length;
   const slot = picking !== null ? (p.slots.find((x) => x.position === picking) ?? null) : null;
+  const positions = [...picked];
+  const pickedMaps = p.slots
+    .filter((x) => picked.has(x.position) && x.beatmapId !== null)
+    .map((x) => x.beatmapId as number);
 
   async function rename() {
     const name = window.prompt('Название маппула', p.name);
@@ -140,20 +167,59 @@ export function PoolEditor({ id, notes, onClose }: Props) {
     });
   }
 
-  async function reroll(keepPinned: boolean) {
+  async function setLabel() {
+    setMenu(null);
+    const next = window.prompt('Метка раунда', p.seriesLabel ?? '');
+    if (next === null) return;
+    await guard(async () => {
+      await ipc.setSeriesPoolLabel(p.id, next.trim() === '' ? null : next.trim());
+      await load(p.id);
+    });
+  }
+
+  async function roll(keepPinned: boolean) {
     setMenu(null);
     await guard(async () => {
       const report = await ipc.rerollPool(p.id, keepPinned);
       accept(report.pool);
       setHints(report.notes);
+      setShowReport(report.notes.length > 0);
     });
   }
 
-  async function rerollOne(position: number) {
+  /** Перекатить выделенные слоты, а если выделения нет — один слот. */
+  async function rollSlots(list: number[]) {
     await guard(async () => {
-      const report = await ipc.rerollSlot(p.id, position);
+      const report = await ipc.rerollSlots(p.id, list);
       accept(report.pool);
       setHints(report.notes);
+      setShowReport(report.notes.length > 0);
+    });
+  }
+
+  /**
+   * «+ Добавить карту». Есть пустой слот — подбираем в него: держать дырку и
+   * дописывать пул в конец никто не хочет. Нет — спрашиваем мод нового слота:
+   * карта в пуле живёт в слоте, и мод у него должен быть выбран, а не угадан.
+   */
+  function addCard() {
+    const hole = p.slots.find((x) => x.beatmapId === null);
+    if (hole !== undefined) {
+      setPicking(hole.position);
+      return;
+    }
+    setMenu(menu === 'addCard' ? null : 'addCard');
+  }
+
+  async function addSlotAndPick(mod: ModTag) {
+    setMenu(null);
+    await guard(async () => {
+      const next = await ipc.addPoolSlot(p.id, mod);
+      accept(next);
+      // Свежий слот — последний пустой с этим модом: метки после добавления
+      // пересчитываются, и позиция до запроса ничего не значила.
+      const made = [...next.slots].reverse().find((x) => x.mod === mod && x.beatmapId === null);
+      if (made !== undefined) setPicking(made.position);
     });
   }
 
@@ -163,6 +229,81 @@ export function PoolEditor({ id, notes, onClose }: Props) {
       : [...p.displayFields, f];
     setPool({ ...p, displayFields: next });
     void ipc.setPoolDisplayFields(p.id, next);
+  }
+
+  // ── выделение слотов
+
+  function togglePick(position: number, shift: boolean, ctrl: boolean) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      const from = anchor.current;
+
+      if (shift && from !== null) {
+        const [a, b] = from < position ? [from, position] : [position, from];
+        for (const x of p.slots) if (x.position >= a && x.position <= b) next.add(x.position);
+        return next;
+      }
+
+      if (!ctrl && !next.has(position)) {
+        // Обычный клик выбирает одну строку: набирать выделение по одной —
+        // это Ctrl, и путать их значит терять выбор случайным кликом.
+        return new Set([position]);
+      }
+      if (next.has(position)) next.delete(position);
+      else next.add(position);
+      return next;
+    });
+    if (!shift) anchor.current = position;
+  }
+
+  /**
+   * Выделение протягиванием — как в библиотеке. Направление задаёт первая
+   * строка: начали с невыделенной — ведём выделение, с выделенной — снимаем.
+   */
+  function startSweep(position: number, shift: boolean) {
+    if (shift) {
+      togglePick(position, true, false);
+      return;
+    }
+
+    const adding = !picked.has(position);
+    let last = position;
+
+    const apply = (to: number) => {
+      setPicked((prev) => {
+        const next = new Set(prev);
+        const [a, b] = last < to ? [last, to] : [to, last];
+        for (const x of p.slots) {
+          if (x.position < a || x.position > b) continue;
+          if (adding) next.add(x.position);
+          else next.delete(x.position);
+        }
+        return next;
+      });
+      last = to;
+    };
+
+    apply(position);
+    anchor.current = position;
+
+    const move = (e: PointerEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const row = el instanceof Element ? el.closest('[data-slot]') : null;
+      if (!(row instanceof HTMLElement)) return;
+      const to = Number(row.dataset['slot']);
+      if (Number.isFinite(to) && to !== last) apply(to);
+    };
+
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      anchor.current = last;
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 
   /** Правая часть строки: то, что выбрано в «Поля». */
@@ -195,7 +336,9 @@ export function PoolEditor({ id, notes, onClose }: Props) {
         <button
           className={[s.tool, x.pinned ? s.on : null].filter(Boolean).join(' ')}
           onClick={() =>
-            void guard(async () => accept(await ipc.setSlotPinned(p.id, x.position, !x.pinned)))
+            void guard(async () =>
+              accept(await ipc.setSlotsPinned(p.id, [x.position], !x.pinned)),
+            )
           }
           type="button"
           title={x.pinned ? 'Открепить' : 'Закрепить — не меняется при перекате'}
@@ -206,7 +349,7 @@ export function PoolEditor({ id, notes, onClose }: Props) {
         {p.templateId !== null ? (
           <button
             className={s.tool}
-            onClick={() => void rerollOne(x.position)}
+            onClick={() => void rollSlots([x.position])}
             type="button"
             title="Перекатить слот"
             disabled={busy}
@@ -236,7 +379,7 @@ export function PoolEditor({ id, notes, onClose }: Props) {
         <button
           className={[s.tool, s.danger].join(' ')}
           onClick={() =>
-            void guard(async () => accept(await ipc.removePoolSlot(p.id, x.position)))
+            void guard(async () => accept(await ipc.removePoolSlots(p.id, [x.position])))
           }
           type="button"
           title="Убрать слот из пула"
@@ -259,12 +402,24 @@ export function PoolEditor({ id, notes, onClose }: Props) {
             {p.version > 1 ? <span className={s.version}>v{p.version}</span> : null}
           </button>
           <span className={s.sub}>
+            {p.seriesName !== null ? (
+              <button className={s.series} onClick={() => void setLabel()} type="button">
+                {p.seriesName}
+                {p.seriesLabel !== null ? ` · ${p.seriesLabel}` : ''}
+              </button>
+            ) : null}
             {filled} из {p.slots.length}
             {avg !== null ? ` · ${avg.toFixed(2)}★` : ''}
             {pinned > 0 ? ` · закреплено ${pinned}` : ''}
           </span>
 
           <div className={s.right}>
+            {hints.length > 0 && !showReport ? (
+              <Button size="sm" onClick={() => setShowReport(true)}>
+                Отчёт {hints.length}
+              </Button>
+            ) : null}
+
             <div className={s.wrap}>
               <Button size="sm" onClick={() => setMenu(menu === 'fields' ? null : 'fields')}>
                 Поля ▾
@@ -272,12 +427,16 @@ export function PoolEditor({ id, notes, onClose }: Props) {
               <Menu open={menu === 'fields'} onClose={() => setMenu(null)} align="right">
                 {POOL_FIELDS.map((f) => (
                   <MenuItem key={f} onClick={() => toggleField(f)}>
-                    {p.displayFields.includes(f) ? '✓ ' : '   '}
+                    {p.displayFields.includes(f) ? '✓ ' : '   '}
                     {FIELD_NAMES[f]}
                   </MenuItem>
                 ))}
               </Menu>
             </div>
+
+            <Chip active={panel} onClick={() => setPanel(!panel)} title="Источники и исключения">
+              Откуда берём
+            </Chip>
 
             <div className={s.wrap}>
               <Button size="sm" onClick={() => setMenu(menu === 'more' ? null : 'more')}>
@@ -294,6 +453,25 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                 >
                   {p.status === 'ready' ? 'Вернуть в черновики' : 'Пометить готовым'}
                 </MenuItem>
+
+                {p.seriesName !== null ? (
+                  <>
+                    <MenuItem onClick={() => void setLabel()}>Метка раунда…</MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        setMenu(null);
+                        void guard(async () => {
+                          await ipc.removePoolFromSeries(p.id);
+                          await load(p.id);
+                        });
+                      }}
+                      note={`Уйдёт из «${p.seriesName}» в общий список`}
+                    >
+                      Вынести из серии
+                    </MenuItem>
+                  </>
+                ) : null}
+
                 <MenuSeparator />
                 {MOD_TAGS.map((m) => (
                   <MenuItem
@@ -312,13 +490,13 @@ export function PoolEditor({ id, notes, onClose }: Props) {
 
             {p.templateId !== null ? (
               <>
-                <Button size="sm" onClick={() => void reroll(false)} disabled={busy}>
+                <Button size="sm" onClick={() => void roll(false)} disabled={busy}>
                   ↻ Скатать
                 </Button>
                 <Button
                   size="sm"
                   variant="primary"
-                  onClick={() => void reroll(true)}
+                  onClick={() => void roll(true)}
                   disabled={busy}
                 >
                   ↻ Скатать незакреплённые
@@ -332,14 +510,9 @@ export function PoolEditor({ id, notes, onClose }: Props) {
           <div className={s.col}>
             {error !== null ? <div className={s.error}>{error}</div> : null}
 
-            {hints.map((n) => (
-              <div key={n} className={s.note}>
-                <span className={s.noteIcon} aria-hidden>
-                  ⚠
-                </span>
-                <span>{n}</span>
-              </div>
-            ))}
+            {showReport ? (
+              <Report notes={hints} onClose={() => setShowReport(false)} />
+            ) : null}
 
             {p.isLocked ? (
               <div className={s.note}>
@@ -361,7 +534,13 @@ export function PoolEditor({ id, notes, onClose }: Props) {
             ) : null}
 
             {p.slots.map((x, i) => (
-              <div key={x.id} className={s.slot} data-row style={reorder.rowStyle(i)}>
+              <div
+                key={x.id}
+                className={s.slot}
+                data-row
+                data-slot={x.position}
+                style={reorder.rowStyle(i)}
+              >
                 {x.beatmap !== null ? (
                   <MapRow
                     kind="plain"
@@ -371,12 +550,20 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                     version={details(x)}
                     mod={x.mod}
                     slot={x.slotLabel}
+                    checkbox
+                    selected={picked.has(x.position)}
                     gripProps={reorder.handleProps(i)}
                     tools={slotTools(x)}
+                    onToggleSelect={(shift) => togglePick(x.position, shift, false)}
+                    onSweepSelect={(shift) => startSweep(x.position, shift)}
                     onClick={() => setPicking(x.position)}
                   />
                 ) : (
-                  <div className={s.empty}>
+                  <div
+                    className={[s.empty, picked.has(x.position) ? s.emptyPicked : null]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
                     <span
                       className={s.emptyGrip}
                       title="Потянуть, чтобы переставить"
@@ -384,6 +571,19 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                     >
                       ⠿
                     </span>
+                    <button
+                      className={s.emptyCb}
+                      onPointerDown={(e) => {
+                        if (e.button !== 0) return;
+                        e.preventDefault();
+                        startSweep(x.position, e.shiftKey);
+                      }}
+                      type="button"
+                      aria-pressed={picked.has(x.position)}
+                      aria-label="Выделить слот"
+                    >
+                      ✓
+                    </button>
                     <button
                       className={s.emptySlot}
                       onClick={() => setPicking(x.position)}
@@ -409,7 +609,7 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                       onClick={() => {
                         setMenu(null);
                         void guard(async () =>
-                          accept(await ipc.setSlotMod(p.id, x.position, m)),
+                          accept(await ipc.setSlotsMod(p.id, [x.position], m)),
                         );
                       }}
                       disabled={m === 'TB' && p.slots.some((y) => y.mod === 'TB')}
@@ -417,7 +617,7 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                         ? { note: 'У карты нет этого тега' }
                         : {})}
                     >
-                      {m === x.mod ? '✓ ' : '   '}
+                      {m === x.mod ? '✓ ' : '   '}
                       {m}
                     </MenuItem>
                   ))}
@@ -455,17 +655,163 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                 {x.warnings.length > 0 ? (
                   <div className={s.warnings}>
                     {x.warnings.map((w) => (
-                      <span key={w} className={s.warn}>
-                        ⚠ {w}
+                      <span
+                        key={w.text}
+                        className={[s.warn, w.strict ? s.strict : null]
+                          .filter(Boolean)
+                          .join(' ')}
+                        title={w.strict ? 'Строгое нарушение' : 'Мягкое нарушение'}
+                      >
+                        {w.strict ? '✕' : '⚠'} {w.text}
                       </span>
                     ))}
                   </div>
                 ) : null}
               </div>
             ))}
+
+            <div className={s.addWrap}>
+              <button
+                className={s.addCard}
+                onClick={() => addCard()}
+                type="button"
+                title={
+                  p.slots.some((x) => x.beatmapId === null)
+                    ? 'Подобрать карту в первый пустой слот'
+                    : 'Свободных слотов нет — добавим новый'
+                }
+              >
+                + Добавить карту
+              </button>
+
+              <Menu open={menu === 'addCard'} onClose={() => setMenu(null)} up>
+                {MOD_TAGS.map((m) => (
+                  <MenuItem
+                    key={m}
+                    onClick={() => void addSlotAndPick(m)}
+                    disabled={m === 'TB' && p.slots.some((x) => x.mod === 'TB')}
+                    {...(m === 'TB' ? { note: 'Тайбрейк, всегда последний и один' } : {})}
+                  >
+                    Слот {m}
+                  </MenuItem>
+                ))}
+              </Menu>
+            </div>
           </div>
         </div>
+
+        {picked.size > 1 ? (
+          <div className={s.bulk}>
+            <span className={s.bulkCount}>выделено {slotsWord(picked.size)}</span>
+
+            {p.templateId !== null ? (
+              <Button size="sm" onClick={() => void rollSlots(positions)} disabled={busy}>
+                ↻ Перекатить
+              </Button>
+            ) : null}
+
+            <div className={s.wrap}>
+              <Button size="sm" onClick={() => setMenu(menu === 'bulkMod' ? null : 'bulkMod')}>
+                Мод ▾
+              </Button>
+              <Menu open={menu === 'bulkMod'} onClose={() => setMenu(null)} up>
+                {MOD_TAGS.filter((m) => m !== 'TB').map((m) => (
+                  <MenuItem
+                    key={m}
+                    onClick={() => {
+                      setMenu(null);
+                      void guard(async () => {
+                        accept(await ipc.setSlotsMod(p.id, positions, m));
+                        setPicked(new Set());
+                      });
+                    }}
+                  >
+                    {m}
+                  </MenuItem>
+                ))}
+              </Menu>
+            </div>
+
+            <div className={s.wrap}>
+              <Button size="sm" onClick={() => setMenu(menu === 'bulkSrc' ? null : 'bulkSrc')}>
+                Источник ▾
+              </Button>
+              <Menu open={menu === 'bulkSrc'} onClose={() => setMenu(null)} up>
+                <MenuItem
+                  onClick={() => {
+                    setMenu(null);
+                    void guard(async () =>
+                      accept(await ipc.setSlotsSources(p.id, positions, null)),
+                    );
+                  }}
+                  note="Слоты снова возьмут источники пула"
+                >
+                  Наследовать
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem
+                  onClick={() => {
+                    setMenu(null);
+                    void guard(async () =>
+                      accept(
+                        await ipc.setSlotsSources(p.id, positions, {
+                          items: [{ kind: 'library' }],
+                          mode: 'union',
+                        }),
+                      ),
+                    );
+                  }}
+                >
+                  Вся библиотека
+                </MenuItem>
+              </Menu>
+            </div>
+
+            <Button
+              size="sm"
+              onClick={() =>
+                void guard(async () => accept(await ipc.setSlotsPinned(p.id, positions, true)))
+              }
+            >
+              Закрепить
+            </Button>
+            <Button
+              size="sm"
+              onClick={() =>
+                void guard(async () => accept(await ipc.setSlotsPinned(p.id, positions, false)))
+              }
+            >
+              Открепить
+            </Button>
+
+            <button
+              className={s.bulkX}
+              onClick={() =>
+                void guard(async () => {
+                  accept(await ipc.removePoolSlots(p.id, positions));
+                  setPicked(new Set());
+                })
+              }
+              type="button"
+            >
+              Убрать
+            </button>
+
+            <button className={s.bulkClear} onClick={() => setPicked(new Set())} type="button">
+              Снять выделение
+            </button>
+          </div>
+        ) : null}
       </div>
+
+      {panel && whence !== null ? (
+        <Whence
+          poolId={p.id}
+          whence={whence}
+          picked={pickedMaps}
+          onChanged={() => load(p.id)}
+        />
+      ) : null}
 
       {slot !== null ? (
         <Picker

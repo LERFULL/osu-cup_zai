@@ -3,13 +3,13 @@
 //! Сыгранный пул неизменяем — иначе история и статистика поедут задним числом.
 //! Попытка его отредактировать создаёт копию `v2` с ссылкой на оригинал.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::now_iso;
+use super::{now_iso, series, sources};
 use crate::error::{AppError, Result};
-use crate::model::{Beatmap, Pool, PoolSlot};
+use crate::model::{Beatmap, Pool, PoolSlot, SlotWarning};
 
 /// Что показывать в строке пула по умолчанию. Наследуется картинкой при экспорте.
 const DEFAULT_FIELDS: [&str; 3] = ["stars", "length", "bpm"];
@@ -27,6 +27,7 @@ fn row_to_slot(row: &rusqlite::Row) -> rusqlite::Result<PoolSlot> {
             .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
             .unwrap_or_default(),
         position: row.get("position")?,
+        sources: sources::parse(row.get("sources")?),
         beatmap: None,
         warnings: Vec::new(),
     })
@@ -34,7 +35,8 @@ fn row_to_slot(row: &rusqlite::Row) -> rusqlite::Result<PoolSlot> {
 
 fn slots_of(conn: &Connection, pool_id: i64) -> Result<Vec<PoolSlot>> {
     let mut stmt = conn.prepare(
-        "SELECT id, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods, position
+        "SELECT id, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods,
+                position, sources
          FROM pool_slots WHERE pool_id = ?1 ORDER BY position ASC, id ASC",
     )?;
     let rows = stmt.query_map(params![pool_id], row_to_slot)?;
@@ -48,18 +50,28 @@ fn slots_of(conn: &Connection, pool_id: i64) -> Result<Vec<PoolSlot>> {
 
 fn row_to_pool(row: &rusqlite::Row) -> rusqlite::Result<Pool> {
     let fields: Option<String> = row.get("display_fields")?;
+    let series_id: Option<i64> = row.get("series_id")?;
+    let position: i64 = row.get("series_position")?;
+    let stored: Option<String> = row.get("series_label")?;
     Ok(Pool {
         id: row.get("id")?,
         name: row.get("name")?,
         template_id: row.get("template_id")?,
         template_name: row.get("template_name")?,
-        folder_id: row.get("folder_id")?,
+        series_id,
+        series_name: row.get("series_name")?,
+        series_kind: row.get("series_kind")?,
+        // Без своей метки она считается по месту в серии — и потому следует
+        // за перестановкой раундов, а не отстаёт от неё.
+        series_label: series_id.map(|_| series::label_at(stored, position)),
+        series_position: position,
         status: row.get("status")?,
         version: row.get("version")?,
         parent_pool_id: row.get("parent_pool_id")?,
         display_fields: fields
             .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
             .unwrap_or_else(|| DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect()),
+        sources: sources::parse(row.get("sources")?),
         is_locked: row.get::<_, i64>("is_locked")? != 0,
         created_at: row.get("created_at")?,
         slots: Vec::new(),
@@ -67,9 +79,13 @@ fn row_to_pool(row: &rusqlite::Row) -> rusqlite::Result<Pool> {
 }
 
 const LIST_SQL: &str = "SELECT p.id, p.name, p.template_id, t.name AS template_name,
-            p.folder_id, p.status, p.version, p.parent_pool_id, p.display_fields,
+            p.series_id, se.name AS series_name, se.kind AS series_kind,
+            p.series_label, p.series_position,
+            p.status, p.version, p.parent_pool_id, p.display_fields, p.sources,
             p.is_locked, p.created_at
-     FROM pools p LEFT JOIN pool_templates t ON t.id = p.template_id";
+     FROM pools p
+     LEFT JOIN pool_templates t ON t.id = p.template_id
+     LEFT JOIN series se ON se.id = p.series_id";
 
 /// Список пулов со слотами, но без карт: в списке достаточно структуры
 /// и средних звёзд, а тянуть карты на каждый пул слишком дорого.
@@ -107,19 +123,99 @@ pub fn get(conn: &Connection, id: i64) -> Result<Pool> {
         }
     }
 
-    fill_warnings(&mut pool);
+    let context = context_for(conn, &pool)?;
+    fill_warnings(&mut pool, &context);
     Ok(pool)
+}
+
+/// Что нужно знать о мире, чтобы разметить строки пула: чем заняты соседние
+/// пулы серии, какие диапазоны звёзд требует шаблон, что уже играли.
+#[derive(Default)]
+pub struct Context {
+    /// Карта → метка раунда соседнего пула серии, где она уже стоит.
+    pub in_series: HashMap<i64, String>,
+    /// Мод-тег слота → допустимый диапазон звёзд по шаблону.
+    pub stars: HashMap<String, (Option<f64>, Option<f64>)>,
+    /// Карта → название турнира, в котором она уже была.
+    pub played: HashMap<i64, String>,
+}
+
+/// Собирает контекст для одного пула. Три запроса — но только при чтении
+/// одного пула, а не списка: без них строка не может сказать, почему карта
+/// проблемная, и предупреждения сводятся к «что-то не так».
+pub fn context_for(conn: &Connection, pool: &Pool) -> Result<Context> {
+    let mut out = Context::default();
+
+    if let Some(series_id) = pool.series_id {
+        let mut stmt = conn.prepare(
+            "SELECT s.beatmap_id, CASE WHEN p.series_id IS NULL THEN p.name
+                     ELSE COALESCE(NULLIF(p.series_label, ''),
+                                   'раунд ' || (p.series_position + 1)) END AS place
+               FROM pool_slots s
+               JOIN pools p ON p.id = s.pool_id
+              WHERE p.series_id = ?1 AND p.id <> ?2
+                AND p.status <> 'archived' AND s.beatmap_id IS NOT NULL
+              ORDER BY p.series_position ASC",
+        )?;
+        let rows = stmt.query_map(params![series_id, pool.id], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (bid, place) = row?;
+            out.in_series.entry(bid).or_insert(place);
+        }
+    }
+
+    if let Some(template_id) = pool.template_id {
+        for slot in super::templates::slots_of(conn, template_id)? {
+            out.stars
+                .entry(slot.mod_tag)
+                .or_insert((slot.star_min, slot.star_max));
+        }
+    }
+
+    let ids: Vec<i64> = pool.slots.iter().filter_map(|s| s.beatmap_id).collect();
+    if !ids.is_empty() {
+        let holes = super::placeholders(ids.len());
+        let sql = format!(
+            "SELECT DISTINCT s.beatmap_id, tr.name
+               FROM pool_slots s
+               JOIN tournament_pools tp ON tp.pool_id = s.pool_id
+               JOIN tournaments tr ON tr.id = tp.tournament_id
+              WHERE s.beatmap_id IN ({holes}) AND s.pool_id <> ?{}",
+            ids.len() + 1
+        );
+        let mut args: Vec<i64> = ids.clone();
+        args.push(pool.id);
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (bid, name) = row?;
+            out.played.entry(bid).or_insert(name);
+        }
+    }
+
+    Ok(out)
 }
 
 /// Предупреждения считаются при каждом чтении, а не хранятся: карту могли
 /// отредактировать в библиотеке уже после того, как она попала в пул.
-pub fn fill_warnings(pool: &mut Pool) {
-    let mut seen_maps: HashMap<i64, usize> = HashMap::new();
+///
+/// Строгое нарушение — красное, мягкое — жёлтое. После генерации строгих быть
+/// не может: они появляются только при ручной правке.
+pub fn fill_warnings(pool: &mut Pool, ctx: &Context) {
+    let mut seen_maps: HashMap<i64, Vec<String>> = HashMap::new();
     let mut seen_mappers: HashMap<String, usize> = HashMap::new();
 
     for slot in pool.slots.iter() {
         if let Some(bid) = slot.beatmap_id {
-            *seen_maps.entry(bid).or_insert(0) += 1;
+            seen_maps
+                .entry(bid)
+                .or_default()
+                .push(slot.slot_label.clone());
         }
         if let Some(map) = &slot.beatmap {
             if let Some(creator) = &map.creator {
@@ -129,18 +225,61 @@ pub fn fill_warnings(pool: &mut Pool) {
     }
 
     for slot in pool.slots.iter_mut() {
-        let mut warnings = Vec::new();
+        let mut warnings: Vec<SlotWarning> = Vec::new();
 
         if let Some(bid) = slot.beatmap_id {
-            if seen_maps.get(&bid).copied().unwrap_or(0) > 1 {
-                warnings.push("карта уже есть в другом слоте".to_string());
+            if let Some(places) = seen_maps.get(&bid) {
+                let others: Vec<&String> = places.iter().filter(|l| **l != slot.slot_label).collect();
+                if let Some(first) = others.first() {
+                    warnings.push(SlotWarning {
+                        text: format!("эта карта уже стоит в {first}"),
+                        strict: true,
+                    });
+                }
+            }
+
+            if let Some(place) = ctx.in_series.get(&bid) {
+                warnings.push(SlotWarning {
+                    // Внутри турнирной серии это ошибка, внутри свободной —
+                    // предупреждение. Тип серии решает строгость.
+                    text: format!("уже играется в {place}"),
+                    strict: pool.series_kind.as_deref() == Some("tournament"),
+                });
+            }
+
+            if let Some(tournament) = ctx.played.get(&bid) {
+                warnings.push(SlotWarning {
+                    text: format!("играли в «{tournament}»"),
+                    strict: false,
+                });
             }
         }
 
         if let Some(map) = &slot.beatmap {
             if !map.mods.iter().any(|m| m == &slot.mod_tag) {
-                warnings.push(format!("у карты не разрешён {}", slot.mod_tag));
+                warnings.push(SlotWarning {
+                    text: format!("у карты нет мод-тега {}", slot.mod_tag),
+                    strict: true,
+                });
             }
+
+            if let Some((lo, hi)) = ctx.stars.get(&slot.mod_tag) {
+                let stars = slot
+                    .star_rating_with_mods
+                    .unwrap_or(map.difficulty_rating);
+                let below = lo.is_some_and(|l| stars + 0.005 < l);
+                let above = hi.is_some_and(|h| stars > h + 0.005);
+                if below || above {
+                    warnings.push(SlotWarning {
+                        text: format!(
+                            "{stars:.1} при диапазоне {}",
+                            range_text(*lo, *hi)
+                        ),
+                        strict: true,
+                    });
+                }
+            }
+
             if let Some(creator) = &map.creator {
                 if seen_mappers
                     .get(&creator.to_lowercase())
@@ -148,15 +287,31 @@ pub fn fill_warnings(pool: &mut Pool) {
                     .unwrap_or(0)
                     > 1
                 {
-                    warnings.push("маппер повторяется".to_string());
+                    warnings.push(SlotWarning {
+                        text: format!("второй пул от {creator}"),
+                        strict: false,
+                    });
                 }
             }
+
             if map.is_gone {
-                warnings.push("карта пропала с osu!".to_string());
+                warnings.push(SlotWarning {
+                    text: "карты больше нет на сайте".into(),
+                    strict: true,
+                });
             }
         }
 
         slot.warnings = warnings;
+    }
+}
+
+fn range_text(lo: Option<f64>, hi: Option<f64>) -> String {
+    match (lo, hi) {
+        (Some(a), Some(b)) => format!("{a:.1}—{b:.1}"),
+        (Some(a), None) => format!("от {a:.1}"),
+        (None, Some(b)) => format!("до {b:.1}"),
+        (None, None) => "без границ".into(),
     }
 }
 
@@ -174,6 +329,28 @@ pub fn create(conn: &Connection, name: &str, template_id: Option<i64>) -> Result
         ],
     )?;
     Ok(conn.last_insert_rowid())
+}
+
+/// Свои источники пула. `None` — наследовать серию или шаблон.
+pub fn set_sources(conn: &Connection, id: i64, set: Option<&crate::model::SourceSet>) -> Result<()> {
+    conn.execute(
+        "UPDATE pools SET sources = ?2 WHERE id = ?1",
+        params![id, sources::dump(set)?],
+    )?;
+    Ok(())
+}
+
+/// Свои источники слота. `None` — наследовать пул.
+pub fn set_slot_sources(
+    conn: &Connection,
+    slot_id: i64,
+    set: Option<&crate::model::SourceSet>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE pool_slots SET sources = ?2 WHERE id = ?1",
+        params![slot_id, sources::dump(set)?],
+    )?;
+    Ok(())
 }
 
 pub fn rename(conn: &Connection, id: i64, name: &str) -> Result<()> {
@@ -204,6 +381,7 @@ pub fn set_display_fields(conn: &Connection, id: i64, fields: &[String]) -> Resu
 }
 
 pub fn delete(conn: &Connection, id: i64) -> Result<()> {
+    super::exclusions::delete_all(conn, super::exclusions::Owner::Pool(id))?;
     conn.execute("DELETE FROM pools WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -221,6 +399,12 @@ pub fn is_locked(conn: &Connection, id: i64) -> Result<bool> {
 
 /// Копия пула. `next_version` = true — это правка сыгранного: копия получает
 /// то же имя, версию на единицу больше и ссылку на оригинал.
+///
+/// Внутри серии новая версия занимает **то же место**: метка раунда и позиция
+/// переезжают на неё, старая уходит в архив серии, а исключения, ссылавшиеся
+/// на прежний пул, начинают ссылаться на новый. Иначе после правки сыгранного
+/// пула серия осталась бы с архивной версией в раунде, а правило «не брать из
+/// раунда 1» тихо перестало бы работать.
 pub fn duplicate(conn: &Connection, id: i64, next_version: bool) -> Result<i64> {
     let (name, version): (String, i64) = conn
         .query_row("SELECT name, version FROM pools WHERE id = ?1", params![id], |r| {
@@ -237,9 +421,10 @@ pub fn duplicate(conn: &Connection, id: i64, next_version: bool) -> Result<i64> 
 
     conn.execute(
         "INSERT INTO pools
-            (name, template_id, folder_id, status, version, parent_pool_id,
-             display_fields, is_locked, created_at)
-         SELECT ?2, template_id, folder_id, status, ?3, ?4, display_fields, 0, ?5
+            (name, template_id, series_id, series_position, series_label, status, version,
+             parent_pool_id, display_fields, sources, is_locked, created_at)
+         SELECT ?2, template_id, series_id, series_position, series_label, status,
+                ?3, ?4, display_fields, sources, 0, ?5
          FROM pools WHERE id = ?1",
         params![id, new_name, new_version, parent, now_iso()],
     )?;
@@ -247,11 +432,35 @@ pub fn duplicate(conn: &Connection, id: i64, next_version: bool) -> Result<i64> 
 
     conn.execute(
         "INSERT INTO pool_slots
-            (pool_id, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods, position)
-         SELECT ?2, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods, position
+            (pool_id, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods,
+             position, sources)
+         SELECT ?2, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods,
+                position, sources
          FROM pool_slots WHERE pool_id = ?1",
         params![id, new_id],
     )?;
+
+    super::exclusions::copy(
+        conn,
+        super::exclusions::Owner::Pool(id),
+        super::exclusions::Owner::Pool(new_id),
+    )?;
+
+    if next_version {
+        // Старая версия уходит в архив серии и освобождает место в раунде.
+        conn.execute(
+            "UPDATE pools SET status = 'archived', series_label = NULL WHERE id = ?1",
+            params![id],
+        )?;
+        super::exclusions::repoint_pool(conn, id, new_id)?;
+    } else {
+        // Копию кладут рядом, а не вместо: в серию её вносят руками.
+        conn.execute(
+            "UPDATE pools SET series_id = NULL, series_position = 0, series_label = NULL
+              WHERE id = ?1",
+            params![new_id],
+        )?;
+    }
 
     Ok(new_id)
 }
@@ -284,8 +493,9 @@ pub fn replace_slots(conn: &Connection, pool_id: i64, slots: &[PoolSlot]) -> Res
 
     let mut stmt = conn.prepare(
         "INSERT INTO pool_slots
-            (pool_id, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods, position)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (pool_id, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods,
+             position, sources)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )?;
 
     for (i, s) in slots.iter().enumerate() {
@@ -298,6 +508,7 @@ pub fn replace_slots(conn: &Connection, pool_id: i64, slots: &[PoolSlot]) -> Res
             s.star_rating_with_mods,
             serde_json::to_string(&s.fm_mods)?,
             i as i64,
+            sources::dump(s.sources.as_ref())?,
         ])?;
     }
     Ok(())
@@ -362,6 +573,7 @@ pub fn add_slot(conn: &Connection, pool_id: i64, mod_tag: &str) -> Result<()> {
         star_rating_with_mods: None,
         fm_mods: Vec::new(),
         position: slots.len() as i64,
+        sources: None,
         beatmap: None,
         warnings: Vec::new(),
     });
@@ -369,20 +581,80 @@ pub fn add_slot(conn: &Connection, pool_id: i64, mod_tag: &str) -> Result<()> {
     replace_slots(conn, pool_id, &slots)
 }
 
-pub fn remove_slot(conn: &Connection, pool_id: i64, position: i64) -> Result<()> {
+/// Убрать несколько слотов сразу — одно действие над выделением, а не N правок:
+/// иначе метки пересчитывались бы после каждого удаления, и позиции, которые
+/// пришли с фронта, поехали бы на середине пачки.
+pub fn remove_slots(conn: &Connection, pool_id: i64, positions: &[i64]) -> Result<()> {
     let mut slots = slots_of(conn, pool_id)?;
-    let index = index_at(&slots, position)?;
-    slots.remove(index);
+    let gone: HashSet<i64> = positions.iter().copied().collect();
+    slots.retain(|s| !gone.contains(&s.position));
     relabel(&mut slots);
     replace_slots(conn, pool_id, &slots)
 }
 
-pub fn change_slot_mod(conn: &Connection, pool_id: i64, position: i64, mod_tag: &str) -> Result<()> {
+/// Сменить мод у нескольких слотов сразу. TB в пуле один: если он уже есть,
+/// пачка его не задвоит.
+pub fn change_slots_mod(
+    conn: &Connection,
+    pool_id: i64,
+    positions: &[i64],
+    mod_tag: &str,
+) -> Result<()> {
     let mut slots = slots_of(conn, pool_id)?;
-    let index = index_at(&slots, position)?;
-    slots[index].mod_tag = mod_tag.to_string();
+    let touch: HashSet<i64> = positions.iter().copied().collect();
+
+    if mod_tag == "TB" {
+        let already = slots
+            .iter()
+            .any(|s| s.mod_tag == "TB" && !touch.contains(&s.position));
+        if already || touch.len() > 1 {
+            return Err(AppError::Other(
+                "Тайбрейк в пуле ровно один — на несколько слотов его не поставить".into(),
+            ));
+        }
+    }
+
+    for slot in slots.iter_mut() {
+        if touch.contains(&slot.position) {
+            slot.mod_tag = mod_tag.to_string();
+        }
+    }
     relabel(&mut slots);
     replace_slots(conn, pool_id, &slots)
+}
+
+/// Закрепить или открепить несколько слотов сразу.
+pub fn set_slots_pinned(
+    conn: &Connection,
+    pool_id: i64,
+    positions: &[i64],
+    pinned: bool,
+) -> Result<()> {
+    let slots = slots_of(conn, pool_id)?;
+    let touch: HashSet<i64> = positions.iter().copied().collect();
+    for slot in &slots {
+        if touch.contains(&slot.position) {
+            set_slot_pinned(conn, slot.id, pinned)?;
+        }
+    }
+    Ok(())
+}
+
+/// Свои источники у нескольких слотов сразу. `None` — вернуть наследование.
+pub fn set_slots_sources(
+    conn: &Connection,
+    pool_id: i64,
+    positions: &[i64],
+    set: Option<&crate::model::SourceSet>,
+) -> Result<()> {
+    let slots = slots_of(conn, pool_id)?;
+    let touch: HashSet<i64> = positions.iter().copied().collect();
+    for slot in &slots {
+        if touch.contains(&slot.position) {
+            set_slot_sources(conn, slot.id, set)?;
+        }
+    }
+    Ok(())
 }
 
 /// Новый порядок задаётся списком нынешних позиций. Позиции, которых в списке
@@ -405,13 +677,11 @@ pub fn reorder(conn: &Connection, pool_id: i64, order: &[i64]) -> Result<()> {
     replace_slots(conn, pool_id, &moved)
 }
 
-/// Все карты, стоящие в перечисленных пулах — для правила «не повторять
-/// карты из прошлых маппулов турнира».
 /// Карты, попавшие больше чем в один из указанных маппулов.
 ///
-/// В рамках турнира это ошибка: карта всплывёт в двух матчах, а игроки
-/// приедут на неё подготовленными. Следить за этим по строкам вручную
-/// невозможно, поэтому считаем запросом.
+/// В рамках турнира или турнирной серии это ошибка: карта всплывёт в двух
+/// матчах, а игроки приедут на неё подготовленными. Следить за этим по строкам
+/// вручную невозможно, поэтому считаем запросом.
 pub fn overlaps_between_pools(
     conn: &Connection,
     pool_ids: &[i64],
@@ -424,7 +694,10 @@ pub fn overlaps_between_pools(
     let sql = format!(
         "SELECT s.beatmap_id,
                 COALESCE(b.artist || ' — ' || b.title, 'карта ' || s.beatmap_id) AS name,
-                GROUP_CONCAT(DISTINCT p.name) AS pools
+                GROUP_CONCAT(DISTINCT CASE WHEN p.series_id IS NULL THEN p.name
+                     ELSE COALESCE(NULLIF(p.series_label, ''),
+                                   'раунд ' || (p.series_position + 1)) END) AS pools,
+                GROUP_CONCAT(DISTINCT s.pool_id) AS ids
            FROM pool_slots s
            JOIN pools p ON p.id = s.pool_id
            LEFT JOIN beatmaps b ON b.beatmap_id = s.beatmap_id
@@ -436,15 +709,20 @@ pub fn overlaps_between_pools(
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(pool_ids.iter()), |r| {
-        Ok(crate::model::PoolOverlap {
-            beatmap_id: r.get(0)?,
-            name: r.get(1)?,
-            pools: r
-                .get::<_, Option<String>>(2)?
-                .unwrap_or_default()
+        let split = |raw: Option<String>| -> Vec<String> {
+            raw.unwrap_or_default()
                 .split(',')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
+                .collect()
+        };
+        Ok(crate::model::PoolOverlap {
+            beatmap_id: r.get(0)?,
+            name: r.get(1)?,
+            pools: split(r.get::<_, Option<String>>(2)?),
+            pool_ids: split(r.get::<_, Option<String>>(3)?)
+                .into_iter()
+                .filter_map(|s| s.parse::<i64>().ok())
                 .collect(),
         })
     })?;
@@ -452,6 +730,38 @@ pub fn overlaps_between_pools(
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
+    }
+
+    // Порядок пулов внутри строки — как в серии: «перекатить в последнем»
+    // должно означать последний раунд, а не случайный из GROUP_CONCAT.
+    let rank: HashMap<i64, usize> = pool_ids.iter().copied().zip(0..).collect();
+    for row in out.iter_mut() {
+        let mut pairs: Vec<(usize, i64)> = row
+            .pool_ids
+            .iter()
+            .map(|id| (rank.get(id).copied().unwrap_or(usize::MAX), *id))
+            .collect();
+        pairs.sort_unstable();
+        row.pool_ids = pairs.into_iter().map(|(_, id)| id).collect();
+        row.pools = names_of(conn, &row.pool_ids)?;
+    }
+    Ok(out)
+}
+
+/// Названия пулов по id, в порядке списка: метка раунда, если она есть.
+fn names_of(conn: &Connection, pool_ids: &[i64]) -> Result<Vec<String>> {
+    let mut out = Vec::with_capacity(pool_ids.len());
+    for id in pool_ids {
+        let found: Option<String> = conn
+            .query_row(
+                "SELECT CASE WHEN pools.series_id IS NULL THEN pools.name
+                     ELSE COALESCE(NULLIF(pools.series_label, ''),
+                                   'раунд ' || (pools.series_position + 1)) END FROM pools WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        out.push(found.unwrap_or_else(|| format!("маппул {id}")));
     }
     Ok(out)
 }

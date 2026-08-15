@@ -11,6 +11,7 @@ use crate::model::{
 
 const SCHEMA: &str = include_str!("schema.sql");
 const BUILTIN_TEMPLATES: &str = include_str!("migrations/002_builtin_templates.sql");
+const SERIES: &str = include_str!("migrations/003_series_sources_exclusions.sql");
 
 fn db() -> Connection {
     let conn = Connection::open_in_memory().expect("база в памяти");
@@ -18,6 +19,7 @@ fn db() -> Connection {
     conn.execute_batch(SCHEMA).expect("схема применилась");
     conn.execute_batch(BUILTIN_TEMPLATES)
         .expect("шаблоны из коробки применились");
+    conn.execute_batch(SERIES).expect("серии применились");
     conn
 }
 
@@ -611,8 +613,9 @@ fn untagged_place_combines_with_filter() {
 
 // ───────────────────────────────────────── шаблоны и генерация маппулов
 
-use crate::db::{generate, pools, templates};
-use crate::model::{GenRules, TemplateSlotInput};
+use crate::db::exclusions::Owner;
+use crate::db::{exclusions, generate, pools, series, sources, supply, templates};
+use crate::model::{ExclusionTarget, GenRules, Source, SourceSet, TemplateSlotInput};
 
 fn slot_in(mod_tag: &str, count: i64, source: Option<i64>) -> TemplateSlotInput {
     TemplateSlotInput {
@@ -706,8 +709,7 @@ fn series_never_repeats_a_map_across_its_pools() {
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None), slot_in("TB", 1, None)]).unwrap();
 
-    let names = vec!["Раунд 1".to_string(), "Раунд 2".to_string(), "Раунд 3".to_string()];
-    let reports = generate::generate_series(&conn, t.id, &names).unwrap();
+    let reports = generate::generate_series(&conn, t.id, "Осень", 3).unwrap();
     assert_eq!(reports.len(), 3);
 
     let mut seen = std::collections::HashSet::new();
@@ -734,13 +736,20 @@ fn series_reports_when_library_runs_dry() {
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None), slot_in("TB", 1, None)]).unwrap();
 
-    let names = vec!["Раунд 1".to_string(), "Раунд 2".to_string()];
-    let reports = generate::generate_series(&conn, t.id, &names).unwrap();
+    let reports = generate::generate_series(&conn, t.id, "Осень", 2).unwrap();
 
     let second = &reports[1];
     assert!(
-        second.notes.iter().any(|n| n.contains("не хватило карт")),
+        second.notes.iter().any(|n| n.strict && n.text.contains("пустой")),
         "о нехватке карт надо сказать, а не молча оставить пустые слоты: {:?}",
+        second.notes
+    );
+    assert!(
+        second
+            .notes
+            .iter()
+            .any(|n| n.blockers.iter().any(|b| b.reason.contains("серии"))),
+        "в отчёте должно быть видно, что карты забрали соседние пулы серии: {:?}",
         second.notes
     );
 }
@@ -796,10 +805,15 @@ fn template_supply_counts_maps_per_slot() {
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 4, None), slot_in("HD", 1, None)]).unwrap();
 
-    let supply = templates::supply(&conn, t.id).unwrap();
-    assert_eq!(supply[0].need, 4);
-    assert_eq!(supply[0].available, 3);
-    assert_eq!(supply[1].available, 1);
+    let rows = supply::template_supply(&conn, t.id).unwrap();
+    assert_eq!(rows[0].need, 4);
+    assert_eq!(rows[0].available, 3);
+    assert_eq!(rows[1].available, 1);
+    // Мод-тег — первый отсекатель: под HD подходит одна карта из четырёх.
+    assert!(rows[1]
+        .blockers
+        .iter()
+        .any(|b| b.reason.contains("мод-тегом HD")));
 }
 
 #[test]
@@ -812,7 +826,7 @@ fn generated_pool_fills_every_slot_without_repeats() {
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 4, None), slot_in("TB", 1, None)]).unwrap();
 
-    let report = generate::generate(&conn, t.id, "Тир 2").unwrap();
+    let report = generate::generate(&conn, t.id, "Тир 2", None).unwrap();
     assert!(
         report.notes.is_empty(),
         "заметок быть не должно: {:?}",
@@ -854,10 +868,16 @@ fn generation_reports_when_maps_run_out() {
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 3, None)]).unwrap();
 
-    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
     // Молча отдать пул с дырками нельзя — пользователь должен узнать причину.
-    assert_eq!(report.notes.len(), 1);
-    assert!(report.notes[0].contains("NM2"));
+    // Заметка на каждый пустой слот: их адрес и есть половина ответа.
+    assert_eq!(report.notes.len(), 2);
+    let places: Vec<&str> = report
+        .notes
+        .iter()
+        .filter_map(|n| n.slot_label.as_deref())
+        .collect();
+    assert_eq!(places, vec!["NM2", "NM3"]);
     assert!(report.pool.slots[0].beatmap_id.is_some());
     assert!(report.pool.slots[1].beatmap_id.is_none());
 }
@@ -873,17 +893,15 @@ fn no_repeat_mapper_limits_one_map_per_mapper() {
 
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 4, None)]).unwrap();
-    templates::set_rules(
+    exclusions::add(
         &conn,
-        t.id,
-        &GenRules {
-            no_repeat_mapper: true,
-            ..GenRules::default()
-        },
+        Owner::Template(t.id),
+        &ExclusionTarget::SameMapperInside,
+        true,
     )
     .unwrap();
 
-    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
     let filled = report
         .pool
         .slots
@@ -911,17 +929,15 @@ fn no_repeat_from_pools_excludes_played_maps() {
 
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None)]).unwrap();
-    templates::set_rules(
+    exclusions::add(
         &conn,
-        t.id,
-        &GenRules {
-            no_repeat_from_pools: vec![old],
-            ..GenRules::default()
-        },
+        Owner::Template(t.id),
+        &ExclusionTarget::Pool { id: old },
+        true,
     )
     .unwrap();
 
-    let report = generate::generate(&conn, t.id, "Новый").unwrap();
+    let report = generate::generate(&conn, t.id, "Новый", None).unwrap();
     let ids: Vec<i64> = report
         .pool
         .slots
@@ -953,7 +969,7 @@ fn min_bpm_spread_pulls_tempos_apart() {
     )
     .unwrap();
 
-    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
     let ids: Vec<i64> = report
         .pool
         .slots
@@ -986,8 +1002,8 @@ fn unreachable_bpm_spread_is_reported_not_hidden() {
     )
     .unwrap();
 
-    let report = generate::generate(&conn, t.id, "Пул").unwrap();
-    assert!(report.notes.iter().any(|n| n.contains("Разброс BPM")));
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+    assert!(report.notes.iter().any(|n| n.text.contains("разброс BPM")));
 }
 
 #[test]
@@ -1000,7 +1016,7 @@ fn reroll_keeps_pinned_slots() {
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 3, None)]).unwrap();
 
-    let first = generate::generate(&conn, t.id, "Пул").unwrap().pool;
+    let first = generate::generate(&conn, t.id, "Пул", None).unwrap().pool;
     let pinned_map = first.slots[0].beatmap_id;
     pools::set_slot_pinned(&conn, first.slots[0].id, true).unwrap();
 
@@ -1019,10 +1035,10 @@ fn reroll_slot_touches_only_that_slot() {
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 3, None)]).unwrap();
 
-    let before = generate::generate(&conn, t.id, "Пул").unwrap().pool;
+    let before = generate::generate(&conn, t.id, "Пул", None).unwrap().pool;
     let untouched: Vec<Option<i64>> = before.slots[1..].iter().map(|s| s.beatmap_id).collect();
 
-    let after = generate::reroll_slot(&conn, before.id, before.slots[0].id)
+    let after = generate::reroll_slots(&conn, before.id, &[before.slots[0].position])
         .unwrap()
         .pool;
 
@@ -1078,7 +1094,7 @@ fn slot_labels_renumber_after_removal() {
     assert_eq!(labels, vec!["NM1", "NM2", "NM3", "TB"]);
 
     // Убрали средний — номера не должны оставить дырку.
-    pools::remove_slot(&conn, id, 1).unwrap();
+    pools::remove_slots(&conn, id, &[1]).unwrap();
     let labels: Vec<String> = pools::get(&conn, id)
         .unwrap()
         .slots
@@ -1125,14 +1141,21 @@ fn pool_warnings_catch_duplicates_and_wrong_mod() {
     pools::set_slot_beatmap(&conn, slots[2].id, Some(2)).unwrap();
 
     let pool = pools::get(&conn, id).unwrap();
+    // Дубль называет слот, в котором карта уже стоит, — иначе искать его глазами.
     assert!(pool.slots[0]
         .warnings
         .iter()
-        .any(|w| w.contains("другом слоте")));
+        .any(|w| w.strict && w.text.contains("уже стоит в NM2")));
     // Карта 2 разрешена только в NM, а стоит в слоте HD.
-    assert!(pool.slots[2].warnings.iter().any(|w| w.contains("HD")));
-    // Маппер один на все три слота.
-    assert!(pool.slots[2].warnings.iter().any(|w| w.contains("маппер")));
+    assert!(pool.slots[2]
+        .warnings
+        .iter()
+        .any(|w| w.strict && w.text.contains("мод-тега HD")));
+    // Маппер один на все три слота — это мягкое замечание, а не ошибка.
+    assert!(pool.slots[2]
+        .warnings
+        .iter()
+        .any(|w| !w.strict && w.text.contains("alice")));
 }
 
 #[test]
@@ -1163,8 +1186,862 @@ fn smart_collection_works_as_slot_source() {
     let t = templates::create(&conn, "Свой").unwrap();
     templates::set_slots(&conn, t.id, &[slot_in("NM", 1, Some(smart.id))]).unwrap();
 
-    let report = generate::generate(&conn, t.id, "Пул").unwrap();
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
     assert_eq!(report.pool.slots[0].beatmap_id, Some(3));
+}
+
+// ────────────────────────────────── серии, источники и исключения
+
+/// Коллекция с готовым составом — самый частый источник.
+fn collection_of(conn: &Connection, name: &str, ids: &[i64]) -> i64 {
+    let c = collections::create(conn, name, None).unwrap();
+    collections::add_beatmaps(conn, c.id, ids).unwrap();
+    c.id
+}
+
+fn set_of(items: Vec<Source>, mode: &str) -> SourceSet {
+    SourceSet {
+        items,
+        mode: mode.into(),
+    }
+}
+
+#[test]
+fn old_rules_move_into_exclusions_on_migration() {
+    // Шаблон со старыми правилами — как он лежал до третьей версии схемы.
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+    conn.execute_batch(SCHEMA).unwrap();
+    conn.execute(
+        "INSERT INTO pool_templates (id, name, rules, is_builtin, created_at)
+         VALUES (7, 'Старый', '{\"noRepeatMapper\":true,\"noRepeatFromPools\":[3,4]}', 0, 'x')",
+        [],
+    )
+    .unwrap();
+
+    conn.execute_batch(SERIES).unwrap();
+
+    let list = exclusions::raw_list(&conn, Owner::Template(7)).unwrap();
+    assert!(
+        list.iter()
+            .any(|e| e.target == ExclusionTarget::SameMapperInside),
+        "«не повторять маппера» должно переехать в исключения: {list:?}"
+    );
+    let pools_banned: Vec<i64> = list
+        .iter()
+        .filter_map(|e| match e.target {
+            ExclusionTarget::Pool { id } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pools_banned, vec![3, 4]);
+
+    // Из правил они должны исчезнуть: одно условие в двух местах разойдётся.
+    let rules: String = conn
+        .query_row("SELECT rules FROM pool_templates WHERE id = 7", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert!(!rules.contains("noRepeatMapper"), "осталось в правилах: {rules}");
+    assert!(!rules.contains("noRepeatFromPools"));
+}
+
+#[test]
+fn ordered_sources_take_from_the_first_one_first() {
+    let conn = db();
+    for id in 1..=4 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+    let trusted = collection_of(&conn, "Проверенные", &[1, 2]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None)]).unwrap();
+    templates::set_sources(
+        &conn,
+        t.id,
+        Some(&set_of(
+            vec![Source::Collection { id: trusted }, Source::Library],
+            "ordered",
+        )),
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+    let mut ids: Vec<i64> = report
+        .pool
+        .slots
+        .iter()
+        .filter_map(|s| s.beatmap_id)
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        vec![1, 2],
+        "оба слота должны закрыться проверенными, добор из библиотеки не нужен"
+    );
+}
+
+#[test]
+fn ordered_sources_fall_through_when_the_first_runs_out() {
+    let conn = db();
+    for id in 1..=4 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+    let trusted = collection_of(&conn, "Проверенные", &[1]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 3, None)]).unwrap();
+    templates::set_sources(
+        &conn,
+        t.id,
+        Some(&set_of(
+            vec![Source::Collection { id: trusted }, Source::Library],
+            "ordered",
+        )),
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+    let ids: Vec<i64> = report
+        .pool
+        .slots
+        .iter()
+        .filter_map(|s| s.beatmap_id)
+        .collect();
+    assert_eq!(ids.len(), 3, "добор из библиотеки должен закрыть остальные");
+    assert!(ids.contains(&1), "карта из первого источника обязана попасть");
+}
+
+#[test]
+fn slot_sources_win_over_the_pool_and_the_series() {
+    let conn = db();
+    for id in 1..=4 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+    let only_four = collection_of(&conn, "Только четвёртая", &[4]);
+    let first_two = collection_of(&conn, "Первые две", &[1, 2]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None)]).unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+    let pool_id = report.pool.id;
+    pools::set_sources(
+        &conn,
+        pool_id,
+        Some(&set_of(vec![Source::Collection { id: first_two }], "union")),
+    )
+    .unwrap();
+
+    // Второму слоту задали свой источник — он и должен победить.
+    let slots = pools::get(&conn, pool_id).unwrap().slots;
+    pools::set_slots_sources(
+        &conn,
+        pool_id,
+        &[slots[1].position],
+        Some(&set_of(vec![Source::Collection { id: only_four }], "union")),
+    )
+    .unwrap();
+
+    let after = generate::reroll(&conn, pool_id, false).unwrap().pool;
+    assert_eq!(after.slots[1].beatmap_id, Some(4));
+    assert!(matches!(after.slots[0].beatmap_id, Some(1) | Some(2)));
+}
+
+#[test]
+fn narrow_slot_picks_before_the_wide_one() {
+    let conn = db();
+    // Единственная HD-карта разрешена и в NM: если первым выберет NM,
+    // HD останется пустым — а он и есть узкий слот.
+    tagged(&conn, 1, "a", 180.0, &["NM", "HD"]);
+    tagged(&conn, 2, "b", 180.0, &["NM"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None), slot_in("HD", 1, None)]).unwrap();
+
+    for _ in 0..5 {
+        let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+        assert_eq!(
+            report.pool.slots[1].beatmap_id,
+            Some(1),
+            "узкий слот должен выбирать первым: {:?}",
+            report.notes
+        );
+        assert_eq!(report.pool.slots[0].beatmap_id, Some(2));
+    }
+}
+
+#[test]
+fn soft_exclusion_fills_the_slot_and_says_so() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None)]).unwrap();
+    exclusions::add(
+        &conn,
+        Owner::Template(t.id),
+        &ExclusionTarget::Beatmaps { ids: vec![1] },
+        false,
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+    assert_eq!(
+        report.pool.slots[0].beatmap_id,
+        Some(1),
+        "мягкое правило не запрещает, а предупреждает"
+    );
+    assert!(report
+        .notes
+        .iter()
+        .any(|n| !n.strict && n.text.contains("нарушением")));
+}
+
+#[test]
+fn strict_exclusion_leaves_the_slot_empty_with_numbers() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+    tagged(&conn, 2, "b", 180.0, &["NM"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None)]).unwrap();
+    exclusions::add(
+        &conn,
+        Owner::Template(t.id),
+        &ExclusionTarget::Beatmaps { ids: vec![1, 2] },
+        true,
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+    assert!(report.pool.slots[0].beatmap_id.is_none());
+
+    let note = report
+        .notes
+        .iter()
+        .find(|n| n.slot_label.as_deref() == Some("NM1"))
+        .expect("о пустом слоте надо сказать");
+    assert!(note.strict);
+    // Не «мало карт», а сколько именно и что отсекло.
+    let cut: i64 = note.blockers.iter().map(|b| b.cut).sum();
+    assert_eq!(cut, 2, "цифры должны сходиться: {:?}", note.blockers);
+}
+
+#[test]
+fn disabled_exclusion_stops_applying() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None)]).unwrap();
+    let ex = exclusions::add(
+        &conn,
+        Owner::Template(t.id),
+        &ExclusionTarget::Beatmaps { ids: vec![1] },
+        true,
+    )
+    .unwrap();
+
+    assert!(generate::generate(&conn, t.id, "Пул", None)
+        .unwrap()
+        .pool
+        .slots[0]
+        .beatmap_id
+        .is_none());
+
+    exclusions::set_enabled(&conn, ex, false).unwrap();
+    assert_eq!(
+        generate::generate(&conn, t.id, "Пул", None)
+            .unwrap()
+            .pool
+            .slots[0]
+            .beatmap_id,
+        Some(1)
+    );
+}
+
+#[test]
+fn exclusion_on_a_deleted_pool_is_marked_not_dropped() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+    let gone = pools::create(&conn, "Удалённый", None).unwrap();
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    exclusions::add(
+        &conn,
+        Owner::Template(t.id),
+        &ExclusionTarget::Pool { id: gone },
+        true,
+    )
+    .unwrap();
+    pools::delete(&conn, gone).unwrap();
+
+    let list = templates::get(&conn, t.id).unwrap().exclusions;
+    assert_eq!(list.len(), 1, "правило не должно исчезать незаметно");
+    assert!(list[0].missing);
+    assert!(list[0].label.contains("удалён"));
+}
+
+#[test]
+fn series_exclusion_reaches_every_pool_inside() {
+    let conn = db();
+    for id in 1..=3 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None)]).unwrap();
+
+    let sid = series::create(&conn, "Осень", "tournament").unwrap();
+    exclusions::add(
+        &conn,
+        Owner::Series(sid),
+        &ExclusionTarget::Beatmaps { ids: vec![1, 2] },
+        true,
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Раунд 1", Some(sid)).unwrap();
+    assert_eq!(report.pool.slots[0].beatmap_id, Some(3));
+
+    // В панели пула оно видно как унаследованное, а не как своё.
+    let whence = generate::whence(&conn, report.pool.id).unwrap();
+    let inherited = whence
+        .exclusions
+        .iter()
+        .find(|e| e.inherited_from.is_some())
+        .expect("исключение серии должно быть видно в пуле");
+    assert!(inherited.inherited_from.as_deref().unwrap().contains("Осень"));
+    assert_eq!(inherited.cut, 2);
+}
+
+#[test]
+fn round_labels_follow_the_order_but_hand_set_ones_stay() {
+    let conn = db();
+    for id in 1..=6 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None)]).unwrap();
+
+    let sid = series::create(&conn, "Осень", "tournament").unwrap();
+    let a = generate::generate(&conn, t.id, "Первый", Some(sid)).unwrap().pool.id;
+    let b = generate::generate(&conn, t.id, "Второй", Some(sid)).unwrap().pool.id;
+    let c = generate::generate(&conn, t.id, "Третий", Some(sid)).unwrap().pool.id;
+
+    let labels = |conn: &rusqlite::Connection| -> Vec<String> {
+        series::get(conn, sid)
+            .unwrap()
+            .pools
+            .into_iter()
+            .map(|p| p.label.unwrap_or_default())
+            .collect()
+    };
+    assert_eq!(labels(&conn), ["раунд 1", "раунд 2", "раунд 3"]);
+
+    // Перетащили последний в начало: номера обязаны пересчитаться, иначе
+    // перестановка выглядит так, будто ничего не произошло.
+    series::reorder_pools(&conn, sid, &[c, a, b]).unwrap();
+    assert_eq!(labels(&conn), ["раунд 1", "раунд 2", "раунд 3"]);
+    assert_eq!(
+        pools::get(&conn, c).unwrap().series_label.as_deref(),
+        Some("раунд 1"),
+        "пул, ставший первым, должен зваться первым раундом"
+    );
+
+    // А своё название держится за пулом, куда его ни переставь.
+    series::set_pool_label(&conn, b, Some("полуфинал")).unwrap();
+    series::reorder_pools(&conn, sid, &[b, c, a]).unwrap();
+    assert_eq!(labels(&conn), ["полуфинал", "раунд 2", "раунд 3"]);
+
+    // Пустая строка возвращает метку к автоматической.
+    series::set_pool_label(&conn, b, None).unwrap();
+    assert_eq!(labels(&conn), ["раунд 1", "раунд 2", "раунд 3"]);
+}
+
+#[test]
+fn reroll_does_not_lock_the_pool_out_with_its_own_maps() {
+    // Пул исключает свою же серию — так делают, чтобы не повторять карты
+    // прошлых раундов. Перекат при этом должен работать: карты, которые
+    // снимаются со слотов, снова свободны.
+    let conn = db();
+    for id in 1..=3 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None)]).unwrap();
+
+    let sid = series::create(&conn, "Осень", "free").unwrap();
+    let report = generate::generate(&conn, t.id, "Раунд 1", Some(sid)).unwrap();
+    let pool_id = report.pool.id;
+    assert!(report.pool.slots[0].beatmap_id.is_some());
+
+    exclusions::add(
+        &conn,
+        Owner::Pool(pool_id),
+        &ExclusionTarget::Series { id: sid },
+        true,
+    )
+    .unwrap();
+
+    let again = generate::reroll(&conn, pool_id, false).unwrap();
+    assert!(
+        again.pool.slots[0].beatmap_id.is_some(),
+        "перекат опустошил пул его же прошлым составом: {:?}",
+        again.notes
+    );
+}
+
+#[test]
+fn series_pools_do_not_share_maps() {
+    let conn = db();
+    for id in 1..=4 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None)]).unwrap();
+
+    let reports = generate::generate_series(&conn, t.id, "Осень", 2).unwrap();
+    let mut all: Vec<i64> = reports
+        .iter()
+        .flat_map(|r| r.pool.slots.iter().filter_map(|s| s.beatmap_id))
+        .collect();
+    all.sort_unstable();
+    assert_eq!(all, vec![1, 2, 3, 4]);
+
+    // Метки раундов подставляются сами и держат порядок.
+    let series = series::get(&conn, reports[0].pool.series_id.unwrap()).unwrap();
+    let labels: Vec<Option<String>> = series.pools.iter().map(|p| p.label.clone()).collect();
+    assert_eq!(
+        labels,
+        vec![Some("раунд 1".to_string()), Some("раунд 2".to_string())]
+    );
+}
+
+#[test]
+fn rolling_the_whole_series_frees_maps_first() {
+    let conn = db();
+    for id in 1..=4 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None)]).unwrap();
+    let reports = generate::generate_series(&conn, t.id, "Осень", 2).unwrap();
+    let sid = reports[0].pool.series_id.unwrap();
+
+    // Карт ровно на два пула: без освобождения первый пул считал бы занятыми
+    // карты второго и остался бы с дырками.
+    let again = generate::roll_series(&conn, sid, false).unwrap();
+    for r in &again {
+        assert!(
+            r.pool.slots.iter().all(|s| s.beatmap_id.is_some()),
+            "все слоты должны закрыться: {:?}",
+            r.notes
+        );
+    }
+    let mut all: Vec<i64> = again
+        .iter()
+        .flat_map(|r| r.pool.slots.iter().filter_map(|s| s.beatmap_id))
+        .collect();
+    all.sort_unstable();
+    assert_eq!(all, vec![1, 2, 3, 4]);
+}
+
+#[test]
+fn free_series_allows_repeats_tournament_one_does_not() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+
+    let sid = series::create(&conn, "Любимые", "free").unwrap();
+    series::set_no_repeat_inside(&conn, sid, false).unwrap();
+
+    let first = pools::create(&conn, "Пул 1", None).unwrap();
+    let second = pools::create(&conn, "Пул 2", None).unwrap();
+    for id in [first, second] {
+        pools::add_slot(&conn, id, "NM").unwrap();
+        let slot = pools::get(&conn, id).unwrap().slots[0].id;
+        pools::set_slot_beatmap(&conn, slot, Some(1)).unwrap();
+        assert!(series::add_pool(&conn, sid, id).unwrap().is_empty());
+    }
+
+    // Свободная серия повтор терпит, но показывает его.
+    assert_eq!(series::repeats(&conn, sid).unwrap().len(), 1);
+
+    // Обратно в турнирную с повтором нельзя: тип обещал бы то, чего нет.
+    let clashes = series::set_kind(&conn, sid, "tournament").unwrap();
+    assert_eq!(clashes.len(), 1);
+    assert_eq!(clashes[0].pools.len(), 2);
+    assert_eq!(series::get(&conn, sid).unwrap().kind, "free");
+}
+
+#[test]
+fn tournament_series_refuses_to_drop_the_no_repeat_rule() {
+    let conn = db();
+    let sid = series::create(&conn, "Осень", "tournament").unwrap();
+    assert!(series::set_no_repeat_inside(&conn, sid, false).is_err());
+    assert!(series::get(&conn, sid).unwrap().no_repeat_inside);
+}
+
+#[test]
+fn deleting_a_series_keeps_its_pools() {
+    let conn = db();
+    let sid = series::create(&conn, "Осень", "free").unwrap();
+    let pool = pools::create(&conn, "Пул", None).unwrap();
+    series::add_pool(&conn, sid, pool).unwrap();
+
+    series::delete(&conn, sid).unwrap();
+    let back = pools::get(&conn, pool).unwrap();
+    assert_eq!(back.series_id, None);
+    assert_eq!(back.series_label, None);
+}
+
+#[test]
+fn new_version_takes_the_same_place_in_the_series() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+
+    let sid = series::create(&conn, "Осень", "tournament").unwrap();
+    let pool = pools::create(&conn, "Раунд 1", None).unwrap();
+    series::add_pool(&conn, sid, pool).unwrap();
+    pools::add_slot(&conn, pool, "NM").unwrap();
+
+    // На старый пул ссылается исключение другого шаблона.
+    let t = templates::create(&conn, "Свой").unwrap();
+    exclusions::add(
+        &conn,
+        Owner::Template(t.id),
+        &ExclusionTarget::Pool { id: pool },
+        true,
+    )
+    .unwrap();
+
+    conn.execute("UPDATE pools SET is_locked = 1 WHERE id = ?1", [pool])
+        .unwrap();
+    let next = pools::writable(&conn, pool).unwrap();
+    assert_ne!(next, pool);
+
+    let fresh = pools::get(&conn, next).unwrap();
+    assert_eq!(fresh.series_id, Some(sid));
+    assert_eq!(fresh.series_label.as_deref(), Some("раунд 1"));
+
+    // Старая версия ушла в архив и освободила раунд.
+    assert_eq!(pools::get(&conn, pool).unwrap().status, "archived");
+    let inside = series::pools_of(&conn, sid).unwrap();
+    assert_eq!(inside.len(), 2);
+    assert_eq!(series::live_pool_ids(&conn, sid).unwrap(), vec![next]);
+
+    // Исключение переехало на новую версию, а не осталось висеть впустую.
+    let list = exclusions::raw_list(&conn, Owner::Template(t.id)).unwrap();
+    assert_eq!(list[0].target, ExclusionTarget::Pool { id: next });
+}
+
+#[test]
+fn series_stats_count_growth_and_repeats() {
+    let conn = db();
+    // Два пула: во втором звёзды выше, одна карта общая.
+    for id in 1..=3 {
+        let mut m = map(id, "Artist", &format!("Map {id}"), 5.0);
+        m.creator = Some("alice".into());
+        m.mods = vec!["NM".into()];
+        beatmaps::upsert(&conn, &m).unwrap();
+    }
+    let mut hard = map(4, "Artist", "Hard", 7.0);
+    hard.creator = Some("bob".into());
+    hard.mods = vec!["NM".into()];
+    beatmaps::upsert(&conn, &hard).unwrap();
+
+    let sid = series::create(&conn, "Осень", "free").unwrap();
+    series::set_no_repeat_inside(&conn, sid, false).unwrap();
+
+    let first = pools::create(&conn, "Раунд 1", None).unwrap();
+    let second = pools::create(&conn, "Раунд 2", None).unwrap();
+    for (pool, maps) in [(first, [1, 2]), (second, [1, 4])] {
+        for _ in 0..2 {
+            pools::add_slot(&conn, pool, "NM").unwrap();
+        }
+        let slots = pools::get(&conn, pool).unwrap().slots;
+        for (slot, id) in slots.iter().zip(maps.iter()) {
+            pools::set_slot_beatmap(&conn, slot.id, Some(*id)).unwrap();
+        }
+        series::add_pool(&conn, sid, pool).unwrap();
+    }
+
+    let stats = series::stats(&conn, sid).unwrap();
+    assert_eq!(stats.pools, 2);
+    assert_eq!(stats.maps_total, 4);
+    assert_eq!(stats.maps_unique, 3);
+    assert_eq!(stats.repeats, 1);
+    assert_eq!(stats.mappers, 2);
+    assert_eq!(stats.mappers_repeated, 1);
+    assert_eq!(stats.stars_min, Some(5.0));
+    assert_eq!(stats.stars_max, Some(7.0));
+    assert_eq!(stats.steps.len(), 2);
+    assert!(!stats.steps[1].below_previous, "к финалу сложность растёт");
+    assert_eq!(stats.repeat_rows.len(), 1);
+    assert_eq!(stats.repeat_rows[0].pool_ids, vec![first, second]);
+}
+
+#[test]
+fn falling_difficulty_is_flagged_softly() {
+    let conn = db();
+    let mut easy = map(1, "Artist", "Easy", 4.0);
+    easy.mods = vec!["NM".into()];
+    beatmaps::upsert(&conn, &easy).unwrap();
+    let mut hard = map(2, "Artist", "Hard", 8.0);
+    hard.mods = vec!["NM".into()];
+    beatmaps::upsert(&conn, &hard).unwrap();
+
+    let sid = series::create(&conn, "Осень", "tournament").unwrap();
+    for (name, bid) in [("Раунд 1", 2), ("Раунд 2", 1)] {
+        let pool = pools::create(&conn, name, None).unwrap();
+        pools::add_slot(&conn, pool, "NM").unwrap();
+        let slot = pools::get(&conn, pool).unwrap().slots[0].id;
+        pools::set_slot_beatmap(&conn, slot, Some(bid)).unwrap();
+        series::add_pool(&conn, sid, pool).unwrap();
+    }
+
+    let stats = series::stats(&conn, sid).unwrap();
+    assert!(!stats.steps[0].below_previous);
+    assert!(
+        stats.steps[1].below_previous,
+        "падение сложности к финалу надо показать"
+    );
+}
+
+#[test]
+fn map_from_another_pool_of_the_series_is_flagged_in_the_row() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["NM"]);
+
+    let sid = series::create(&conn, "Осень", "free").unwrap();
+    series::set_no_repeat_inside(&conn, sid, false).unwrap();
+
+    let first = pools::create(&conn, "Раунд 1", None).unwrap();
+    let second = pools::create(&conn, "Раунд 2", None).unwrap();
+    for id in [first, second] {
+        pools::add_slot(&conn, id, "NM").unwrap();
+        let slot = pools::get(&conn, id).unwrap().slots[0].id;
+        pools::set_slot_beatmap(&conn, slot, Some(1)).unwrap();
+        series::add_pool(&conn, sid, id).unwrap();
+    }
+
+    let pool = pools::get(&conn, second).unwrap();
+    let warn = pool.slots[0]
+        .warnings
+        .iter()
+        .find(|w| w.text.contains("уже играется"))
+        .expect("строка должна сказать, где карта уже стоит");
+    // Серия свободная — замечание мягкое.
+    assert!(!warn.strict);
+    assert!(warn.text.contains("раунд 1"));
+}
+
+#[test]
+fn stars_outside_the_template_range_are_flagged() {
+    let conn = db();
+    let mut m = map(1, "Artist", "Map", 8.0);
+    m.mods = vec!["NM".into()];
+    beatmaps::upsert(&conn, &m).unwrap();
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(
+        &conn,
+        t.id,
+        &[TemplateSlotInput {
+            mod_tag: "NM".into(),
+            count: 1,
+            star_min: Some(5.0),
+            star_max: Some(6.4),
+            source_collection_id: None,
+            required_skillsets: vec![],
+        }],
+    )
+    .unwrap();
+
+    // Генерация такую карту не возьмёт — ставим руками.
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+    let slot = pools::get(&conn, report.pool.id).unwrap().slots[0].id;
+    pools::set_slot_beatmap(&conn, slot, Some(1)).unwrap();
+
+    let pool = pools::get(&conn, report.pool.id).unwrap();
+    assert!(pool.slots[0]
+        .warnings
+        .iter()
+        .any(|w| w.strict && w.text.contains("8.0 при диапазоне 5.0—6.4")));
+}
+
+#[test]
+fn whence_shows_where_sources_came_from() {
+    let conn = db();
+    for id in 1..=3 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+    let picked = collection_of(&conn, "Отбор", &[1, 2]);
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None)]).unwrap();
+
+    let sid = series::create(&conn, "Осень", "tournament").unwrap();
+    series::set_sources(
+        &conn,
+        sid,
+        Some(&set_of(vec![Source::Collection { id: picked }], "union")),
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Раунд 1", Some(sid)).unwrap();
+    let whence = generate::whence(&conn, report.pool.id).unwrap();
+
+    assert!(!whence.sources.own, "источники пришли от серии, а не свои");
+    assert!(whence.sources.origin.contains("Осень"));
+    assert_eq!(whence.sources.total, 2);
+    assert_eq!(whence.supply.len(), 1);
+    assert_eq!(whence.supply[0].slot_label, "NM1");
+    assert_eq!(whence.supply[0].available, 2);
+    assert!(whence.rules_origin.contains("Свой"));
+}
+
+#[test]
+fn picker_hides_excluded_maps_but_counts_them() {
+    let conn = db();
+    for id in 1..=3 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 1, None)]).unwrap();
+    exclusions::add(
+        &conn,
+        Owner::Template(t.id),
+        &ExclusionTarget::Beatmaps { ids: vec![2, 3] },
+        true,
+    )
+    .unwrap();
+
+    let report = generate::generate(&conn, t.id, "Пул", None).unwrap();
+    let picker = generate::slot_candidates(&conn, report.pool.id, 0).unwrap();
+
+    assert_eq!(picker.available, 1);
+    assert_eq!(picker.hidden, vec![2, 3]);
+    assert_eq!(picker.filter.mods, vec!["NM".to_string()]);
+}
+
+#[test]
+fn sources_without_a_common_part_give_nothing() {
+    let conn = db();
+    tagged(&conn, 1, "a", 180.0, &["HD"]);
+
+    // Источник-фильтр только про HD, а слот про DT — общего нет.
+    let set = set_of(
+        vec![Source::Filter {
+            filter: LibraryFilter {
+                mods: vec!["HD".into()],
+                ..LibraryFilter::default()
+            },
+        }],
+        "union",
+    );
+    let base = LibraryFilter {
+        mods: vec!["DT".into()],
+        ..LibraryFilter::default()
+    };
+    assert!(sources::ids(&conn, &set, &base).unwrap().is_empty());
+
+    // А по HD источник карту отдаёт.
+    let hd = LibraryFilter {
+        mods: vec!["HD".into()],
+        ..LibraryFilter::default()
+    };
+    assert_eq!(sources::ids(&conn, &set, &hd).unwrap(), vec![1]);
+}
+
+#[test]
+fn bulk_slot_actions_touch_only_the_selection() {
+    let conn = db();
+    for id in 1..=4 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM", "HD"]);
+    }
+
+    let pool = pools::create(&conn, "Пул", None).unwrap();
+    for _ in 0..4 {
+        pools::add_slot(&conn, pool, "NM").unwrap();
+    }
+
+    pools::set_slots_pinned(&conn, pool, &[1, 2], true).unwrap();
+    let pinned: Vec<bool> = pools::get(&conn, pool)
+        .unwrap()
+        .slots
+        .iter()
+        .map(|s| s.pinned)
+        .collect();
+    assert_eq!(pinned, vec![false, true, true, false]);
+
+    pools::change_slots_mod(&conn, pool, &[2, 3], "HD").unwrap();
+    let labels: Vec<String> = pools::get(&conn, pool)
+        .unwrap()
+        .slots
+        .iter()
+        .map(|s| s.slot_label.clone())
+        .collect();
+    assert_eq!(labels, vec!["NM1", "NM2", "HD1", "HD2"]);
+
+    pools::remove_slots(&conn, pool, &[0, 3]).unwrap();
+    let left: Vec<String> = pools::get(&conn, pool)
+        .unwrap()
+        .slots
+        .iter()
+        .map(|s| s.slot_label.clone())
+        .collect();
+    assert_eq!(left, vec!["NM1", "HD1"]);
+}
+
+#[test]
+fn tiebreaker_cannot_be_set_on_several_slots_at_once() {
+    let conn = db();
+    let pool = pools::create(&conn, "Пул", None).unwrap();
+    for _ in 0..3 {
+        pools::add_slot(&conn, pool, "NM").unwrap();
+    }
+
+    assert!(pools::change_slots_mod(&conn, pool, &[0, 1], "TB").is_err());
+
+    pools::change_slots_mod(&conn, pool, &[0], "TB").unwrap();
+    // Второй TB тоже не пройдёт: он в пуле ровно один.
+    let slots = pools::get(&conn, pool).unwrap().slots;
+    let other = slots.iter().find(|s| s.mod_tag == "NM").unwrap().position;
+    assert!(pools::change_slots_mod(&conn, pool, &[other], "TB").is_err());
+}
+
+#[test]
+fn rerolling_selected_slots_keeps_the_rest() {
+    let conn = db();
+    for id in 1..=8 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 4, None)]).unwrap();
+    let before = generate::generate(&conn, t.id, "Пул", None).unwrap().pool;
+
+    let keep: Vec<Option<i64>> = before.slots[2..].iter().map(|s| s.beatmap_id).collect();
+    let after = generate::reroll_slots(&conn, before.id, &[0, 1]).unwrap().pool;
+
+    let still: Vec<Option<i64>> = after.slots[2..].iter().map(|s| s.beatmap_id).collect();
+    assert_eq!(keep, still, "невыделенные слоты трогать нельзя");
+    assert!(after.slots[..2].iter().all(|s| s.beatmap_id.is_some()));
+}
+
+#[test]
+fn manual_pool_cannot_be_rolled() {
+    let conn = db();
+    let pool = pools::create(&conn, "Руками", None).unwrap();
+    pools::add_slot(&conn, pool, "NM").unwrap();
+    assert!(generate::reroll(&conn, pool, false).is_err());
 }
 
 // ─────────────────────────────────────────────── игроки, турниры, матчи
