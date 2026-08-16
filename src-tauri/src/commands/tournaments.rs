@@ -4,7 +4,7 @@ use tauri::State;
 
 use crate::db::tournaments as db;
 use crate::error::Result;
-use crate::model::{Bracket, ByRound, PoolOverlap, Tournament};
+use crate::model::{Bracket, ByRound, EditorState, PoolOverlap, Tournament};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -72,10 +72,11 @@ pub async fn add_tournament_player(
     state: State<'_, Arc<AppState>>,
     id: i64,
     player_id: i64,
+    emergency: bool,
 ) -> Result<()> {
     state
         .db
-        .with(|conn| Ok(db::add_player(conn, id, player_id)?))
+        .with_tx(|tx| Ok(db::add_player(tx, id, player_id, emergency)?))
 }
 
 #[tauri::command]
@@ -83,10 +84,11 @@ pub async fn remove_tournament_player(
     state: State<'_, Arc<AppState>>,
     id: i64,
     player_id: i64,
+    emergency: bool,
 ) -> Result<()> {
     state
         .db
-        .with(|conn| Ok(db::remove_player(conn, id, player_id)?))
+        .with_tx(|tx| Ok(db::remove_player(tx, id, player_id, emergency)?))
 }
 
 /// Сеяние задаётся порядком списка — так же, как порядок слотов в шаблоне.
@@ -95,8 +97,51 @@ pub async fn set_tournament_seeds(
     state: State<'_, Arc<AppState>>,
     id: i64,
     order: Vec<i64>,
+    emergency: bool,
 ) -> Result<()> {
-    state.db.with_tx(|tx| Ok(db::set_seeds(tx, id, &order)?))
+    state
+        .db
+        .with_tx(|tx| Ok(db::set_seeds(tx, id, &order, emergency)?))
+}
+
+/// Обмен местами в сетке: сеяние пересчитывается, место из него и следует.
+#[tauri::command]
+pub async fn swap_tournament_seeds(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    player_a: i64,
+    player_b: i64,
+    emergency: bool,
+) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| Ok(db::swap_seeds(tx, id, player_a, player_b, emergency)?))
+}
+
+/// Сажает игрока на место сеяния, при необходимости добавив его в турнир.
+#[tauri::command]
+pub async fn place_tournament_player(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    player_id: i64,
+    seed: i64,
+    emergency: bool,
+) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| Ok(db::place_player(tx, id, player_id, seed, emergency)?))
+}
+
+/// Случайное сеяние вместе с пересборкой сетки.
+#[tauri::command]
+pub async fn shuffle_tournament_seeds(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    emergency: bool,
+) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| Ok(db::shuffle_seeds(tx, id, emergency)?))
 }
 
 #[tauri::command]
@@ -108,7 +153,7 @@ pub async fn set_tournament_player_color(
 ) -> Result<()> {
     state
         .db
-        .with(|conn| Ok(db::set_player_color(conn, id, player_id, &color)?))
+        .with_tx(|tx| Ok(db::set_player_color(tx, id, player_id, &color)?))
 }
 
 #[tauri::command]
@@ -120,6 +165,72 @@ pub async fn set_tournament_pools(
     state
         .db
         .with_tx(|tx| Ok(db::set_pools(tx, id, &pool_ids)?))
+}
+
+/// Исключение по раунду: своё правило вместо общего. `null` — вернуть общее.
+#[tauri::command]
+pub async fn set_tournament_round_rule(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    key: String,
+    target: Option<i64>,
+    bans: Option<i64>,
+) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| Ok(db::set_round_rule(tx, id, &key, target, bans)?))
+}
+
+/// Закрепляет маппул за раундом. `null` — «любой свободный».
+#[tauri::command]
+pub async fn set_tournament_round_pool(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    key: String,
+    pool_id: Option<i64>,
+) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| Ok(db::set_round_pool(tx, id, &key, pool_id)?))
+}
+
+/// Берёт маппулы серии по порядку и раскладывает по раундам.
+#[tauri::command]
+pub async fn add_tournament_series(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    series_id: i64,
+) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| Ok(db::add_series(tx, id, series_id)?))
+}
+
+/// Преимущество сетки в гранд-финале.
+#[tauri::command]
+pub async fn set_tournament_grand_advantage(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    value: i64,
+) -> Result<()> {
+    state
+        .db
+        .with_tx(|tx| Ok(db::set_grand_advantage(tx, id, value)?))
+}
+
+/// Всё, что нужно колонке разделов: раунды, bye, проверки и журнал правок.
+#[tauri::command]
+pub async fn tournament_editor(state: State<'_, Arc<AppState>>, id: i64) -> Result<EditorState> {
+    state.db.with(|conn| Ok(db::editor(conn, id)?))
+}
+
+/// Отменяет последнюю правку турнира.
+#[tauri::command]
+pub async fn undo_tournament_edit(state: State<'_, Arc<AppState>>, id: i64) -> Result<Bracket> {
+    state.db.with_tx(|tx| {
+        db::undo_last_edit(tx, id)?;
+        Ok(db::bracket_of(tx, id)?)
+    })
 }
 
 /// Строит сетку и показывает её на утверждение. Состав с этого момента

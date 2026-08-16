@@ -43,11 +43,70 @@
   font-size: 11.5px;
 }
 
+/* Стадия турнира словом: по набору кнопок её угадывать не надо. */
+.status {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card2);
+  color: var(--txt2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Режим настройки виден в шапке всё время, пока включён. */
+.mark,
+.markDanger {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mark {
+  border: 1px solid rgba(255, 111, 177, 0.45);
+  background: rgba(255, 111, 177, 0.14);
+  color: var(--pink);
+}
+
+.markDanger {
+  border: 1px solid rgba(255, 107, 107, 0.5);
+  background: rgba(255, 107, 107, 0.14);
+  color: var(--red);
+}
+
 .right {
   margin-left: auto;
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+/* Колонка разделов слева, сетка справа: она и есть предпросмотр правок. */
+.split {
+  display: flex;
+  gap: 13px;
+  height: 100%;
+  min-height: 0;
+}
+
+.pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  /* Сетка сжимается, но остаётся на экране: прокручивается она сама,
+     а не весь экран вместе с колонкой разделов. */
+  overflow: auto;
+}
+
+/* Меню правки матча встаёт там, где щёлкнули по карточке. */
+.floating {
+  position: fixed;
+  z-index: 50;
 }
 
 /* Одна карта в двух маппулах турнира — её разыграют дважды, и игроки
@@ -95,47 +154,33 @@
    по два бана каждому и игра до четырёх побед по отдельности выглядят
    разумно. Показываем это здесь, а не в середине матча. */
 .problems {
-  margin-top: 12px;
-  padding: 11px 13px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: calc(100% - 48px);
+  margin: 0 24px 12px;
+  padding: 10px 13px;
   border: 1px solid rgba(255, 107, 107, 0.34);
   border-radius: 10px;
   background: rgba(255, 107, 107, 0.08);
+  color: var(--txt2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s;
 }
 
-.problemTitle {
-  margin-bottom: 8px;
+.problems:hover {
+  background: rgba(255, 107, 107, 0.13);
+}
+
+.problemsMore {
+  margin-left: auto;
+  flex: 0 0 auto;
   color: var(--red);
   font-size: 11.5px;
   font-weight: 700;
-}
-
-.problem {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 5px 0;
-}
-
-.problem + .problem {
-  border-top: 1px solid rgba(255, 107, 107, 0.14);
-}
-
-.problemWhere {
-  color: var(--txt2);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.problemNote {
-  color: var(--txt);
-  font-size: 12.5px;
-}
-
-.problemHint {
-  display: block;
-  margin-top: 8px;
-  color: var(--txt3);
-  font-size: 11.5px;
 }
 
 /* Турнир сыгран: полоса того же места, что и «сетка построена». */

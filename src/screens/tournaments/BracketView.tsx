@@ -1,11 +1,27 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { Avatar } from '@/components';
+import { coverUrl, plural } from '@/lib/format';
 import type { Bracket, BracketSide, Match, Standing, TournamentPlayer } from '@/lib/types';
 import { COL_W, layoutBracket } from './bracketLayout';
 import s from './BracketView.module.css';
 
+/** Что можно тащить в сетку: игрока из состава или из другого места сетки. */
+export const DRAG_PLAYER = 'application/x-osucup-player';
+
 interface Props {
   bracket: Bracket;
   onOpenMatch: (id: number) => void;
+  /** Режим настройки: клик по матчу открывает правку, а не сам матч. */
+  editing?: boolean;
+  onPickMatch?: (id: number, at: { x: number; y: number }) => void;
+  /** Матч с открытой правкой — его карточка подсвечена. */
+  picked?: number | null;
+  /**
+   * Можно ли менять места в первом раунде мышью. Дальше первого раунда места
+   * заполняются результатами, и перетаскивать там нечего.
+   */
+  canSeat?: boolean;
+  onSeat?: (playerId: number, ontoPlayerId: number) => void;
 }
 
 const SIDE_SHORT: Record<BracketSide, string> = {
@@ -38,7 +54,18 @@ function placeLabel(placement: number): string {
   return `${placement} место`;
 }
 
-export function BracketView({ bracket, onOpenMatch }: Props) {
+export function BracketView({
+  bracket,
+  onOpenMatch,
+  editing = false,
+  onPickMatch,
+  picked = null,
+  canSeat = false,
+  onSeat,
+}: Props) {
+  // Куда сейчас метится перетаскивание: подсветка только на допустимом месте.
+  const [over, setOver] = useState<number | null>(null);
+
   const byId = useMemo(() => {
     const map = new Map<number, TournamentPlayer>();
     for (const p of bracket.players) map.set(p.playerId, p);
@@ -54,17 +81,21 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
 
   /**
    * Откуда придёт игрок в пустое место. Считается по обратным ссылкам:
-   * пустая клетка без объяснения — самое непонятное место в сетке.
+   * пустая клетка без объяснения — самое непонятное место в сетке. Источники,
+   * которые уже доехали, из подписи убираем: «ждёт победителя ВС R3-1», когда
+   * тот победитель сидит в этом же матче, читается как ошибка.
    */
   const waitingFor = useMemo(() => {
     const map = new Map<number, string[]>();
-    const add = (target: number | null, label: string) => {
-      if (target === null) return;
+    const add = (target: number | null, label: string, arrived: boolean) => {
+      if (target === null || arrived) return;
       map.set(target, [...(map.get(target) ?? []), label]);
     };
     for (const m of bracket.matches) {
-      add(m.nextWinSlot, `Победитель ${shortName(m)}`);
-      add(m.nextLoseSlot, `Проигравший ${shortName(m)}`);
+      const played = m.status === 'finished';
+      add(m.nextWinSlot, `Победитель ${shortName(m)}`, played);
+      // Проигравшего у матча без победителя нет вовсе: техпобеда над пустотой.
+      add(m.nextLoseSlot, `Проигравший ${shortName(m)}`, played);
     }
     return map;
   }, [bracket.matches]);
@@ -77,17 +108,57 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
   function slot(m: Match, side: 'a' | 'b') {
     const id = side === 'a' ? m.playerA : m.playerB;
     const player = id === null ? null : (byId.get(id) ?? null);
-    const score = side === 'a' ? m.scoreA : m.scoreB;
-    const other = side === 'a' ? m.scoreB : m.scoreA;
+    // Преимущество сетки — часть счёта матча, но не сыгранная карта.
+    const score = (side === 'a' ? m.scoreA : m.scoreB) + (side === 'a' ? m.bonusA : m.bonusB);
+    const other = (side === 'a' ? m.scoreB : m.scoreA) + (side === 'a' ? m.bonusB : m.bonusA);
     const won = m.winnerId !== null && id !== null && m.winnerId === id;
     const lost = m.winnerId !== null && id !== null && !won;
 
     // Подпись берём по порядку: первое пустое место — первый источник.
     const pending = waitingFor.get(m.id) ?? [];
     const hint = side === 'a' ? pending[0] : pending[m.playerA === null ? 1 : 0];
+    // Места первого раунда верхней сетки можно менять мышью: остальные
+    // заполняются результатами, и тащить туда некого.
+    const seatable = canSeat && m.bracket === 'upper' && m.round === 1 && id !== null;
 
     return (
-      <div className={[s.slot, won ? s.won : null, lost ? s.lost : null].filter(Boolean).join(' ')}>
+      <div
+        className={[
+          s.slot,
+          won ? s.won : null,
+          lost ? s.lost : null,
+          seatable ? s.seatable : null,
+          seatable && over === id ? s.seatOver : null,
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        draggable={seatable}
+        onDragStart={(e) => {
+          if (!seatable || id === null) return;
+          e.dataTransfer.setData(DRAG_PLAYER, String(id));
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragOver={(e) => {
+          if (!seatable) return;
+          // Перетаскивание принимаем, только если тащат игрока.
+          if (!e.dataTransfer.types.includes(DRAG_PLAYER)) return;
+          e.preventDefault();
+          setOver(id);
+        }}
+        onDragLeave={() => {
+          if (over === id) setOver(null);
+        }}
+        onDrop={(e) => {
+          setOver(null);
+          if (!seatable || id === null) return;
+          const raw = e.dataTransfer.getData(DRAG_PLAYER);
+          const dragged = Number(raw);
+          if (!Number.isFinite(dragged) || dragged === id) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onSeat?.(dragged, id);
+        }}
+      >
         {player === null ? (
           <>
             <span className={s.seedEmpty} aria-hidden>
@@ -119,7 +190,12 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
           <span className={s.crown} aria-hidden>
             ♛
           </span>
-          <span className={s.stripe} style={{ background: champion.color }} aria-hidden />
+          <Avatar
+            nickname={champion.nickname}
+            color={champion.color}
+            src={coverUrl(champion.avatarPath)}
+            size={34}
+          />
           {champion.nickname} — победитель
         </div>
       ) : null}
@@ -151,26 +227,53 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
           {layout.shown.map((m) => {
             const ready = m.playerA !== null && m.playerB !== null;
             const done = m.status === 'finished';
+            const advantage = m.bonusA + m.bonusB;
+            // В режиме настройки открывается правка матча, а не сам матч:
+            // клик по сетке во время настройки — это правка.
+            const clickable = editing || ready;
+
             return (
               <button
                 key={m.id}
-                className={[s.match, done ? s.done : null, ready && !done ? s.ready : null]
+                className={[
+                  s.match,
+                  done ? s.done : null,
+                  ready && !done ? s.ready : null,
+                  picked === m.id ? s.picked : null,
+                ]
                   .filter(Boolean)
                   .join(' ')}
                 type="button"
-                disabled={!ready}
-                onClick={() => onOpenMatch(m.id)}
+                disabled={!clickable}
+                onClick={(e) => {
+                  if (editing) {
+                    onPickMatch?.(m.id, { x: e.clientX, y: e.clientY });
+                    return;
+                  }
+                  onOpenMatch(m.id);
+                }}
                 style={{
                   left: layout.colX(layout.columnOf(m)),
                   top: layout.topOf(m),
                   width: COL_W,
                 }}
-                title={ready ? shortName(m) : 'Ждёт результатов прошлых матчей'}
+                title={
+                  editing
+                    ? `${shortName(m)} — правка матча`
+                    : ready
+                      ? shortName(m)
+                      : 'Ждёт результатов прошлых матчей'
+                }
               >
                 {slot(m, 'a')}
                 {slot(m, 'b')}
-                {m.isWalkover ? <span className={s.tag}>без игры</span> : null}
-                {m.isManualEdit ? <span className={s.tag}>вручную</span> : null}
+                <span className={s.tags}>
+                  {advantage > 0 ? (
+                    <span className={s.tag}>преимущество +{advantage}</span>
+                  ) : null}
+                  {m.isWalkover ? <span className={s.tag}>без игры</span> : null}
+                  {m.isManualEdit ? <span className={s.tag}>вручную</span> : null}
+                </span>
               </button>
             );
           })}
@@ -182,6 +285,10 @@ export function BracketView({ bracket, onOpenMatch }: Props) {
 
 /** Итоги турнира: пьедестал и таблица всех участников. */
 function Results({ standings, podium }: { standings: Standing[]; podium: Standing[] }) {
+  const maps = (p: Standing) => p.mapWins + p.mapLosses;
+  const share = (p: Standing) =>
+    maps(p) === 0 ? null : Math.round((p.mapWins / maps(p)) * 100);
+
   return (
     <section className={s.results}>
       <div className={s.resultsTitle}>Турнир сыгран</div>
@@ -194,13 +301,64 @@ function Results({ standings, podium }: { standings: Standing[]; podium: Standin
             style={{ '--who': p.color } as React.CSSProperties}
           >
             <div className={s.place}>{placeLabel(p.placement)}</div>
-            <div className={s.podiumNick}>
-              <span className={s.stripe} style={{ background: p.color }} aria-hidden />
-              {p.nickname}
+
+            <div className={s.podiumHead}>
+              <Avatar
+                nickname={p.nickname}
+                color={p.color}
+                src={coverUrl(p.avatarPath)}
+                size={p.placement === 1 ? 52 : 42}
+              />
+              <div className={s.podiumNames}>
+                <div className={s.podiumNick}>{p.nickname}</div>
+                <div className={s.podiumScore}>
+                  {p.matchWins}—{p.matchLosses} по матчам
+                  {p.matchLosses === 0 ? ' · без поражений' : ''}
+                </div>
+              </div>
             </div>
-            <div className={s.podiumScore}>
-              {p.matchWins}—{p.matchLosses} по матчам · {p.mapWins}—{p.mapLosses} по картам
+
+            <div className={s.stats}>
+              <div className={s.stat}>
+                <span className={s.statName}>карты</span>
+                <span className={s.statValue}>
+                  {p.mapWins}—{p.mapLosses}
+                  {share(p) !== null ? ` · ${share(p)}%` : ''}
+                </span>
+              </div>
+              {p.bestStreak > 1 ? (
+                <div className={s.stat}>
+                  <span className={s.statName}>серия</span>
+                  <span className={s.statValue}>
+                    {p.bestStreak} {plural(p.bestStreak, 'карта', 'карты', 'карт')} подряд
+                  </span>
+                </div>
+              ) : null}
+              {p.tiebreakers > 0 ? (
+                <div className={s.stat}>
+                  <span className={s.statName}>тайбрейки</span>
+                  <span className={s.statValue}>
+                    {p.tiebreakersWon} из {p.tiebreakers}
+                  </span>
+                </div>
+              ) : null}
+              {p.walkovers > 0 ? (
+                <div className={s.stat}>
+                  <span className={s.statName}>без игры</span>
+                  <span className={s.statValue}>{p.walkovers}</span>
+                </div>
+              ) : null}
             </div>
+
+            {p.byMod.length > 0 ? (
+              <div className={s.mods}>
+                {p.byMod.slice(0, 4).map((mod) => (
+                  <span key={mod.mod} className={s.mod} title={`${mod.mod}: сыграно ${mod.played}`}>
+                    {mod.mod} {mod.won}/{mod.played}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
@@ -210,10 +368,15 @@ function Results({ standings, podium }: { standings: Standing[]; podium: Standin
           {standings.slice(podium.length).map((p) => (
             <div key={p.playerId} className={s.tableRow}>
               <span className={s.tablePlace}>{p.placement}</span>
-              <span className={s.stripe} style={{ background: p.color }} aria-hidden />
+              <Avatar
+                nickname={p.nickname}
+                color={p.color}
+                src={coverUrl(p.avatarPath)}
+                size={22}
+              />
               <span className={s.tableNick}>{p.nickname}</span>
               <span className={s.tableScore}>
-                {p.matchWins}—{p.matchLosses}
+                {p.matchWins}—{p.matchLosses} по матчам · {p.mapWins}—{p.mapLosses} по картам
               </span>
             </div>
           ))}

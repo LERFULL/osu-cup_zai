@@ -703,11 +703,17 @@ export type FirstBan = 'random' | 'higherSeed' | 'lowerSeed';
 /**
  * Значение с исключениями по раундам: общее число, а по конкретным
  * раундам — только там, где решили иначе.
+ *
+ * Ключ раунда — «upper:2», «lower:1», «grand:1»: у верхней и нижней сетки
+ * свои раунды, одним номером их не разделить.
  */
 export interface ByRound {
   default: number;
   rounds: Record<string, number>;
 }
+
+/** Ключ раунда — тот же, что и на стороне Rust. */
+export const roundKey = (bracket: BracketSide, round: number) => `${bracket}:${round}`;
 
 export interface TournamentPlayer {
   playerId: number;
@@ -715,6 +721,8 @@ export interface TournamentPlayer {
   seed: number | null;
   /** Цвет в рамках этого турнира — глобальный при этом не меняется. */
   color: string;
+  /** Аватар из профиля osu!. Свой у игрока, а не у турнира. */
+  avatarPath: string | null;
   placement: number | null;
 }
 
@@ -722,11 +730,18 @@ export interface Tournament {
   id: number;
   name: string;
   status: TournamentStatus;
+  /** Фактическое число игроков, а не округление вверх до степени двойки. */
   bracketSize: number;
   targetScore: ByRound;
   bansPerRound: ByRound;
   firstBan: FirstBan;
   noRepeatPool: boolean;
+  /** Какой маппул закреплён за раундом. Ключ — «upper:2». */
+  poolByRound: Record<string, number>;
+  /** Сколько побед победитель верхней получает в гранд-финале заранее. */
+  grandAdvantage: number;
+  /** Сеяния, прошедшие первый раунд без игры. */
+  byeSeeds: number[];
   createdAt: string;
   finishedAt: string | null;
   players: TournamentPlayer[];
@@ -754,9 +769,15 @@ export interface Match {
   nextLoseSlot: number | null;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Правило, взятое на старте матча. `null` — матч ещё не начинали. */
+  targetScore: number | null;
+  bansEach: number | null;
   /** Счёт по картам. Считается из журнала действий, а не хранится. */
   scoreA: number;
   scoreB: number;
+  /** Преимущество сетки: матч решает, но сыгранной картой не является. */
+  bonusA: number;
+  bonusB: number;
 }
 
 /** Турнир вместе с сеткой. */
@@ -770,28 +791,129 @@ export interface Bracket extends Tournament {
 
 /**
  * Правила турнира и маппул не сходятся: карт не хватит доиграть матч.
- * Считается там, где и то и другое выбирают, — на экране турнира.
+ * Считается по раундам — у каждого своё правило и свой маппул.
  */
 export interface RuleProblem {
-  poolId: number;
+  /** Ключ раунда: «upper:2». */
+  key: string;
+  /** Как раунд подписан на сетке: «Финал верхней». */
+  title: string;
+  poolId: number | null;
   poolName: string;
-  /** Раунд, для которого правило задано отдельно. `null` — общее правило. */
-  round: number | null;
   target: number;
   bansEach: number;
   notes: string[];
 }
 
-/** Строка итоговой таблицы турнира. */
+// ────────────────────────────────────────────────── редактор турнира
+
+/** Строка таблицы раундов: правило, маппул и что с ними не так. */
+export interface EditorRound {
+  key: string;
+  bracket: BracketSide;
+  round: number;
+  title: string;
+  target: number;
+  bans: number;
+  /** Значение задано для этого раунда, а не унаследовано от общего. */
+  targetOwn: boolean;
+  bansOwn: boolean;
+  /** Маппул, закреплённый за раундом. `null` — «любой свободный». */
+  poolId: number | null;
+  /** Что раунд играет на самом деле: закреплённый или выданный по кругу. */
+  playingPoolId: number | null;
+  playingPoolName: string | null;
+  poolPlayable: number;
+  poolHasTiebreaker: boolean;
+  matches: number;
+  played: number;
+  /** Хоть один матч раунда начат: правило внутри него уже не поменять. */
+  started: boolean;
+  notes: string[];
+}
+
+/** Сеяние, прошедшее первый раунд без игры, и почему. */
+export interface EditorBye {
+  seed: number;
+  nickname: string;
+  why: string;
+}
+
+export type EditorSection = 'rules' | 'bracket' | 'pools' | 'players';
+
+/** Предупреждение раздела. Блокирует только то, без чего сетку не построить. */
+export interface EditorCheck {
+  section: EditorSection;
+  text: string;
+  blocking: boolean;
+}
+
+/** Одна запись журнала правок турнира. */
+export interface TournamentEdit {
+  n: number;
+  kind: string;
+  at: string;
+  emergency: boolean;
+  /** Что поменяли, человеческими словами: «маппул раунда 2». */
+  note: string;
+  /** `n` правки-отмены, если эту откатили. */
+  undoneBy: number | null;
+}
+
+/** Всё, что нужно колонке разделов. */
+export interface EditorState {
+  rounds: EditorRound[];
+  byes: EditorBye[];
+  checks: EditorCheck[];
+  /** Карты, попавшие в два маппула турнира, с названиями раундов. */
+  overlaps: PoolOverlap[];
+  edits: TournamentEdit[];
+  /** Почему отмена недоступна. `null` — можно отменять. */
+  undoBlocked: string | null;
+  matchesTotal: number;
+  matchesStarted: number;
+  matchesPlayed: number;
+  /** Сколько матчей будет в сетке при текущем составе. */
+  projectedMatches: number;
+  emergencyAvailable: boolean;
+}
+
+/** Что случится, если применить правку сыгранного. */
+export interface EditImpact {
+  /** Названия матчей, которые сбросятся. */
+  matches: string[];
+  /** Игроки, чья статистика пересчитается. */
+  players: string[];
+  /** Сколько сыгранных карт перестанет учитываться. */
+  maps: number;
+  /** Кто вернётся в турнир и с каким счётом поражений. */
+  returns: string[];
+  reopensTournament: boolean;
+}
+
+/**
+ * Строка итоговой таблицы турнира. Здесь турнир виден целиком сыгранным,
+ * поэтому цифр больше, чем в сетке.
+ */
 export interface Standing {
   playerId: number;
   nickname: string;
   color: string;
+  avatarPath: string | null;
   placement: number;
   matchWins: number;
   matchLosses: number;
   mapWins: number;
   mapLosses: number;
+  /** Сыграно и выиграно карт по каждому мод-тегу этого турнира. */
+  byMod: ModStats[];
+  /** Тайбрейков сыграно и выиграно: они решают матч и стоят отдельно. */
+  tiebreakers: number;
+  tiebreakersWon: number;
+  /** Матчей, доставшихся без игры. */
+  walkovers: number;
+  /** Самая длинная серия побед по картам подряд. */
+  bestStreak: number;
 }
 
 // ─────────────────────────────────────────────────────────────── матч

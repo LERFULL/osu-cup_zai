@@ -1713,9 +1713,9 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
 
   // Игроки, турниры и матчи живут отдельным модулем: там своя механика
   // сетки и журнала действий, и в общем списке она бы потерялась.
-  ...tournamentHandlers(
-    (poolId) =>
-      withMaps(pools.find((p) => p.id === poolId) ?? { slots: [] } as unknown as Pool).slots.map(
+  ...tournamentHandlers({
+    rows: (poolId) =>
+      withMaps(pools.find((p) => p.id === poolId) ?? ({ slots: [] } as unknown as Pool)).slots.map(
         (slot) => ({
           slotLabel: slot.slotLabel,
           mod: slot.mod,
@@ -1724,8 +1724,19 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
           state: { kind: 'free' },
         }),
       ),
-    () => pools.map((p) => ({ id: p.id, name: p.name })),
-  ),
+    list: () => pools.map((p) => ({ id: p.id, name: p.name, isLocked: p.isLocked })),
+    series: (seriesId) => {
+      const own = seriesList.find((x) => x.id === seriesId);
+      return {
+        name: own?.name ?? `серия ${seriesId}`,
+        poolIds: pools
+          .filter((p) => p.seriesId === seriesId && p.status !== 'archived')
+          .sort((a, b) => a.seriesPosition - b.seriesPosition)
+          .map((p) => p.id),
+      };
+    },
+    overlaps,
+  }),
 };
 
 /** Ставится один раз при старте, если настоящего Tauri в окне нет. */

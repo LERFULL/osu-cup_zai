@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Empty, Field, Switch } from '@/components';
-import type { Bracket, Player, Pool, PoolOverlap, RuleProblem } from '@/lib/types';
+import { Button, Empty } from '@/components';
+import { plural } from '@/lib/format';
+import type {
+  Bracket,
+  EditorState,
+  Player,
+  Pool,
+  Series,
+  TournamentPlayer,
+} from '@/lib/types';
 import * as ipc from '@/lib/ipc';
 import { BracketView } from './BracketView';
 import { MatchView } from './MatchView';
+import { Editor } from './editor/Editor';
+import { MatchEdit } from './editor/MatchEdit';
 import s from './TournamentView.module.css';
 
 interface Props {
@@ -11,39 +21,64 @@ interface Props {
   onClose: () => void;
 }
 
-/** Для какого правила нестыковка: общего или отдельного раунда. */
-function problemWhere(p: RuleProblem): string {
-  const rule = `до ${p.target} побед, банов по ${p.bansEach}`;
-  return p.round === null ? `${p.poolName} · ${rule}` : `${p.poolName} · раунд ${p.round}: ${rule}`;
+/** Где открыто меню правки матча. */
+interface Pick {
+  matchId: number;
+  x: number;
+  y: number;
 }
 
+/** Стадия турнира словом: по кнопкам в шапке её угадывать не надо. */
+const STATUS: Record<Bracket['status'], string> = {
+  draft: 'черновик',
+  seeded: 'сетка готова',
+  running: 'идёт',
+  finished: 'сыгран',
+};
+
 /**
- * Экран турнира. Пока сетка не построена — сборка состава; после — сама
- * сетка. Открытый матч занимает экран целиком: во время игры ничего,
- * кроме него, не нужно.
+ * Экран турнира. Сетка и режим настройки живут рядом: правка видна на сетке
+ * сразу, а не в отдельном предпросмотре. У черновика настройка открыта сама —
+ * без состава и маппулов на экране всё равно нечего показывать.
  */
 export function TournamentView({ id, onClose }: Props) {
   const [bracket, setBracket] = useState<Bracket | null>(null);
+  const [editor, setEditor] = useState<EditorState | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [pools, setPools] = useState<Pool[]>([]);
-  // Карты, попавшие сразу в несколько маппулов турнира: их разыграют дважды.
-  const [overlaps, setOverlaps] = useState<PoolOverlap[]>([]);
+  const [series, setSeries] = useState<Series[]>([]);
   const [match, setMatch] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [editing, setEditing] = useState(false);
+  const [emergency, setEmergency] = useState(false);
+  const [pick, setPick] = useState<Pick | null>(null);
+
   const reload = useCallback(async () => {
+    // Сетку читаем и показываем отдельно от остального: если запнётся
+    // что-то второстепенное — маппулы, серии, — экран не должен остаться
+    // с прошлым состоянием турнира.
     try {
-      const [b, ps, pl, ov] = await Promise.all([
-        ipc.tournamentBracket(id),
+      setBracket(await ipc.tournamentBracket(id));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+      return;
+    }
+
+    try {
+      const [ed, ps, pl, sr] = await Promise.all([
+        ipc.tournamentEditor(id),
         ipc.listPlayers(false),
         ipc.listPools(),
-        ipc.tournamentPoolOverlaps(id),
+        ipc.listSeries(),
       ]);
-      setBracket(b);
+      setEditor(ed);
       setPlayers(ps);
       setPools(pl);
-      setOverlaps(ov);
-      setError(null);
+      setSeries(sr);
+      // Аварийная правка держится только пока турнир идёт.
+      if (!ed.emergencyAvailable) setEmergency(false);
     } catch (e) {
       setError(String(e));
     }
@@ -52,6 +87,50 @@ export function TournamentView({ id, onClose }: Props) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Черновик — это ещё не турнир, а сборка: настройку открываем сразу.
+  // Отдельно от чтения: иначе она открывалась бы заново после каждой правки.
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (bracket === null || seen) return;
+    setSeen(true);
+    if (bracket.status === 'draft') setEditing(true);
+  }, [bracket, seen]);
+
+  /** Правка: применяем и перечитываем турнир целиком. */
+  const run = useCallback(
+    (work: () => Promise<unknown>) => {
+      void (async () => {
+        try {
+          await work();
+          setError(null);
+        } catch (e) {
+          setError(String(e));
+        }
+        await reload();
+      })();
+    },
+    [reload],
+  );
+
+  // Esc выходит из режима настройки, Ctrl+Z отменяет последнюю правку.
+  useEffect(() => {
+    if (!editing || match !== null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && pick === null) {
+        setEditing(false);
+        return;
+      }
+      if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+        const el = document.activeElement;
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
+        e.preventDefault();
+        run(() => ipc.undoTournamentEdit(id));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editing, match, pick, id, run]);
 
   if (match !== null) {
     return (
@@ -65,7 +144,7 @@ export function TournamentView({ id, onClose }: Props) {
     );
   }
 
-  if (bracket === null) {
+  if (bracket === null || editor === null) {
     return (
       <div className={s.screen}>
         <header className={s.bar}>
@@ -81,22 +160,65 @@ export function TournamentView({ id, onClose }: Props) {
   }
 
   const t = bracket;
-  const inTournament = new Set(t.players.map((p) => p.playerId));
-  const draft = t.status === 'draft';
   // Сетка построена, но турнир ещё не запущен: её можно рассмотреть,
   // пересобрать с другим сеянием или вернуть состав в черновик.
   const seeded = t.status === 'seeded';
   const done = t.status === 'finished';
+  const live = t.status === 'running' || done;
   const champion = t.players.find((p) => p.placement === 1) ?? null;
+  const blocking = editor.checks.filter((c) => c.blocking);
 
-  async function guard(work: () => Promise<unknown>) {
-    try {
-      await work();
-      await reload();
-    } catch (e) {
-      setError(String(e));
-    }
-  }
+  const picked = pick === null ? null : (t.matches.find((m) => m.id === pick.matchId) ?? null);
+  const inside = new Set(t.players.map((p) => p.playerId));
+  const sides = (m: typeof picked): TournamentPlayer[] =>
+    m === null
+      ? []
+      : t.players.filter((p) => p.playerId === m.playerA || p.playerId === m.playerB);
+
+  /** Сетка целиком — она же предпросмотр правок. */
+  const canvas =
+    t.matches.length === 0 ? (
+      <Empty
+        title="Сетки пока нет"
+        note={
+          t.players.length < 2
+            ? 'Добавь хотя бы двух игроков — сетка появится здесь.'
+            : `${t.players.length} игроков — двойная сетка, ${editor.projectedMatches} матчей.`
+        }
+        actions={
+          <Button
+            variant="primary"
+            disabled={blocking.length > 0}
+            title={blocking[0]?.text}
+            onClick={() => run(() => ipc.startTournament(id))}
+          >
+            Построить сетку
+          </Button>
+        }
+      />
+    ) : (
+      <BracketView
+        bracket={t}
+        onOpenMatch={setMatch}
+        editing={editing}
+        picked={pick?.matchId ?? null}
+        onPickMatch={(matchId, at) => setPick({ matchId, x: at.x, y: at.y })}
+        canSeat={editing && !live}
+        onSeat={(dragged, onto) => {
+          setPick(null);
+          run(() =>
+            inside.has(dragged)
+              ? ipc.swapTournamentSeeds(id, dragged, onto, emergency)
+              : ipc.placeTournamentPlayer(
+                  id,
+                  dragged,
+                  t.players.find((p) => p.playerId === onto)?.seed ?? 1,
+                  emergency,
+                ),
+          );
+        }}
+      />
+    );
 
   return (
     <div className={s.screen}>
@@ -105,38 +227,44 @@ export function TournamentView({ id, onClose }: Props) {
           ← Турниры
         </button>
         <h1 className={s.h1}>{t.name}</h1>
+        <span className={s.status}>{STATUS[t.status]}</span>
         <span className={s.sub}>
-          {draft
-            ? `${t.players.length} игроков · ${t.poolIds.length} маппулов`
-            : done
-              ? `сыгран · ${t.players.length} игроков`
-              : `${t.players.length} игроков · до ${t.targetScore.default} побед`}
+          {done
+            ? `${t.players.length} игроков · ${editor.matchesPlayed} матчей сыграно`
+            : `${t.players.length} игроков · ${t.poolIds.length} маппулов · до ${t.targetScore.default} побед`}
         </span>
 
-        <div className={s.right}>
-          {draft ? (
-            <Button
-              variant="primary"
-              disabled={t.players.length < 2 || t.poolIds.length === 0}
-              onClick={() => void guard(() => ipc.startTournament(id))}
-            >
-              Построить сетку
-            </Button>
-          ) : null}
+        {editing ? <span className={s.mark}>Настройка</span> : null}
+        {emergency ? <span className={s.markDanger}>Аварийная правка</span> : null}
 
+        <div className={s.right}>
           {seeded ? (
             <>
-              <Button onClick={() => void guard(() => ipc.reopenTournament(id))}>
+              <Button onClick={() => run(() => ipc.reopenTournament(id))}>
                 Вернуть к составу
               </Button>
-              <Button onClick={() => void guard(() => ipc.startTournament(id))}>
-                Пересобрать
-              </Button>
-              <Button variant="primary" onClick={() => void guard(() => ipc.confirmTournament(id))}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  // Запуск — конец подготовки: держать колонку разделов
+                  // открытой после него значит показывать сборку идущего
+                  // турнира вместо самого турнира.
+                  setEditing(false);
+                  setPick(null);
+                  run(() => ipc.confirmTournament(id));
+                }}
+              >
                 Запустить турнир
               </Button>
             </>
           ) : null}
+
+          <Button
+            {...(editing ? ({ variant: 'primary' } as const) : {})}
+            onClick={() => setEditing(!editing)}
+          >
+            {editing ? 'Готово' : 'Настройка'}
+          </Button>
         </div>
       </header>
 
@@ -149,211 +277,70 @@ export function TournamentView({ id, onClose }: Props) {
         </div>
       ) : null}
 
-      {/* На построенной сетке правила уже не поменять, но знать о нестыковке
-          всё равно лучше до первого матча, чем в его середине. */}
-      {seeded && t.problems.length > 0 ? (
-        <div className={s.error}>
-          Правила и маппул не сходятся: {t.problems[0]?.notes[0]}. Верни турнир к составу,
-          чтобы поправить.
-        </div>
+      {/* Вне режима настройки предупреждения всё равно видны: узнать о
+          нестыковке посреди матча — значит узнать поздно. */}
+      {!editing && t.problems.length > 0 ? (
+        <button className={s.problems} type="button" onClick={() => setEditing(true)}>
+          Правила и маппул не сходятся: {t.problems[0]?.title} — {t.problems[0]?.notes[0]}
+          {t.problems.length > 1
+            ? ` · и ещё ${t.problems.length - 1} ${plural(t.problems.length - 1, 'раунд', 'раунда', 'раундов')}`
+            : ''}
+          <span className={s.problemsMore}>Открыть настройку</span>
+        </button>
       ) : null}
 
       {done && champion !== null ? (
-        <div className={s.finished}>
-          Турнир завершён · победитель {champion.nickname}
-        </div>
+        <div className={s.finished}>Турнир завершён · победитель {champion.nickname}</div>
       ) : null}
 
       <div className={s.body}>
-        {draft ? (
-          <div className={s.col}>
-            <section className={s.block}>
-              <div className={s.blockTitle}>Правила</div>
-              <div className={s.rules}>
-                <Field
-                  label="До скольких побед"
-                  type="number"
-                  min={1}
-                  max={16}
-                  defaultValue={t.targetScore.default}
-                  onBlur={(e) => {
-                    const value = Number(e.target.value);
-                    if (!Number.isFinite(value) || value < 1) return;
-                    void guard(() =>
-                      ipc.setTournamentRules(
-                        id,
-                        { default: value, rounds: t.targetScore.rounds },
-                        t.bansPerRound,
-                        t.firstBan,
-                        t.noRepeatPool,
-                      ),
-                    );
-                  }}
-                />
-                <Field
-                  label="Банов на игрока"
-                  type="number"
-                  min={0}
-                  max={8}
-                  defaultValue={t.bansPerRound.default}
-                  onBlur={(e) => {
-                    const value = Number(e.target.value);
-                    if (!Number.isFinite(value) || value < 0) return;
-                    void guard(() =>
-                      ipc.setTournamentRules(
-                        id,
-                        t.targetScore,
-                        { default: value, rounds: t.bansPerRound.rounds },
-                        t.firstBan,
-                        t.noRepeatPool,
-                      ),
-                    );
-                  }}
-                />
-              </div>
-
-              <div className={s.switchRow}>
-                <Switch
-                  checked={t.noRepeatPool}
-                  onChange={(next) =>
-                    void guard(() =>
-                      ipc.setTournamentRules(
-                        id,
-                        t.targetScore,
-                        t.bansPerRound,
-                        t.firstBan,
-                        next,
-                      ),
-                    )
-                  }
-                  note="Пока не сыграны все, маппул не повторится"
-                >
-                  Не повторять маппулы
-                </Switch>
-              </div>
-            </section>
-
-            <section className={s.block}>
-              <div className={s.blockTitle}>Маппулы</div>
-              {pools.length === 0 ? (
-                <div className={s.muted}>Сначала собери хотя бы один маппул.</div>
-              ) : (
-                <>
-                  <div className={s.chips}>
-                    {pools.map((p) => {
-                      const on = t.poolIds.includes(p.id);
-                      return (
-                        <button
-                          key={p.id}
-                          className={on ? s.chipOn : s.chip}
-                          type="button"
-                          onClick={() =>
-                            void guard(() =>
-                              ipc.setTournamentPools(
-                                id,
-                                on ? t.poolIds.filter((x) => x !== p.id) : [...t.poolIds, p.id],
-                              ),
-                            )
-                          }
-                        >
-                          {p.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {overlaps.length > 0 ? (
-                    <div className={s.overlaps}>
-                      <div className={s.overlapTitle}>
-                        Карты встречаются в нескольких маппулах — их разыграют дважды
-                      </div>
-                      {overlaps.map((o) => (
-                        <div key={o.beatmapId} className={s.overlap}>
-                          <span className={s.overlapName}>{o.name}</span>
-                          <span className={s.overlapPools}>{o.pools.join(', ')}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {/* Правила и маппулы задаются рядом, а не сходятся друг
-                      с другом легко: узнать об этом посреди матча поздно. */}
-                  {t.problems.length > 0 ? (
-                    <div className={s.problems}>
-                      <div className={s.problemTitle}>Правила и маппул не сходятся</div>
-                      {t.problems.map((p) => (
-                        <div
-                          key={`${p.poolId}-${p.round ?? 'all'}`}
-                          className={s.problem}
-                        >
-                          <span className={s.problemWhere}>{problemWhere(p)}</span>
-                          {p.notes.map((note) => (
-                            <span key={note} className={s.problemNote}>
-                              {note}
-                            </span>
-                          ))}
-                        </div>
-                      ))}
-                      <span className={s.problemHint}>
-                        Поправь число банов, счёт до победы или состав маппула — иначе матч
-                        не доиграется.
-                      </span>
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </section>
-
-            <section className={s.block}>
-              <div className={s.blockTitle}>
-                Участники
-                <span className={s.hint}>порядок задаёт сеяние</span>
-              </div>
-
-              {t.players.length === 0 ? (
-                <div className={s.muted}>Никого нет — добавь игроков ниже.</div>
-              ) : (
-                <div className={s.seeds}>
-                  {t.players.map((p, i) => (
-                    <div key={p.playerId} className={s.seed}>
-                      <span className={s.seedNo}>{i + 1}</span>
-                      <span className={s.dot} style={{ background: p.color }} aria-hidden />
-                      <span className={s.seedName}>{p.nickname}</span>
-                      <button
-                        className={s.x}
-                        type="button"
-                        aria-label="Убрать из турнира"
-                        onClick={() =>
-                          void guard(() => ipc.removeTournamentPlayer(id, p.playerId))
-                        }
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className={s.pickers}>
-                {players
-                  .filter((p) => !inTournament.has(p.id))
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      className={s.chip}
-                      type="button"
-                      onClick={() => void guard(() => ipc.addTournamentPlayer(id, p.id))}
-                    >
-                      + {p.nickname}
-                    </button>
-                  ))}
-              </div>
-            </section>
+        {editing ? (
+          <div className={s.split}>
+            <Editor
+              id={id}
+              t={t}
+              state={editor}
+              emergency={emergency}
+              onEmergency={setEmergency}
+              run={run}
+              players={players}
+              pools={pools}
+              series={series}
+            />
+            <div className={s.pane}>{canvas}</div>
           </div>
         ) : (
-          <BracketView bracket={t} onOpenMatch={setMatch} />
+          canvas
         )}
       </div>
+
+      {/* Меню правки матча встаёт там, где по нему щёлкнули. */}
+      {picked !== null && pick !== null ? (
+        <div className={s.floating} style={{ left: pick.x, top: pick.y }}>
+          <MatchEdit
+            m={picked}
+            players={sides(picked)}
+            outside={players.filter((p) => !inside.has(p.id))}
+            pools={pools}
+            emergency={emergency}
+            live={live}
+            title={roundOf(picked.id, editor, t)}
+            onClose={() => setPick(null)}
+            run={run}
+          />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+/** Название матча: берём подпись его раунда, как на сетке. */
+function roundOf(matchId: number, editor: EditorState, t: Bracket): string {
+  const m = t.matches.find((x) => x.id === matchId);
+  if (m === undefined) return 'матч';
+  const round = editor.rounds.find((r) => r.bracket === m.bracket && r.round === m.round);
+  const title = round?.title ?? `раунд ${m.round}`;
+  return round !== undefined && round.matches > 1
+    ? `${title}, матч ${m.slotInBracket + 1}`
+    : title;
 }

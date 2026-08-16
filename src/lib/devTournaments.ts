@@ -10,6 +10,10 @@
 import type {
   Bracket,
   ByRound,
+  EditorBye,
+  EditorCheck,
+  EditorRound,
+  EditorState,
   Match,
   MatchAction,
   MatchRow,
@@ -17,68 +21,18 @@ import type {
   Phase,
   Player,
   PlayerStats,
+  PoolOverlap,
   RowState,
   RuleProblem,
   Standing,
   Tournament,
-  TournamentPlayer,
+  TournamentEdit,
 } from './types';
 import { checkFeasible } from './feasible';
+import { freeColor } from './colors';
+import { plural } from './format';
 
 type Args = Record<string, unknown>;
-
-/** Палитра — та же, что в `db/players.rs`. */
-const PALETTE = [
-  '#ff6fb1',
-  '#5bc8f5',
-  '#7ed957',
-  '#ffd03b',
-  '#c77dff',
-  '#ff6b6b',
-  '#4dd6c1',
-  '#f7913d',
-];
-
-/** Насыщенность и светлота по кругу — как в `db/players.rs`. */
-const TONES: [number, number][] = [
-  [0.62, 0.66],
-  [0.78, 0.58],
-  [0.52, 0.74],
-];
-
-/**
- * Цвет по номеру. Первые восемь — палитра, дальше считаем свои: на турнир
- * в двадцать человек восьми цветов не хватает, а повторы в сетке не различить.
- */
-function colorAt(n: number): string {
-  if (n < PALETTE.length) return PALETTE[n]!;
-
-  const step = n - PALETTE.length;
-  const hue = (196 + step * 137.508) % 360;
-  const [sat, light] = TONES[step % TONES.length]!;
-
-  const c = (1 - Math.abs(2 * light - 1)) * sat;
-  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
-  const m = light - c / 2;
-  const [r, g, b] =
-    hue < 60
-      ? [c, x, 0]
-      : hue < 120
-        ? [x, c, 0]
-        : hue < 180
-          ? [0, c, x]
-          : hue < 240
-            ? [0, x, c]
-            : hue < 300
-              ? [x, 0, c]
-              : [c, 0, x];
-
-  const hex = (v: number) =>
-    Math.round((v + m) * 255)
-      .toString(16)
-      .padStart(2, '0');
-  return `#${hex(r)}${hex(g)}${hex(b)}`;
-}
 
 let nextId = 500;
 const newId = () => nextId++;
@@ -301,20 +255,38 @@ const findT = (id: unknown): Tournament => {
   return found;
 };
 
+/**
+ * Состав с живыми ником и аватаром: в Rust они приходят JOIN'ом с players,
+ * поэтому копия внутри турнира устаревала бы после переименования или после
+ * подтянутого аватара.
+ */
+const roster = (t: Tournament): Tournament['players'] =>
+  t.players.map((seat) => {
+    const p = players.find((x) => x.id === seat.playerId);
+    return p === undefined ? seat : { ...seat, nickname: p.nickname, avatarPath: p.avatarPath };
+  });
+
 const findM = (id: unknown): DevMatch => {
   const found = matches.find((x) => x.id === id);
   if (!found) throw new Error('Матч не найден');
   return found;
 };
 
-const at = (rule: ByRound, round: number): number => rule.rounds[String(round)] ?? rule.default;
+/** Задано ли своё значение для этого раунда — как ByRound::own на Rust. */
+const ownRule = (rule: ByRound, bracket: Match['bracket'], round: number): number | null =>
+  rule.rounds[`${bracket}:${round}`] ?? rule.rounds[String(round)] ?? null;
 
-function freeColor(taken: string[]): string {
-  for (let n = 0; n < 512; n++) {
-    const candidate = colorAt(n);
-    if (!taken.some((t) => t.toLowerCase() === candidate.toLowerCase())) return candidate;
-  }
-  return PALETTE[0]!;
+/** Значение правила для раунда сетки — как ByRound::at_key на Rust. */
+const atKey = (rule: ByRound, bracket: Match['bracket'], round: number): number =>
+  ownRule(rule, bracket, round) ?? rule.default;
+
+/** Правило матча: взятое на старте, а у неначатого — турнирное. */
+function ruleOf(m: DevMatch): [number, number] {
+  const t = findT(m.tournamentId);
+  return [
+    m.targetScore ?? atKey(t.targetScore, m.bracket, m.round),
+    m.bansEach ?? atKey(t.bansPerRound, m.bracket, m.round),
+  ];
 }
 
 /** Счёт по сыгранным картам — как в Rust, считается из журнала. */
@@ -329,9 +301,36 @@ function score(m: DevMatch): [number, number] {
   return [a, b];
 }
 
+/**
+ * Преимущество сетки в гранд-финале: победы, которые матч решают, но
+ * сыгранными картами не являются. Считается отдельно от счёта — иначе
+ * попало бы в покартовую статистику.
+ */
+function bonus(m: DevMatch): [number, number] {
+  if (m.bracket !== 'grand') return [0, 0];
+  const t = tournaments.find((x) => x.id === m.tournamentId);
+  const advantage = t?.grandAdvantage ?? 0;
+  if (advantage <= 0) return [0, 0];
+
+  const fromUpper = matches.find(
+    (x) => x.tournamentId === m.tournamentId && x.bracket === 'upper' && x.nextWinSlot === m.id,
+  )?.winnerId;
+  if (fromUpper === null || fromUpper === undefined) return [0, 0];
+  if (fromUpper === m.playerA) return [advantage, 0];
+  if (fromUpper === m.playerB) return [0, advantage];
+  return [0, 0];
+}
+
+/** Счёт вместе с преимуществом: по нему матч и решается. */
+function standing(m: DevMatch): [number, number] {
+  const [a, b] = score(m);
+  const [ba, bb] = bonus(m);
+  return [a + ba, b + bb];
+}
+
 /** Тайбрейк открывается, только когда оба в шаге от победы. */
 function tiebreakerOpen(m: DevMatch, target: number): boolean {
-  const [a, b] = score(m);
+  const [a, b] = standing(m);
   return a === target - 1 && b === target - 1;
 }
 
@@ -355,7 +354,7 @@ function phaseOf(m: DevMatch, target: number, bansTotal: number): Phase {
     return { kind: 'ban', actor: turn(bans), done: bans, total: bansTotal * 2 };
   }
 
-  const [a, b] = score(m);
+  const [a, b] = standing(m);
   if (a >= target || b >= target) {
     return { kind: 'finished', winner: a >= target ? m.playerA : m.playerB };
   }
@@ -501,24 +500,170 @@ function reopenIfFinished(t: Tournament) {
   t.finishedAt = null;
 }
 
-/** Пул раздаётся на раунд заранее — как assign_pools в Rust. */
-function assignPools(t: Tournament) {
-  if (t.poolIds.length === 0) return;
-
+/** Раунды турнира в порядке игры. */
+function stagesOf(t: Tournament): [Match['bracket'], number][] {
   const order = { upper: 0, lower: 1, grand: 2 } as const;
-  const stages: string[] = [];
+  const out: [Match['bracket'], number][] = [];
   for (const m of matches
     .filter((x) => x.tournamentId === t.id)
     .sort((x, y) => order[x.bracket] - order[y.bracket] || x.round - y.round)) {
-    const key = `${m.bracket}:${m.round}`;
-    if (!stages.includes(key)) stages.push(key);
+    if (!out.some(([b, r]) => b === m.bracket && r === m.round)) out.push([m.bracket, m.round]);
+  }
+  if (out.length > 0) return out;
+
+  // Сетки ещё нет — считаем раунды по составу: править правило финала,
+  // не собрав сетку, нормально.
+  if (t.players.length < 2) return [];
+  for (const seat of buildSeats(t.players.length, seatOrder(t))) {
+    if (!out.some(([b, r]) => b === seat.bracket && r === seat.round)) {
+      out.push([seat.bracket, seat.round]);
+    }
+  }
+  return out.sort(([ba, ra], [bb, rb]) => order[ba] - order[bb] || ra - rb);
+}
+
+/** Места сеяния: у кого номер задан — по нему, остальных доливаем по списку. */
+function seatOrder(t: Tournament): (number | null)[] {
+  const size = bracketSize(Math.max(t.players.length, 2));
+  const seats: (number | null)[] = Array.from({ length: size }, () => null);
+  const rest: number[] = [];
+
+  for (const p of t.players) {
+    const seed = p.seed;
+    if (seed !== null && seed >= 1 && seed <= size && seats[seed - 1] === null) {
+      seats[seed - 1] = p.playerId;
+    } else {
+      rest.push(p.playerId);
+    }
+  }
+  for (const id of rest) {
+    const free = seats.indexOf(null);
+    if (free >= 0) seats[free] = id;
+  }
+  return seats;
+}
+
+/**
+ * Пул раздаётся на раунд заранее — как assign_pools в Rust. Раунд с
+ * закреплённым пулом берёт его и в круге не участвует: привязка сильнее.
+ */
+function assignPools(t: Tournament) {
+  if (t.poolIds.length === 0) return;
+
+  const bound = Object.values(t.poolByRound);
+  const free = t.poolIds.filter((pool) => !bound.includes(pool));
+  const cycle = free.length > 0 ? free : t.poolIds;
+
+  let n = 0;
+  for (const [bracket, round] of stagesOf(t)) {
+    const key = `${bracket}:${round}`;
+    const pool = t.poolByRound[key] ?? cycle[n++ % cycle.length] ?? null;
+    for (const m of matches) {
+      if (m.tournamentId !== t.id || m.bracket !== bracket || m.round !== round) continue;
+      if (m.poolId === null) m.poolId = pool;
+    }
+  }
+}
+
+/** Раскладывает маппулы заново, не трогая начатые матчи. */
+function reassignPools(t: Tournament) {
+  for (const m of matches) {
+    if (m.tournamentId !== t.id) continue;
+    if (m.actions.length === 0 && m.status !== 'finished') m.poolId = null;
+  }
+  assignPools(t);
+}
+
+/**
+ * Собирает сетку по текущему составу. Зовётся и при первом построении, и при
+ * правке состава: сетка — это предпросмотр, и отвечать на правку она должна
+ * сразу.
+ */
+function buildBracket(t: Tournament) {
+  if (t.players.length < 2) throw new Error('Для сетки нужно хотя бы два игрока');
+
+  const seats = buildSeats(t.players.length, seatOrder(t));
+  const ids = seats.map(() => newId());
+
+  for (let k = matches.length - 1; k >= 0; k--) {
+    if (matches[k]?.tournamentId === t.id) matches.splice(k, 1);
   }
 
-  for (const m of matches.filter((x) => x.tournamentId === t.id)) {
-    if (m.poolId !== null) continue;
-    const i = stages.indexOf(`${m.bracket}:${m.round}`);
-    m.poolId = t.poolIds[i % t.poolIds.length] ?? null;
+  seats.forEach((seat, i) => {
+    matches.push({
+      id: ids[i]!,
+      tournamentId: t.id,
+      bracket: seat.bracket,
+      round: seat.round,
+      slotInBracket: seat.slot,
+      playerA: seat.playerA,
+      playerB: seat.playerB,
+      poolId: null,
+      status: 'pending',
+      winnerId: null,
+      isWalkover: false,
+      isManualEdit: false,
+      firstBanBy: null,
+      nextWinSlot: seat.nextWin === null ? null : (ids[seat.nextWin] ?? null),
+      nextLoseSlot: seat.nextLose === null ? null : (ids[seat.nextLose] ?? null),
+      startedAt: null,
+      finishedAt: null,
+      targetScore: null,
+      bansEach: null,
+      scoreA: 0,
+      scoreB: 0,
+      bonusA: 0,
+      bonusB: 0,
+      actions: [],
+    });
+  });
+
+  // Кто прошёл первый раунд без игры: матча у него нет, а знать надо.
+  t.byeSeeds = t.players
+    .map((p, i) => ({ seed: p.seed ?? i + 1, playerId: p.playerId }))
+    .filter(
+      ({ playerId }) =>
+        !seats.some(
+          (s) =>
+            s.bracket === 'upper' &&
+            s.round === 1 &&
+            (s.playerA === playerId || s.playerB === playerId),
+        ),
+    )
+    .map(({ seed }) => seed);
+
+  if (t.status === 'draft') t.status = 'seeded';
+  t.bracketSize = t.players.length;
+
+  assignPools(t);
+  advanceWalkovers(t);
+}
+
+/** Пересобирает сетку, пока она только построена: правку видно сразу. */
+function rebuildIfSeeded(t: Tournament) {
+  if (t.status === 'seeded') buildBracket(t);
+}
+
+/** Номера сеяния подряд с первого: сеяние — это порядок, а не метка. */
+function writeSeeds(t: Tournament, order: number[]) {
+  t.players.sort((x, y) => order.indexOf(x.playerId) - order.indexOf(y.playerId));
+  t.players.forEach((p, i) => {
+    p.seed = i + 1;
+  });
+}
+
+/**
+ * Правка состава и сетки: до старта свободно, после — только аварийная.
+ * Возвращает, идёт ли турнир.
+ */
+function structural(t: Tournament, emergency: boolean): boolean {
+  const live = t.status === 'running' || t.status === 'finished';
+  if (live && !emergency) {
+    throw new Error(
+      'Турнир уже идёт — включи аварийную правку, чтобы менять состав и сетку',
+    );
   }
+  return live;
 }
 
 /**
@@ -563,33 +708,234 @@ function advanceWalkovers(t: Tournament) {
   }
 }
 
+// ────────────────────────────────────────────────────── журнал правок
+
+/** Снимок турнира: сам турнир и его матчи целиком. */
+interface Snapshot {
+  tournament: Tournament;
+  matches: DevMatch[];
+}
+
+interface DevEdit extends TournamentEdit {
+  before: Snapshot;
+  /** Отпечаток сыгранного сразу после правки: по нему видно, играли ли потом. */
+  play: string;
+}
+
+const editLog = new Map<number, DevEdit[]>();
+
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+function snapshotOf(t: Tournament): Snapshot {
+  return {
+    tournament: clone(t),
+    matches: matches.filter((m) => m.tournamentId === t.id).map(clone),
+  };
+}
+
+function restoreSnapshot(t: Tournament, snap: Snapshot) {
+  Object.assign(t, clone(snap.tournament));
+  for (let k = matches.length - 1; k >= 0; k--) {
+    if (matches[k]?.tournamentId === t.id) matches.splice(k, 1);
+  }
+  matches.push(...snap.matches.map(clone));
+}
+
+/**
+ * Отпечаток сыгранного: матч и число действий в нём. Время для этого не
+ * годится — правку и следующий за ней бан разделяют миллисекунды.
+ */
+function playState(t: Tournament): string {
+  return matches
+    .filter((m) => m.tournamentId === t.id && m.actions.length > 0)
+    .sort((x, y) => x.id - y.id)
+    .map((m) => `${m.id}:${m.actions.length}`)
+    .join(',');
+}
+
+function pushEdit(
+  t: Tournament,
+  kind: string,
+  emergency: boolean,
+  note: string,
+  before: Snapshot,
+): number {
+  const list = editLog.get(t.id) ?? [];
+  const n = list.length + 1;
+  list.push({
+    n,
+    kind,
+    at: new Date().toISOString(),
+    emergency,
+    note,
+    undoneBy: null,
+    before,
+    play: playState(t),
+  });
+  editLog.set(t.id, list);
+  return n;
+}
+
+/** Последняя правка, которую ещё можно отменить. */
+function lastUndoable(t: Tournament): DevEdit | undefined {
+  return [...(editLog.get(t.id) ?? [])]
+    .reverse()
+    .find((e) => e.undoneBy === null && e.kind !== 'undo');
+}
+
+/** Сколько матчей трогали после правки. */
+function playedSince(t: Tournament, marker: string): number {
+  const parse = (raw: string) =>
+    new Map(
+      raw
+        .split(',')
+        .filter((part) => part !== '')
+        .map((part) => part.split(':') as [string, string]),
+    );
+
+  const was = parse(marker);
+  const now = parse(playState(t));
+  let touched = 0;
+  for (const [id, count] of now) if (was.get(id) !== count) touched += 1;
+  for (const id of was.keys()) if (!now.has(id)) touched += 1;
+  return touched;
+}
+
+function undoBlocked(t: Tournament): string | null {
+  const last = lastUndoable(t);
+  if (last === undefined) return 'правок пока нет';
+  const played = playedSince(t, last.play);
+  if (played === 0) return null;
+  return `после этой правки сыграли ${played} ${plural(played, 'матч', 'матча', 'матчей')} — отменяй их сначала`;
+}
+
+function undoLastEdit(t: Tournament) {
+  const last = lastUndoable(t);
+  if (last === undefined) throw new Error('Отменять нечего: правок нет');
+
+  const played = playedSince(t, last.play);
+  if (played > 0) {
+    throw new Error(
+      `После этой правки сыграли ${played} ${plural(played, 'матч', 'матча', 'матчей')} — отмени их сначала`,
+    );
+  }
+
+  const now = snapshotOf(t);
+  restoreSnapshot(t, last.before);
+  // Запись не исчезает: рядом ложится парная отмена, а у правки — ссылка на неё.
+  last.undoneBy = pushEdit(t, 'undo', false, `отмена правки ${last.n}: ${last.note}`, now);
+}
+
+/**
+ * Название раунда с указанием ряда. Зеркалит round_title в
+ * `db/tournaments.rs`: в таблице раундов «Полуфинал» без ряда встречается
+ * дважды, и какой из них верхний — не видно.
+ */
+function roundTitle(bracket: Match['bracket'], round: number, last: number): string {
+  if (bracket === 'grand') return 'Гранд-финал';
+  const upper = bracket === 'upper';
+  const left = last - round;
+  if (left === 0) return upper ? 'Финал верхней' : 'Финал нижней';
+  if (left === 1) return upper ? 'Верхняя, полуфинал' : 'Нижняя, полуфинал';
+  return upper ? `Верхняя, раунд ${round}` : `Нижняя, раунд ${round}`;
+}
+
+/** Название матча так, как он подписан на сетке. */
+function titleOf(m: DevMatch): string {
+  const mine = matches.filter((x) => x.tournamentId === m.tournamentId);
+  const last = Math.max(...mine.filter((x) => x.bracket === m.bracket).map((x) => x.round), 0);
+  const siblings = mine.filter((x) => x.bracket === m.bracket && x.round === m.round).length;
+  const title = roundTitle(m.bracket, m.round, last);
+  return siblings > 1 ? `${title}, матч ${m.slotInBracket + 1}` : title;
+}
+
+/** Матчи, куда этот уже отправил игроков: обход сетки вперёд. */
+function forward(m: DevMatch): DevMatch[] {
+  const out: DevMatch[] = [];
+  if (m.winnerId === null) return out;
+  const loser = m.playerA === m.winnerId ? m.playerB : m.playerA;
+
+  for (const [next, who] of [
+    [m.nextWinSlot, m.winnerId],
+    [m.nextLoseSlot, loser],
+  ] as [number | null, number | null][]) {
+    if (next === null || who === null) continue;
+    const target = matches.find((x) => x.id === next);
+    if (target === undefined) continue;
+    if (!out.includes(target)) out.push(target);
+    for (const deeper of forward(target)) if (!out.includes(deeper)) out.push(deeper);
+  }
+  return out;
+}
+
+/** Возвращает матч в ожидание и снимает всё, что он раздал вперёд. */
+function wipe(m: DevMatch) {
+  if (m.winnerId !== null) {
+    const loser = m.playerA === m.winnerId ? m.playerB : m.playerA;
+    for (const [next, who] of [
+      [m.nextWinSlot, m.winnerId],
+      [m.nextLoseSlot, loser],
+    ] as [number | null, number | null][]) {
+      if (next === null || who === null) continue;
+      const target = matches.find((x) => x.id === next);
+      if (target === undefined) continue;
+      wipe(target);
+      if (target.playerA === who) target.playerA = null;
+      if (target.playerB === who) target.playerB = null;
+    }
+  }
+
+  m.actions.length = 0;
+  m.status = 'pending';
+  m.winnerId = null;
+  m.isWalkover = false;
+  m.isManualEdit = false;
+  m.firstBanBy = null;
+  m.startedAt = null;
+  m.finishedAt = null;
+  m.targetScore = null;
+  m.bansEach = null;
+  // Маппул остаётся: снос результата — это «переиграть», а не «выбрать заново».
+}
+
 // ──────────────────────────────────────────────────────────── команды
 
-export function tournamentHandlers(
-  poolRows: (poolId: number) => MatchRow[],
-  poolNames: () => { id: number; name: string }[],
-): Record<string, (a: Args) => unknown> {
+/** Чем турнирная часть заглушки ходит в маппулы. */
+export interface PoolAccess {
+  rows: (poolId: number) => MatchRow[];
+  list: () => { id: number; name: string; isLocked: boolean }[];
+  series: (seriesId: number) => { name: string; poolIds: number[] };
+  overlaps: (poolIds: number[]) => PoolOverlap[];
+}
+
+export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) => unknown> {
+  const poolRows = pools.rows;
+  const poolName = (id: number) =>
+    pools.list().find((p) => p.id === id)?.name ?? `маппул ${id}`;
+
   const stateOf = (m: DevMatch): MatchState => {
     const t = findT(m.tournamentId);
-    const target = at(t.targetScore, m.round);
-    const bans = at(t.bansPerRound, m.round);
+    const [target, bans] = ruleOf(m);
     const [scoreA, scoreB] = score(m);
+    const [bonusA, bonusB] = bonus(m);
     const phase = phaseOf(m, target, bans);
 
     // Матчпоинт — это «осталась одна победа», а у доигранного матча впереди
     // ничего не осталось.
     const matchPoint: number[] = [];
     if (phase.kind !== 'finished') {
-      if (scoreA === target - 1 && m.playerA !== null) matchPoint.push(m.playerA);
-      if (scoreB === target - 1 && m.playerB !== null) matchPoint.push(m.playerB);
+      if (scoreA + bonusA === target - 1 && m.playerA !== null) matchPoint.push(m.playerA);
+      if (scoreB + bonusB === target - 1 && m.playerB !== null) matchPoint.push(m.playerB);
     }
 
     return {
       ...m,
       scoreA,
       scoreB,
+      bonusA,
+      bonusB,
       tournamentName: t.name,
-      players: t.players.filter((p) => p.playerId === m.playerA || p.playerId === m.playerB),
+      players: roster(t).filter((p) => p.playerId === m.playerA || p.playerId === m.playerB),
       rows: rowsOf(m, target, poolRows),
       actions: m.actions,
       phase,
@@ -623,54 +969,194 @@ export function tournamentHandlers(
     if (row.state.kind !== 'free') throw new Error(`${slotLabel} уже разыгран`);
   };
 
+  /**
+   * Раунды турнира со своими правилами и маппулами — как round_rules в Rust.
+   * До построения сетки считаются по составу.
+   */
+  const roundsOf = (t: Tournament): EditorRound[] => {
+    const stages = stagesOf(t);
+    const lastOf = (bracket: Match['bracket']) =>
+      Math.max(...stages.filter(([b]) => b === bracket).map(([, r]) => r), 0);
+
+    const bound = Object.values(t.poolByRound);
+    const free = t.poolIds.filter((pool) => !bound.includes(pool));
+    const cycle = free.length > 0 ? free : t.poolIds;
+    let n = 0;
+
+    return stages.map(([bracket, round]) => {
+      const key = `${bracket}:${round}`;
+      const own = t.poolByRound[key] ?? null;
+      const byCycle = own ?? (cycle.length === 0 ? null : (cycle[n++ % cycle.length] ?? null));
+
+      const mine = matches.filter(
+        (m) => m.tournamentId === t.id && m.bracket === bracket && m.round === round,
+      );
+      // Матч мог получить свой маппул руками — тогда играется он.
+      const playing = mine.find((m) => m.poolId !== null)?.poolId ?? byCycle;
+
+      const rows = playing === null ? [] : poolRows(playing);
+      const playable = rows.filter((r) => r.mod !== 'TB' && r.beatmap !== null).length;
+      const hasTiebreaker = rows.some((r) => r.mod === 'TB' && r.beatmap !== null);
+
+      const target = atKey(t.targetScore, bracket, round);
+      const bans = atKey(t.bansPerRound, bracket, round);
+
+      return {
+        key,
+        bracket,
+        round,
+        title: roundTitle(bracket, round, lastOf(bracket)),
+        target,
+        bans,
+        targetOwn: ownRule(t.targetScore, bracket, round) !== null,
+        bansOwn: ownRule(t.bansPerRound, bracket, round) !== null,
+        poolId: own,
+        playingPoolId: playing,
+        playingPoolName: playing === null ? null : poolName(playing),
+        poolPlayable: playable,
+        poolHasTiebreaker: hasTiebreaker,
+        matches: mine.length,
+        played: mine.filter((m) => m.status === 'finished').length,
+        started: mine.some((m) => m.actions.length > 0),
+        notes:
+          playing === null ? [] : checkFeasible({ playable, hasTiebreaker, target, bansEach: bans }),
+      };
+    });
+  };
+
   /** Сходятся ли правила с привязанными маппулами — как rule_problems в Rust. */
-  const problemsOf = (t: Tournament): RuleProblem[] => {
-    const rounds: (number | null)[] = [null];
-    for (const key of [
-      ...Object.keys(t.targetScore.rounds),
-      ...Object.keys(t.bansPerRound.rounds),
-    ]) {
-      const n = Number(key);
-      if (Number.isFinite(n) && !rounds.includes(n)) rounds.push(n);
-    }
+  const problemsOf = (t: Tournament): RuleProblem[] =>
+    roundsOf(t)
+      .filter((r) => r.notes.length > 0)
+      .map((r) => ({
+        key: r.key,
+        title: r.title,
+        poolId: r.playingPoolId,
+        poolName: r.playingPoolName ?? 'маппул не выбран',
+        target: r.target,
+        bansEach: r.bans,
+        notes: r.notes,
+      }));
 
-    const out: RuleProblem[] = [];
-    for (const poolId of t.poolIds) {
-      const rows = poolRows(poolId);
-      const name = poolNames().find((p) => p.id === poolId)?.name ?? `маппул ${poolId}`;
-
-      for (const round of rounds) {
-        const target = round === null ? t.targetScore.default : at(t.targetScore, round);
-        const bansEach = round === null ? t.bansPerRound.default : at(t.bansPerRound, round);
-
-        // Раунд с теми же числами, что и общее правило, ничего не добавит.
-        if (
-          round !== null &&
-          target === t.targetScore.default &&
-          bansEach === t.bansPerRound.default
-        ) {
-          continue;
-        }
-
-        const notes = checkFeasible({
-          playable: rows.filter((r) => r.mod !== 'TB').length,
-          hasTiebreaker: rows.some((r) => r.mod === 'TB'),
-          target,
-          bansEach,
-        });
-        if (notes.length > 0) {
-          out.push({ poolId, poolName: name, round, target, bansEach, notes });
-        }
+  /** Пересечения карт с названиями раундов вместо имён маппулов. */
+  const overlapsOf = (t: Tournament, rounds: EditorRound[]): PoolOverlap[] => {
+    const roundOf = new Map<number, string>();
+    for (const r of rounds) {
+      if (r.playingPoolId !== null && !roundOf.has(r.playingPoolId)) {
+        roundOf.set(r.playingPoolId, r.title);
       }
     }
-    return out;
+    return pools.overlaps(t.poolIds).map((row) => ({
+      ...row,
+      pools: row.poolIds.map((id, i) => roundOf.get(id) ?? row.pools[i] ?? poolName(id)),
+    }));
+  };
+
+  /** Кто прошёл первый раунд без игры и почему. */
+  const byesOf = (t: Tournament): EditorBye[] => {
+    const built = matches.some((m) => m.tournamentId === t.id);
+    let seeds = t.byeSeeds;
+
+    if (!built) {
+      if (t.players.length < 2) return [];
+      const seats = buildSeats(t.players.length, seatOrder(t));
+      seeds = t.players
+        .map((p, i) => ({ seed: p.seed ?? i + 1, playerId: p.playerId }))
+        .filter(
+          ({ playerId }) =>
+            !seats.some(
+              (s) =>
+                s.bracket === 'upper' &&
+                s.round === 1 &&
+                (s.playerA === playerId || s.playerB === playerId),
+            ),
+        )
+        .map(({ seed }) => seed);
+    }
+
+    const size = bracketSize(Math.max(t.players.length, 2));
+    const why = `сетка на ${size}, игроков ${t.players.length} — соперника в первом раунде нет`;
+    return seeds.map((seed) => ({
+      seed,
+      nickname:
+        t.players.find((p, i) => (p.seed ?? i + 1) === seed)?.nickname ?? 'игрок',
+      why,
+    }));
+  };
+
+  /** Всё, что нужно колонке разделов — как editor в Rust. */
+  const editorOf = (t: Tournament): EditorState => {
+    const rounds = roundsOf(t);
+    const overlaps = overlapsOf(t, rounds);
+    const checks: EditorCheck[] = [];
+    const add = (section: EditorCheck['section'], text: string, blocking = false) =>
+      checks.push({ section, text, blocking });
+
+    for (const round of rounds) {
+      for (const note of round.notes) add('rules', `${round.title}: ${note}`);
+    }
+    if (t.players.length < 2) add('players', 'для сетки нужно хотя бы два игрока', true);
+    if (t.poolIds.length === 0) add('pools', 'выбери хотя бы один маппул', true);
+
+    if (t.noRepeatPool) {
+      const where = new Map<number, string[]>();
+      for (const round of rounds) {
+        if (round.poolId === null) continue;
+        where.set(round.poolId, [...(where.get(round.poolId) ?? []), round.title]);
+      }
+      for (const [pool, titles] of where) {
+        if (titles.length < 2) continue;
+        add(
+          'pools',
+          `«${poolName(pool)}» привязан к ${titles.join(' и ')}: привязка сильнее правила — маппул сыграют дважды`,
+        );
+      }
+      if (t.poolIds.length > 0 && rounds.length > t.poolIds.length) {
+        const repeat = rounds.length - t.poolIds.length;
+        add(
+          'pools',
+          `раундов ${rounds.length}, маппулов ${t.poolIds.length} — ${repeat} ` +
+            `${plural(repeat, 'раунд', 'раунда', 'раундов')} доиграют повтором`,
+        );
+      }
+    }
+
+    for (const pool of pools.list()) {
+      if (t.poolIds.includes(pool.id) && pool.isLocked) {
+        add('pools', `«${pool.name}» уже играли — правка уведёт в новую версию`);
+      }
+    }
+    for (const row of overlaps) add('pools', `${row.name}: ${row.pools.join(' и ')}`);
+
+    const colors = t.players.map((p) => p.color.toLowerCase());
+    if (new Set(colors).size < colors.length || colors.length > 16) {
+      add('players', 'цвета кончились — похожие могут путаться в сетке');
+    }
+
+    const mine = matches.filter((m) => m.tournamentId === t.id);
+    return {
+      rounds,
+      byes: byesOf(t),
+      checks,
+      overlaps,
+      edits: (editLog.get(t.id) ?? [])
+        .map(({ before: _before, play: _play, ...rest }) => rest)
+        .reverse(),
+      undoBlocked: undoBlocked(t),
+      matchesTotal: mine.length,
+      matchesStarted: mine.filter((m) => m.actions.length > 0).length,
+      matchesPlayed: mine.filter((m) => m.status === 'finished').length,
+      projectedMatches:
+        t.players.length < 2 ? 0 : buildSeats(t.players.length, seatOrder(t)).length,
+      emergencyAvailable: t.status === 'running' || t.status === 'finished',
+    };
   };
 
   /** Итоговая таблица — как standings в Rust. */
   const standingsOf = (t: Tournament): Standing[] => {
     if (t.status !== 'finished') return [];
 
-    return t.players
+    return roster(t)
       .map((p) => {
         const own = matches.filter(
           (m) => m.tournamentId === t.id && (m.playerA === p.playerId || m.playerB === p.playerId),
@@ -680,25 +1166,60 @@ export function tournamentHandlers(
         let mapLosses = 0;
         let matchWins = 0;
         let matchLosses = 0;
+        let walkovers = 0;
         for (const m of own) {
           const [a, b] = score(m);
           const mine = m.playerA === p.playerId ? a : b;
           mapWins += mine;
           mapLosses += m.playerA === p.playerId ? b : a;
           if (m.status !== 'finished' || m.winnerId === null) continue;
-          if (m.winnerId === p.playerId) matchWins += 1;
-          else matchLosses += 1;
+          if (m.winnerId === p.playerId) {
+            matchWins += 1;
+            if (m.isWalkover) walkovers += 1;
+          } else matchLosses += 1;
         }
 
+        // Разбивка по мод-тегам и самая длинная серия побед по картам:
+        // тег берём из строки маппула, по которой карту играли.
+        const perMod = new Map<string, { played: number; won: number }>();
+        let streak = 0;
+        let bestStreak = 0;
+        for (const m of [...own].sort((x, y) => x.id - y.id)) {
+          const rows = m.poolId === null ? [] : poolRows(m.poolId);
+          for (const x of m.actions) {
+            if (x.type !== 'result') continue;
+            const won = x.winnerId === p.playerId;
+            streak = won ? streak + 1 : 0;
+            bestStreak = Math.max(bestStreak, streak);
+
+            const mod = rows.find((r) => r.slotLabel === x.slotLabel)?.mod;
+            if (mod === undefined) continue;
+            const cell = perMod.get(mod) ?? { played: 0, won: 0 };
+            cell.played += 1;
+            if (won) cell.won += 1;
+            perMod.set(mod, cell);
+          }
+        }
+
+        const tb = perMod.get('TB') ?? { played: 0, won: 0 };
         return {
           playerId: p.playerId,
           nickname: p.nickname,
           color: p.color,
+          avatarPath: p.avatarPath,
           placement: p.placement ?? Number.MAX_SAFE_INTEGER,
           matchWins,
           matchLosses,
           mapWins,
           mapLosses,
+          byMod: [...perMod.entries()]
+            .filter(([mod]) => mod !== 'TB')
+            .map(([mod, v]) => ({ mod, ...v }))
+            .sort((x, y) => y.played - x.played || x.mod.localeCompare(y.mod)),
+          tiebreakers: tb.played,
+          tiebreakersWon: tb.won,
+          walkovers,
+          bestStreak,
         };
       })
       .sort(
@@ -711,15 +1232,38 @@ export function tournamentHandlers(
 
   const bracketOf = (t: Tournament): Bracket => ({
     ...t,
+    players: roster(t),
     matches: matches
       .filter((x) => x.tournamentId === t.id)
       .map((x) => {
         const [scoreA, scoreB] = score(x);
-        return { ...x, scoreA, scoreB };
+        const [bonusA, bonusB] = bonus(x);
+        return { ...x, scoreA, scoreB, bonusA, bonusB };
       }),
     problems: problemsOf(t),
     standings: standingsOf(t),
   });
+
+  /** Добавление в состав: нужно и команде, и посадке на место сеяния. */
+  const addPlayer = (t: Tournament, playerId: number, emergency: boolean) => {
+    const live = structural(t, emergency);
+    const p = players.find((x) => x.id === playerId);
+    if (!p) throw new Error('Игрок не найден');
+    if (t.players.some((x) => x.playerId === p.id)) return;
+
+    const before = snapshotOf(t);
+    t.players.push({
+      playerId: p.id,
+      nickname: p.nickname,
+      seed: t.players.length + 1,
+      // Цвет в турнире свой: одинаковые в сетке не различить.
+      color: freeColor(t.players.map((x) => x.color)),
+      avatarPath: p.avatarPath,
+      placement: null,
+    });
+    rebuildIfSeeded(t);
+    pushEdit(t, 'playersAdd', live, `добавлен ${p.nickname}`, before);
+  };
 
   return {
     // ─────────────────────────────────────────────────────── игроки
@@ -862,8 +1406,11 @@ export function tournamentHandlers(
 
     // ────────────────────────────────────────────────────── турниры
 
-    list_tournaments: () => tournaments,
-    get_tournament: (a) => findT(a['id']),
+    list_tournaments: () => tournaments.map((t) => ({ ...t, players: roster(t) })),
+    get_tournament: (a) => {
+      const t = findT(a['id']);
+      return { ...t, players: roster(t) };
+    },
 
     create_tournament: (a) => {
       const made: Tournament = {
@@ -875,6 +1422,9 @@ export function tournamentHandlers(
         bansPerRound: { default: Number(a['bansPerRound']) || 1, rounds: {} },
         firstBan: 'random',
         noRepeatPool: true,
+        poolByRound: {},
+        grandAdvantage: 0,
+        byeSeeds: [],
         createdAt: new Date().toISOString(),
         finishedAt: null,
         players: [],
@@ -891,11 +1441,118 @@ export function tournamentHandlers(
 
     set_tournament_rules: (a) => {
       const t = findT(a['id']);
+      const before = snapshotOf(t);
       t.targetScore = a['targetScore'] as ByRound;
       t.bansPerRound = a['bansPerRound'] as ByRound;
       t.firstBan = a['firstBan'] as Tournament['firstBan'];
       t.noRepeatPool = a['noRepeatPool'] === true;
+      pushEdit(t, 'rules', false, 'правила матчей', before);
       return t;
+    },
+
+    /** Исключение по раунду: своё правило вместо общего. */
+    set_tournament_round_rule: (a) => {
+      const t = findT(a['id']);
+      const key = String(a['key']);
+      const target = typeof a['target'] === 'number' ? a['target'] : null;
+      const bans = typeof a['bans'] === 'number' ? a['bans'] : null;
+
+      if (target !== null && key.startsWith('grand') && target <= t.grandAdvantage) {
+        throw new Error(
+          `При преимуществе ${t.grandAdvantage} играть до ${target} побед нельзя: ` +
+            'матч выигран до первой карты',
+        );
+      }
+
+      const before = snapshotOf(t);
+      const apply = (rule: ByRound, value: number | null) => {
+        const rounds = { ...rule.rounds };
+        if (value === null) delete rounds[key];
+        else rounds[key] = value;
+        return { ...rule, rounds };
+      };
+      t.targetScore = apply(t.targetScore, target);
+      t.bansPerRound = apply(t.bansPerRound, bans);
+
+      const title = roundsOf(t).find((r) => r.key === key)?.title ?? key;
+      pushEdit(t, 'rules', false, `правило раунда «${title}»`, before);
+      return undefined;
+    },
+
+    /** Закрепляет маппул за раундом. `null` — «любой свободный». */
+    set_tournament_round_pool: (a) => {
+      const t = findT(a['id']);
+      const key = String(a['key']);
+      const pool = typeof a['poolId'] === 'number' ? a['poolId'] : null;
+      const before = snapshotOf(t);
+
+      const map = { ...t.poolByRound };
+      if (pool === null) delete map[key];
+      else {
+        map[key] = pool;
+        // Пул, привязанный к раунду, но не добавленный в турнир, добавляется
+        // сам: иначе привязка не сработала бы молча.
+        if (!t.poolIds.includes(pool)) t.poolIds = [...t.poolIds, pool];
+      }
+      t.poolByRound = map;
+      reassignPools(t);
+
+      const title = roundsOf(t).find((r) => r.key === key)?.title ?? key;
+      pushEdit(t, 'pools', false, `маппул раунда «${title}»`, before);
+      return undefined;
+    },
+
+    /** Серия целиком: её маппулы раскладываются по раундам по порядку. */
+    add_tournament_series: (a) => {
+      const t = findT(a['id']);
+      const series = pools.series(a['seriesId'] as number);
+      if (series.poolIds.length === 0) throw new Error('В серии нет маппулов');
+
+      const before = snapshotOf(t);
+      for (const pool of series.poolIds) {
+        if (!t.poolIds.includes(pool)) t.poolIds = [...t.poolIds, pool];
+      }
+      const map = { ...t.poolByRound };
+      roundsOf(t).forEach((round, i) => {
+        const pool = series.poolIds[i];
+        if (pool !== undefined) map[round.key] = pool;
+      });
+      t.poolByRound = map;
+      reassignPools(t);
+
+      pushEdit(t, 'pools', false, `серия «${series.name}» разложена по раундам`, before);
+      return undefined;
+    },
+
+    set_tournament_grand_advantage: (a) => {
+      const t = findT(a['id']);
+      const value = Number(a['value']) || 0;
+      if (value < 0 || value > 3) throw new Error('Преимущество сетки — от нуля до трёх');
+
+      const target = atKey(t.targetScore, 'grand', 1);
+      if (value >= target) {
+        throw new Error(
+          `Гранд-финал играется до ${target} побед — преимущество ${value} выиграло бы его ` +
+            'до первой карты',
+        );
+      }
+      const started = matches.some(
+        (m) => m.tournamentId === t.id && m.bracket === 'grand' && m.actions.length > 0,
+      );
+      if (started) throw new Error('Гранд-финал уже играется — преимущество в нём менять поздно');
+
+      const before = snapshotOf(t);
+      t.grandAdvantage = value;
+      pushEdit(t, 'grandAdvantage', false, `преимущество сетки — ${value}`, before);
+      return undefined;
+    },
+
+    tournament_editor: (a) => editorOf(findT(a['id'])),
+
+    undo_tournament_edit: (a) => {
+      const t = findT(a['id']);
+      undoLastEdit(t);
+      return bracketOf(t);
     },
 
     delete_tournament: (a) => {
@@ -904,105 +1561,156 @@ export function tournamentHandlers(
       for (let k = matches.length - 1; k >= 0; k--) {
         if (matches[k]?.tournamentId === a['id']) matches.splice(k, 1);
       }
+      editLog.delete(a['id'] as number);
       return undefined;
     },
 
     add_tournament_player: (a) => {
-      const t = findT(a['id']);
-      if (t.status !== 'draft') throw new Error('Состав закрыт: сетка уже построена');
-      const p = players.find((x) => x.id === a['playerId']);
-      if (!p) throw new Error('Игрок не найден');
-      if (t.players.some((x) => x.playerId === p.id)) return undefined;
-
-      const seat: TournamentPlayer = {
-        playerId: p.id,
-        nickname: p.nickname,
-        seed: null,
-        // Цвет в турнире свой: одинаковые в сетке не различить.
-        color: freeColor(t.players.map((x) => x.color)),
-        placement: null,
-      };
-      t.players.push(seat);
+      addPlayer(findT(a['id']), a['playerId'] as number, a['emergency'] === true);
       return undefined;
     },
 
     remove_tournament_player: (a) => {
       const t = findT(a['id']);
-      if (t.status !== 'draft') throw new Error('Состав закрыт: сетка уже построена');
-      t.players = t.players.filter((x) => x.playerId !== a['playerId']);
+      const live = structural(t, a['emergency'] === true);
+      const playerId = a['playerId'] as number;
+      const seat = t.players.find((x) => x.playerId === playerId);
+      if (seat === undefined) return undefined;
+
+      // В идущем турнире имя игрока держится на его строке в составе: убрав её,
+      // мы бы стёрли подпись у сыгранных матчей.
+      if (live) {
+        const played = matches.some(
+          (m) =>
+            m.tournamentId === t.id &&
+            (m.playerA === playerId || m.playerB === playerId) &&
+            (m.status === 'finished' || m.actions.length > 0),
+        );
+        if (played) {
+          throw new Error(
+            `${seat.nickname} уже играл в этом турнире — сначала снеси его результаты`,
+          );
+        }
+      }
+
+      const before = snapshotOf(t);
+      t.players = t.players.filter((x) => x.playerId !== playerId);
+      for (const m of matches) {
+        if (m.tournamentId !== t.id || m.status === 'finished' || m.actions.length > 0) continue;
+        if (m.playerA === playerId) m.playerA = null;
+        if (m.playerB === playerId) m.playerB = null;
+      }
+      t.players.forEach((p, i) => {
+        p.seed = i + 1;
+      });
+      rebuildIfSeeded(t);
+      pushEdit(t, 'playersRemove', live, `убран ${seat.nickname}`, before);
       return undefined;
     },
 
     set_tournament_seeds: (a) => {
       const t = findT(a['id']);
-      const order = (a['order'] as number[]) ?? [];
-      t.players.sort((x, y) => order.indexOf(x.playerId) - order.indexOf(y.playerId));
-      t.players.forEach((p, i) => {
-        p.seed = i + 1;
-      });
+      const live = structural(t, a['emergency'] === true);
+      const before = snapshotOf(t);
+      writeSeeds(t, (a['order'] as number[]) ?? []);
+      rebuildIfSeeded(t);
+      pushEdit(t, 'seeds', live, 'сеяние', before);
+      return undefined;
+    },
+
+    swap_tournament_seeds: (a) => {
+      const t = findT(a['id']);
+      const live = structural(t, a['emergency'] === true);
+      const first = a['playerA'] as number;
+      const second = a['playerB'] as number;
+      if (first === second) throw new Error('Это один и тот же игрок');
+
+      const order = t.players.map((p) => p.playerId);
+      const ia = order.indexOf(first);
+      const ib = order.indexOf(second);
+      if (ia < 0 || ib < 0) throw new Error('Игрок не участвует в турнире');
+
+      const before = snapshotOf(t);
+      [order[ia], order[ib]] = [order[ib]!, order[ia]!];
+      writeSeeds(t, order);
+      rebuildIfSeeded(t);
+
+      const nick = (id: number) =>
+        t.players.find((p) => p.playerId === id)?.nickname ?? 'игрок';
+      pushEdit(t, 'seeds', live, `${nick(first)} ↔ ${nick(second)}`, before);
+      return undefined;
+    },
+
+    place_tournament_player: (a) => {
+      const t = findT(a['id']);
+      const playerId = a['playerId'] as number;
+      const emergency = a['emergency'] === true;
+
+      if (!t.players.some((p) => p.playerId === playerId)) {
+        addPlayer(t, playerId, emergency);
+      }
+      const live = structural(t, emergency);
+      const before = snapshotOf(t);
+
+      const order = t.players.map((p) => p.playerId).filter((x) => x !== playerId);
+      const at = Math.min(Math.max(Number(a['seed']) || 1, 1) - 1, order.length);
+      order.splice(at, 0, playerId);
+      writeSeeds(t, order);
+      rebuildIfSeeded(t);
+
+      const nick = t.players.find((p) => p.playerId === playerId)?.nickname ?? 'игрок';
+      pushEdit(t, 'seeds', live, `${nick} на ${at + 1}-е сеяние`, before);
+      return undefined;
+    },
+
+    shuffle_tournament_seeds: (a) => {
+      const t = findT(a['id']);
+      const live = structural(t, a['emergency'] === true);
+      const before = snapshotOf(t);
+
+      const order = t.players.map((p) => p.playerId);
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [order[i], order[j]] = [order[j]!, order[i]!];
+      }
+      writeSeeds(t, order);
+      rebuildIfSeeded(t);
+      pushEdit(t, 'seeds', live, 'сеяние перемешано', before);
       return undefined;
     },
 
     set_tournament_player_color: (a) => {
-      const seat = findT(a['id']).players.find((x) => x.playerId === a['playerId']);
-      if (seat) seat.color = String(a['color']);
+      const t = findT(a['id']);
+      const seat = t.players.find((x) => x.playerId === a['playerId']);
+      if (!seat) return undefined;
+      const before = snapshotOf(t);
+      seat.color = String(a['color']);
+      pushEdit(t, 'playerColor', false, `цвет ${seat.nickname}`, before);
       return undefined;
     },
 
     set_tournament_pools: (a) => {
-      findT(a['id']).poolIds = (a['poolIds'] as number[]) ?? [];
+      const t = findT(a['id']);
+      const before = snapshotOf(t);
+      t.poolIds = (a['poolIds'] as number[]) ?? [];
+
+      // Маппул, убранный из турнира, не может оставаться закреплённым за раундом.
+      t.poolByRound = Object.fromEntries(
+        Object.entries(t.poolByRound).filter(([, pool]) => t.poolIds.includes(pool)),
+      );
+      reassignPools(t);
+      pushEdit(t, 'pools', false, 'список маппулов', before);
       return undefined;
     },
 
     start_tournament: (a) => {
       const t = findT(a['id']);
-      if (t.players.length < 2) throw new Error('Для сетки нужно хотя бы два игрока');
-
-      const size = bracketSize(t.players.length);
-      const seeded: (number | null)[] = Array.from({ length: size }, (_, i) => {
-        const p = t.players[i];
-        return p === undefined ? null : p.playerId;
-      });
-
-      const seats = buildSeats(size, seeded);
-      const ids = seats.map(() => newId());
-
-      for (let k = matches.length - 1; k >= 0; k--) {
-        if (matches[k]?.tournamentId === t.id) matches.splice(k, 1);
+      if (t.status === 'running' || t.status === 'finished') {
+        throw new Error('Турнир уже идёт — пересобрать сетку значит потерять результаты');
       }
-
-      seats.forEach((seat, i) => {
-        matches.push({
-          id: ids[i]!,
-          tournamentId: t.id,
-          bracket: seat.bracket,
-          round: seat.round,
-          slotInBracket: seat.slot,
-          playerA: seat.playerA,
-          playerB: seat.playerB,
-          poolId: null,
-          status: 'pending',
-          winnerId: null,
-          isWalkover: false,
-          isManualEdit: false,
-          firstBanBy: null,
-          nextWinSlot: seat.nextWin === null ? null : (ids[seat.nextWin] ?? null),
-          nextLoseSlot: seat.nextLose === null ? null : (ids[seat.nextLose] ?? null),
-          startedAt: null,
-          finishedAt: null,
-          scoreA: 0,
-          scoreB: 0,
-          actions: [],
-        });
-      });
-
-      // Сетка построена, но турнир ещё не идёт: её можно рассмотреть
-      // и пересобрать. Играть по ней разрешает только confirm.
-      t.status = 'seeded';
-      t.bracketSize = size;
-
-      assignPools(t);
-      advanceWalkovers(t);
+      const before = snapshotOf(t);
+      buildBracket(t);
+      pushEdit(t, 'bracketRebuild', false, 'сетка собрана заново', before);
       return bracketOf(t);
     },
 
@@ -1025,6 +1733,7 @@ export function tournamentHandlers(
       }
       t.status = 'draft';
       t.bracketSize = 0;
+      t.byeSeeds = [];
       return bracketOf(t);
     },
 
@@ -1033,32 +1742,7 @@ export function tournamentHandlers(
     /** Карты, попавшие сразу в несколько маппулов турнира. */
     tournament_pool_overlaps: (a) => {
       const t = findT(a['id']);
-      const where = new Map<number, Set<string>>();
-
-      for (const id of t.poolIds) {
-        const name = poolNames().find((p) => p.id === id)?.name ?? `маппул ${id}`;
-        for (const row of poolRows(id)) {
-          const beatmapId = row.beatmap?.beatmapId;
-          if (beatmapId === undefined) continue;
-          const seen = where.get(beatmapId) ?? new Set<string>();
-          seen.add(name);
-          where.set(beatmapId, seen);
-        }
-      }
-
-      return [...where.entries()]
-        .filter(([, pools]) => pools.size > 1)
-        .map(([beatmapId, pools]) => {
-          const row = t.poolIds
-            .flatMap((id) => poolRows(id))
-            .find((r) => r.beatmap?.beatmapId === beatmapId);
-          const map = row?.beatmap;
-          return {
-            beatmapId,
-            name: map ? `${map.artist} — ${map.title}` : `карта ${beatmapId}`,
-            pools: [...pools],
-          };
-        });
+      return overlapsOf(t, roundsOf(t));
     },
 
     finish_tournament: (a) => {
@@ -1074,7 +1758,10 @@ export function tournamentHandlers(
     set_match_pool: (a) => {
       const m = findM(a['id']);
       if (m.actions.length > 0) throw new Error('Матч уже начали — маппул не сменить');
+      const t = findT(m.tournamentId);
+      const before = snapshotOf(t);
       m.poolId = typeof a['poolId'] === 'number' ? a['poolId'] : null;
+      pushEdit(t, 'matchPool', false, `маппул матча «${titleOf(m)}»`, before);
       return stateOf(m);
     },
 
@@ -1084,6 +1771,11 @@ export function tournamentHandlers(
       m.firstBanBy = a['playerId'] as number;
       m.status = 'running';
       m.startedAt ??= new Date().toISOString();
+
+      // Правило матча запоминаем здесь: с этого момента оно его собственное.
+      const [target, bans] = ruleOf(m);
+      m.targetScore ??= target;
+      m.bansEach ??= bans;
       return stateOf(m);
     },
 
@@ -1152,28 +1844,140 @@ export function tournamentHandlers(
 
     set_match_walkover: (a) => {
       const m = findM(a['id']);
+      const t = findT(m.tournamentId);
+      const winner = a['winnerId'] as number;
+      const live = structural(t, a['emergency'] === true);
+      const before = snapshotOf(t);
+
       m.actions.length = 0;
-      close(m, a['winnerId'] as number, true);
+      close(m, winner, true);
+      const nick = t.players.find((p) => p.playerId === winner)?.nickname ?? 'игрок';
+      pushEdit(t, 'matchWalkover', live, `техпобеда в «${titleOf(m)}»: ${nick}`, before);
       return stateOf(m);
     },
 
     set_match_manual_result: (a) => {
       const m = findM(a['id']);
+      const t = findT(m.tournamentId);
       const winner = a['winnerId'] as number;
       const scoreA = Number(a['scoreA']);
       const scoreB = Number(a['scoreB']);
+      if (scoreA < 0 || scoreB < 0) throw new Error('Счёт не может быть отрицательным');
+
+      const live = structural(t, a['emergency'] === true);
+      const before = snapshotOf(t);
 
       // Ручной счёт заменяет журнал: держать половину истории хуже, чем никакой.
       m.actions.length = 0;
-      for (let i = 0; i < scoreA; i++) push(m, 'result', null, `ручной ${i + 1}`, m.playerA);
-      for (let i = 0; i < scoreB; i++) push(m, 'result', null, `ручной ${scoreA + i + 1}`, m.playerB);
+      for (let i = 0; i < scoreA; i++) push(m, 'result', null, '—', m.playerA);
+      for (let i = 0; i < scoreB; i++) push(m, 'result', null, '—', m.playerB);
 
       m.isManualEdit = true;
       close(m, winner, false);
+      pushEdit(t, 'matchResult', live, `ручной счёт в «${titleOf(m)}»: ${scoreA}:${scoreB}`, before);
+      return stateOf(m);
+    },
+
+    /** Что случится, если снести результат: считается до правки. */
+    match_impact: (a) => {
+      const m = findM(a['id']);
+      const t = findT(m.tournamentId);
+      const ahead = forward(m);
+      const touched = [m, ...ahead];
+
+      const nick = (id: number | null) =>
+        id === null ? null : (t.players.find((p) => p.playerId === id)?.nickname ?? 'игрок');
+
+      const people: string[] = [];
+      let maps = 0;
+      for (const one of touched) {
+        maps += one.actions.filter((x) => x.type === 'result').length;
+        for (const who of [one.playerA, one.playerB]) {
+          const name = nick(who);
+          if (name !== null && !people.includes(name)) people.push(name);
+        }
+      }
+
+      const returns: string[] = [];
+      if (m.winnerId !== null && m.nextLoseSlot !== null) {
+        const loser = nick(m.playerA === m.winnerId ? m.playerB : m.playerA);
+        if (loser !== null) {
+          returns.push(`${loser} вернётся из нижней сетки в турнир без поражения`);
+        }
+      }
+
+      return {
+        matches: ahead.map(titleOf),
+        players: people,
+        maps,
+        returns,
+        reopensTournament: t.status === 'finished',
+      };
+    },
+
+    /** Снос результата: матч возвращается в ожидание, сетка ниже сбрасывается. */
+    reset_match: (a) => {
+      const m = findM(a['id']);
+      const t = findT(m.tournamentId);
+      const live = structural(t, a['emergency'] === true);
+      const before = snapshotOf(t);
+
+      wipe(m);
+      // Проход без игры мог быть настоящим: если соперника нет, матч закроется
+      // снова сам.
+      advanceWalkovers(t);
+      reopenIfFinished(t);
+      pushEdit(t, 'matchReset', live, `снесён результат «${titleOf(m)}»`, before);
+      return stateOf(m);
+    },
+
+    /** Замена участника в конкретном месте сетки. */
+    replace_match_player: (a) => {
+      const m = findM(a['id']);
+      const t = findT(m.tournamentId);
+      const slot = String(a['slot']);
+      const playerId = a['playerId'] as number;
+      if (slot !== 'a' && slot !== 'b') throw new Error('Непонятное место в матче');
+
+      const live = structural(t, a['emergency'] === true);
+      if (m.actions.length > 0 || m.status === 'finished') {
+        throw new Error('Матч уже играли — сначала снеси его результат');
+      }
+      if (t.players.some((p) => p.playerId === playerId)) {
+        throw new Error('Этот игрок уже в турнире — у него было бы два места в сетке');
+      }
+
+      const before = snapshotOf(t);
+      const p = players.find((x) => x.id === playerId);
+      if (!p) throw new Error('Игрок не найден');
+
+      // Заменяющий появляется в составе, но сетку не пересобирает: место у него
+      // уже есть, а пересборка стёрла бы сыгранное.
+      t.players.push({
+        playerId: p.id,
+        nickname: p.nickname,
+        seed: t.players.length + 1,
+        color: freeColor(t.players.map((x) => x.color)),
+        avatarPath: p.avatarPath,
+        placement: null,
+      });
+
+      const was = slot === 'a' ? m.playerA : m.playerB;
+      const wasNick = t.players.find((x) => x.playerId === was)?.nickname ?? 'пустого места';
+      if (slot === 'a') m.playerA = playerId;
+      else m.playerB = playerId;
+
+      pushEdit(
+        t,
+        'playerSwap',
+        live,
+        `в «${titleOf(m)}» вместо ${wasNick} играет ${p.nickname}`,
+        before,
+      );
       return stateOf(m);
     },
 
     // Список маппулов нужен экрану матча и сборке турнира.
-    __pool_names: () => poolNames(),
+    __pool_names: () => pools.list(),
   };
 }

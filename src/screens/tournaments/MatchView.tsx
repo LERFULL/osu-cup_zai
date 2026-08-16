@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Empty, MapRow, Menu, MenuItem, MenuSeparator } from '@/components';
+import { Avatar, Button, Empty, MapRow, Menu, MenuItem, MenuSeparator } from '@/components';
 import type { MapRowEnd } from '@/components';
 import type {
   Beatmap,
@@ -135,6 +135,8 @@ export function MatchView({ id, onClose }: Props) {
     pid === null ? '—' : (byId.get(pid)?.nickname ?? 'игрок');
   const color = (pid: number | null) =>
     pid === null ? 'var(--txt3)' : (byId.get(pid)?.color ?? 'var(--txt3)');
+  const avatar = (pid: number | null) =>
+    pid === null ? null : (byId.get(pid)?.avatarPath ?? null);
 
   const canBan = state.phase.kind === 'ban';
   const canPick = state.phase.kind === 'pick';
@@ -259,22 +261,39 @@ export function MatchView({ id, onClose }: Props) {
         <div className={s.col}>
           <div className={s.score}>
             <div className={s.side}>
-              <span className={s.dot} style={{ background: color(state.playerA) }} aria-hidden />
+              <Avatar
+                nickname={name(state.playerA)}
+                color={color(state.playerA)}
+                src={coverUrl(avatar(state.playerA))}
+                size={44}
+              />
               <span className={s.nick}>{name(state.playerA)}</span>
               {state.matchPoint.includes(state.playerA ?? -1) ? (
                 <span className={s.mp}>матчпоинт</span>
               ) : null}
             </div>
             <div className={s.numbers}>
-              {state.scoreA} : {state.scoreB}
-              <span className={s.target}>до {state.target}</span>
+              {state.scoreA + state.bonusA} : {state.scoreB + state.bonusB}
+              <span className={s.target}>
+                до {state.target}
+                {/* Преимущество сетки — часть счёта, но не сыгранная карта:
+                    без пояснения счёт 1:0 до первой карты выглядит ошибкой. */}
+                {state.bonusA + state.bonusB > 0
+                  ? ` · преимущество +${state.bonusA + state.bonusB}`
+                  : ''}
+              </span>
             </div>
             <div className={`${s.side} ${s.sideRight}`}>
               {state.matchPoint.includes(state.playerB ?? -1) ? (
                 <span className={s.mp}>матчпоинт</span>
               ) : null}
               <span className={s.nick}>{name(state.playerB)}</span>
-              <span className={s.dot} style={{ background: color(state.playerB) }} aria-hidden />
+              <Avatar
+                nickname={name(state.playerB)}
+                color={color(state.playerB)}
+                src={coverUrl(avatar(state.playerB))}
+                size={44}
+              />
             </div>
           </div>
 

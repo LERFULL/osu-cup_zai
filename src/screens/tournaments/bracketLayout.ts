@@ -140,6 +140,9 @@ export function layoutBracket(matches: Match[]): Layout {
   // У нижней сетки своя строка заголовков: её раунды называются иначе.
   const lowerHead = upperBottom - V_GAP + SIDE_GAP;
   const lowerBottom = hasLower ? place('lower', lowerHead + HEAD_H) : upperBottom;
+  // Пустая полоса между сетками: по ней ведём падения, которым уголком
+  // не пройти, не задев чужие матчи.
+  const corridor = upperBottom - V_GAP + SIDE_GAP / 2;
 
   // Гранд-финал — продолжение верхней сетки: он встаёт на её высоте, а линия
   // из нижней поднимается к нему. Между сетками его не ставим — иначе путь
@@ -203,43 +206,195 @@ export function layoutBracket(matches: Match[]): Layout {
 
   // Линии уголком, как в турнирных сетках: победитель идёт сплошной,
   // упавший в нижнюю сетку — пунктиром.
-  const links: Link[] = shown.flatMap((m) => {
-    const from = y.get(m.id);
-    if (from === undefined) return [];
+  //
+  // Вертикаль уголка у каждого матча-цели своя: если ломать все связи на
+  // середине зазора, вертикали разных матчей ложатся одна на другую и сетка
+  // читается как клубок. Связи в один и тот же матч вертикаль делят — это и
+  // есть та самая турнирная скоба.
+  interface Edge {
+    key: string;
+    from: Match;
+    target: Match;
+    drop: boolean;
+  }
 
-    return (
+  const edges: Edge[] = shown.flatMap((m) =>
+    (
       [
         [m.nextWinSlot, false],
         [m.nextLoseSlot, true],
       ] as const
     ).flatMap(([targetId, drop]) => {
       const target = targetId === null ? undefined : byMatch.get(targetId);
-      const to = target === undefined ? undefined : y.get(target.id);
-      if (target === undefined || to === undefined) return [];
-
-      const x1 = colX(columnOf(m)) + COL_W;
-      const x2 = colX(columnOf(target));
-      // Уголок ломается посередине между карточками. На связи через пустую
-      // колонку — финал верхней в гранд-финал — вид получается тот же.
-      const mid = (x1 + x2) / 2;
-      const y1 = from + CARD_H / 2;
-      const y2 = to + CARD_H / 2;
-
-      // Путь по сетке помечаем только сыгранный: несыгранная ветка — это
-      // ещё не чей-то путь, и цвет ей не нужен.
-      const loser =
-        m.winnerId === null ? null : m.playerA === m.winnerId ? m.playerB : m.playerA;
-
+      if (target === undefined) return [];
       return [
         {
           key: `${m.id}-${target.id}-${drop ? 'lose' : 'win'}`,
-          d: `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}`,
+          from: m,
+          target,
           drop,
-          playerId: drop ? loser : m.winnerId,
         },
       ];
-    });
+    }),
+  );
+
+  const cards = shown.map((m) => ({
+    id: m.id,
+    left: colX(columnOf(m)),
+    right: colX(columnOf(m)) + COL_W,
+    top: topOf(m),
+    bottom: topOf(m) + CARD_H,
+  }));
+
+  /** Отрезки маршрута — по ним и считаем, задевает ли связь карточки. */
+  const parts = (d: string) => {
+    const tokens = d.trim().split(/\s+/);
+    const out: { x: [number, number]; y: [number, number] }[] = [];
+    let at = { x: Number(tokens[1]), y: Number(tokens[2]) };
+
+    for (let i = 3; i < tokens.length; i += 2) {
+      const value = Number(tokens[i + 1]);
+      const next = tokens[i] === 'H' ? { x: value, y: at.y } : { x: at.x, y: value };
+      out.push({
+        x: [Math.min(at.x, next.x), Math.max(at.x, next.x)],
+        y: [Math.min(at.y, next.y), Math.max(at.y, next.y)],
+      });
+      at = next;
+    }
+    return out;
+  };
+
+  /** Сколько чужих карточек задевает маршрут. */
+  const hits = (edge: Edge, d: string): number => {
+    let count = 0;
+    for (const card of cards) {
+      // Свои карточки не считаем: связь из них и выходит.
+      if (card.id === edge.from.id || card.id === edge.target.id) continue;
+      for (const seg of parts(d)) {
+        const insideX = seg.x[1] > card.left + 1 && seg.x[0] < card.right - 1;
+        const insideY = seg.y[1] > card.top + 1 && seg.y[0] < card.bottom - 1;
+        if (insideX && insideY) count += 1;
+      }
+    }
+    return count;
+  };
+
+  const endsOf = (edge: Edge) => ({
+    x1: colX(columnOf(edge.from)) + COL_W,
+    x2: colX(columnOf(edge.target)),
+    // Проход дальше выходит из середины карточки, падение вниз — из её низа:
+    // так две связи одного матча расходятся сразу.
+    y1: topOf(edge.from) + (edge.drop ? CARD_H - 8 : CARD_H / 2),
+    y2: topOf(edge.target) + CARD_H / 2,
   });
+
+  /** Уголок: вправо до зазора, вертикаль, вправо до цели. */
+  const elbow = (edge: Edge, gap: number, at: number) => {
+    const { x1, x2, y1, y2 } = endsOf(edge);
+    const mid = colX(gap) + COL_W + COL_GAP * at;
+    return `M ${x1} ${y1} H ${mid} V ${y2} H ${x2}`;
+  };
+
+  /**
+   * Обход по коридору между сетками: вниз в пустую полосу, поперёк неё и
+   * снова вниз у самой цели.
+   *
+   * Нужен падениям через колонку: на нечётном составе проигравший из первого
+   * раунда верхней летит мимо чужих матчей, и уголком его не провести — любая
+   * из двух длинных горизонталей ляжет на карточку.
+   */
+  const detour = (edge: Edge, at: number) => {
+    const { x1, x2, y1, y2 } = endsOf(edge);
+    const first = colX(columnOf(edge.from)) + COL_W + COL_GAP * at;
+    const lastGap = colX(columnOf(edge.target) - 1) + COL_W + COL_GAP * at;
+    return `M ${x1} ${y1} H ${first} V ${corridor} H ${lastGap} V ${y2} H ${x2}`;
+  };
+
+  /**
+   * Доля зазора для каждой связи.
+   *
+   * Считается по зазору, в котором связь ломается: все его связи делят одну
+   * полосу, и разводить их надо между собой.
+   *
+   * Две связи в один матч делят вертикаль только тогда, когда приходят с
+   * разных сторон: сверху и снизу. Тогда они сходятся в точке и рисуют ту
+   * самую турнирную скобу. А вот оба проигравших первого раунда падают в
+   * нижнюю сетку сверху — общая вертикаль слепила бы их в одну линию, и
+   * увидеть, что связей две, было бы нельзя.
+   */
+  const fraction = new Map<string, number>();
+  const byGap = new Map<number, Edge[]>();
+  for (const edge of edges) {
+    byGap.set(columnOf(edge.from), [...(byGap.get(columnOf(edge.from)) ?? []), edge]);
+  }
+
+  for (const [, group] of byGap) {
+    // Пучок связей, который вправе делить одну вертикаль: пара «сверху и
+    // снизу» в один матч. Всё остальное едет по своей.
+    const bundles: Edge[][] = [];
+    const seen = new Set<string>();
+
+    for (const edge of group) {
+      if (seen.has(edge.key)) continue;
+      const sameTarget = group.filter((x) => x.target.id === edge.target.id);
+      const middle = topOf(edge.target) + CARD_H / 2;
+      const above = sameTarget.filter((x) => topOf(x.from) + CARD_H / 2 < middle).length;
+
+      if (sameTarget.length === 2 && above === 1) {
+        bundles.push(sameTarget);
+        for (const x of sameTarget) seen.add(x.key);
+      } else {
+        bundles.push([edge]);
+        seen.add(edge.key);
+      }
+    }
+
+    // Сверху вниз по цели: так связи не перехлёстываются между собой.
+    bundles.sort((a, b) => topOf(a[0]!.target) - topOf(b[0]!.target));
+    bundles.forEach((bundle, i) => {
+      const at = 0.2 + (0.6 * (i + 1)) / (bundles.length + 1);
+      for (const edge of bundle) fraction.set(edge.key, at);
+    });
+  }
+
+  const links: Link[] = edges.map((edge) => {
+    const at = fraction.get(edge.key) ?? 0.5;
+    const from = columnOf(edge.from);
+    const to = columnOf(edge.target);
+
+    // Перебираем маршруты и берём первый, который никого не задевает:
+    // обычный уголок в своём зазоре, потом в остальных, потом обход.
+    const routes = [elbow(edge, from, at)];
+    for (let gap = from + 1; gap < to; gap++) routes.push(elbow(edge, gap, at));
+    if (edge.drop && to - from > 1) routes.push(detour(edge, at));
+
+    let d = routes[0]!;
+    let best = Number.POSITIVE_INFINITY;
+    for (const candidate of routes) {
+      const count = hits(edge, candidate);
+      if (count < best) {
+        best = count;
+        d = candidate;
+      }
+      if (best === 0) break;
+    }
+
+    // Путь по сетке помечаем только сыгранный: несыгранная ветка — это
+    // ещё не чей-то путь, и цвет ей не нужен.
+    const m = edge.from;
+    const loser = m.winnerId === null ? null : m.playerA === m.winnerId ? m.playerB : m.playerA;
+
+    return {
+      key: edge.key,
+      d,
+      drop: edge.drop,
+      playerId: edge.drop ? loser : m.winnerId,
+    };
+  });
+
+  // Падения рисуем первыми: они длинные, и поверх сплошных линий пути
+  // победителя читались бы хуже.
+  links.sort((a, b) => Number(b.drop) - Number(a.drop));
 
   return { shown, columnOf, colX, topOf, width, height, heads, links };
 }

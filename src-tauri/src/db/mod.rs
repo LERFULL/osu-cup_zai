@@ -36,12 +36,21 @@ const BUILTIN_TEMPLATES: &str = include_str!("migrations/002_builtin_templates.s
 /// от схемы, выражение не идемпотентно: применяется ровно один раз по версии.
 const SERIES: &str = include_str!("migrations/003_series_sources_exclusions.sql");
 
-/// Миграции по возрастанию версии. Чтобы добавить версию 4, допиши пару
-/// `(4, include_str!("migrations/004_...sql"))` — цикл применит её сам.
-const MIGRATIONS: &[(i64, &str)] = &[(1, SCHEMA_V1), (2, BUILTIN_TEMPLATES), (3, SERIES)];
+/// Редактор турниров: привязка маппулов к раундам, преимущество сетки,
+/// замороженное правило матча и журнал правок.
+const EDITOR: &str = include_str!("migrations/004_tournament_editor.sql");
+
+/// Миграции по возрастанию версии. Чтобы добавить версию 5, допиши пару
+/// `(5, include_str!("migrations/005_...sql"))` — цикл применит её сам.
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, SCHEMA_V1),
+    (2, BUILTIN_TEMPLATES),
+    (3, SERIES),
+    (4, EDITOR),
+];
 
 /// Версия схемы, которую ожидает текущий код.
-const TARGET_VERSION: i64 = 3;
+const TARGET_VERSION: i64 = 4;
 
 pub struct Db {
     conn: Mutex<Connection>,

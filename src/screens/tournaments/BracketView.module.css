@@ -75,20 +75,75 @@
   color: var(--who);
 }
 
-.podiumNick {
+.podiumHead {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 11px;
+}
+
+.podiumNames {
+  min-width: 0;
+}
+
+.podiumNick {
+  overflow: hidden;
   font-size: 15px;
   font-weight: 800;
   letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .podiumScore {
-  margin-top: 5px;
+  margin-top: 2px;
   color: var(--txt3);
   font-family: var(--mono);
   font-size: 10.5px;
+}
+
+/* Цифры турнира: строка на показатель, значение прижато вправо —
+   так столбцы соседних мест сравниваются глазом. */
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 11px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.statName {
+  color: var(--txt3);
+}
+
+.statValue {
+  margin-left: auto;
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.mods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.mod {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--card2);
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 10px;
 }
 
 .table {
@@ -116,6 +171,9 @@
 }
 
 .tableNick {
+  /* Ник жмётся, цифры — нет: в таблице сравнивают именно их. */
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   font-size: 12.5px;
   font-weight: 700;
@@ -124,6 +182,7 @@
 }
 
 .tableScore {
+  flex: none;
   margin-left: auto;
   color: var(--txt3);
   font-family: var(--mono);
@@ -219,6 +278,18 @@
   opacity: 0.6;
 }
 
+/* Матч с открытой правкой: видно, к какой карточке относится меню. */
+.picked {
+  border-color: rgba(91, 200, 245, 0.7);
+  background: var(--card2);
+  box-shadow: 0 0 22px rgba(91, 200, 245, 0.16);
+}
+
+/* В режиме настройки любая карточка отвечает на клик правкой. */
+.match:not(:disabled) {
+  cursor: pointer;
+}
+
 .slot {
   display: flex;
   align-items: center;
@@ -227,6 +298,16 @@
   padding: 0 8px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.02);
+}
+
+/* Место, которое можно взять мышью, и место под курсором с игроком. */
+.seatable {
+  cursor: grab;
+}
+
+.seatOver {
+  outline: 1px dashed rgba(255, 111, 177, 0.8);
+  outline-offset: 1px;
 }
 
 .won {
@@ -288,10 +369,16 @@
   font-weight: 700;
 }
 
-.tag {
+/* Метки состояния матча: в ряд, чтобы вторая не легла на первую. */
+.tags {
   position: absolute;
   top: -7px;
   right: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.tag {
   padding: 1px 6px;
   border-radius: 5px;
   background: var(--card2);

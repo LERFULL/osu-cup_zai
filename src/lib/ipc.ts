@@ -10,6 +10,8 @@ import type {
   ByRound,
   Collection,
   CredentialsCheck,
+  EditImpact,
+  EditorState,
   ExclusionOwner,
   ExclusionTarget,
   FirstBan,
@@ -421,21 +423,70 @@ export const setTournamentRules = (
 
 export const deleteTournament = (id: number) => invoke<void>('delete_tournament', { id });
 
-export const addTournamentPlayer = (id: number, playerId: number) =>
-  invoke<void>('add_tournament_player', { id, playerId });
+// Правка живого турнира требует явного согласия: `emergency` — состояние
+// переключателя «аварийная правка», и решение принимает Rust, а не экран.
 
-export const removeTournamentPlayer = (id: number, playerId: number) =>
-  invoke<void>('remove_tournament_player', { id, playerId });
+export const addTournamentPlayer = (id: number, playerId: number, emergency = false) =>
+  invoke<void>('add_tournament_player', { id, playerId, emergency });
+
+export const removeTournamentPlayer = (id: number, playerId: number, emergency = false) =>
+  invoke<void>('remove_tournament_player', { id, playerId, emergency });
 
 /** Сеяние задаётся порядком списка. */
-export const setTournamentSeeds = (id: number, order: number[]) =>
-  invoke<void>('set_tournament_seeds', { id, order });
+export const setTournamentSeeds = (id: number, order: number[], emergency = false) =>
+  invoke<void>('set_tournament_seeds', { id, order, emergency });
+
+/** Обмен местами в сетке: сеяние пересчитывается. */
+export const swapTournamentSeeds = (
+  id: number,
+  playerA: number,
+  playerB: number,
+  emergency = false,
+) => invoke<void>('swap_tournament_seeds', { id, playerA, playerB, emergency });
+
+/** Сажает игрока на место сеяния, при необходимости добавив его в турнир. */
+export const placeTournamentPlayer = (
+  id: number,
+  playerId: number,
+  seed: number,
+  emergency = false,
+) => invoke<void>('place_tournament_player', { id, playerId, seed, emergency });
+
+/** Случайное сеяние вместе с пересборкой сетки. */
+export const shuffleTournamentSeeds = (id: number, emergency = false) =>
+  invoke<void>('shuffle_tournament_seeds', { id, emergency });
 
 export const setTournamentPlayerColor = (id: number, playerId: number, color: string) =>
   invoke<void>('set_tournament_player_color', { id, playerId, color });
 
 export const setTournamentPools = (id: number, poolIds: number[]) =>
   invoke<void>('set_tournament_pools', { id, poolIds });
+
+/** Исключение по раунду. `null` в поле — вернуть общее значение. */
+export const setTournamentRoundRule = (
+  id: number,
+  key: string,
+  target: number | null,
+  bans: number | null,
+) => invoke<void>('set_tournament_round_rule', { id, key, target, bans });
+
+/** Закрепляет маппул за раундом. `null` — «любой свободный». */
+export const setTournamentRoundPool = (id: number, key: string, poolId: number | null) =>
+  invoke<void>('set_tournament_round_pool', { id, key, poolId });
+
+/** Берёт маппулы серии по порядку и раскладывает по раундам. */
+export const addTournamentSeries = (id: number, seriesId: number) =>
+  invoke<void>('add_tournament_series', { id, seriesId });
+
+/** Преимущество сетки в гранд-финале. */
+export const setTournamentGrandAdvantage = (id: number, value: number) =>
+  invoke<void>('set_tournament_grand_advantage', { id, value });
+
+/** Раунды, bye, проверки и журнал правок — содержимое колонки разделов. */
+export const tournamentEditor = (id: number) => invoke<EditorState>('tournament_editor', { id });
+
+/** Отменяет последнюю правку турнира. */
+export const undoTournamentEdit = (id: number) => invoke<Bracket>('undo_tournament_edit', { id });
 
 /** Строит сетку и показывает её на утверждение. Состав дальше закрыт. */
 export const startTournament = (id: number) => invoke<Bracket>('start_tournament', { id });
@@ -478,12 +529,28 @@ export const recordResult = (id: number, winnerId: number) =>
 
 export const undoMatchAction = (id: number) => invoke<MatchState>('undo_match_action', { id });
 
-export const setMatchWalkover = (id: number, winnerId: number) =>
-  invoke<MatchState>('set_match_walkover', { id, winnerId });
+export const setMatchWalkover = (id: number, winnerId: number, emergency = false) =>
+  invoke<MatchState>('set_match_walkover', { id, winnerId, emergency });
 
 export const setMatchManualResult = (
   id: number,
   winnerId: number,
   scoreA: number,
   scoreB: number,
-) => invoke<MatchState>('set_match_manual_result', { id, winnerId, scoreA, scoreB });
+  emergency = false,
+) => invoke<MatchState>('set_match_manual_result', { id, winnerId, scoreA, scoreB, emergency });
+
+/** Что случится, если снести результат: считается до правки, а не после. */
+export const matchImpact = (id: number) => invoke<EditImpact>('match_impact', { id });
+
+/** Снос результата: матч возвращается в ожидание, сетка ниже сбрасывается. */
+export const resetMatch = (id: number, emergency = false) =>
+  invoke<MatchState>('reset_match', { id, emergency });
+
+/** Замена участника в конкретном месте сетки. */
+export const replaceMatchPlayer = (
+  id: number,
+  slot: 'a' | 'b',
+  playerId: number,
+  emergency = false,
+) => invoke<MatchState>('replace_match_player', { id, slot, playerId, emergency });

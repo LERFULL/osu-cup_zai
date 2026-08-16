@@ -1,0 +1,655 @@
+/* Колонка разделов режима настройки. Один модуль на все разделы: они живут
+   рядом, и разводить их по пяти файлам значит дублировать половину правил. */
+
+.col {
+  display: flex;
+  flex: 0 0 320px;
+  flex-direction: column;
+  width: 320px;
+  min-height: 0;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+/* Аварийная правка видна постоянно: колонка получает красную рамку. */
+.colDanger {
+  outline: 1px solid rgba(255, 107, 107, 0.5);
+  outline-offset: -1px;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+/* ─────────────────────────────────────────────── заголовок раздела */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 11px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.head:hover {
+  background: var(--card2);
+  color: var(--txt);
+}
+
+.headOn {
+  background: var(--card2);
+  color: var(--txt);
+}
+
+.count {
+  margin-left: auto;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.bad {
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.body {
+  padding: 4px 11px 14px;
+}
+
+.sub {
+  margin-bottom: 10px;
+  color: var(--txt3);
+  font-size: 11.5px;
+}
+
+.group {
+  margin-top: 14px;
+}
+
+.groupTitle {
+  margin-bottom: 8px;
+  color: var(--txt3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.warn {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 208, 59, 0.3);
+  border-radius: 9px;
+  background: rgba(255, 208, 59, 0.08);
+  color: var(--txt2);
+  font-size: 11.5px;
+}
+
+.err {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 107, 107, 0.32);
+  border-radius: 9px;
+  background: rgba(255, 107, 107, 0.08);
+  color: var(--txt2);
+  font-size: 11.5px;
+}
+
+.muted {
+  color: var(--txt3);
+  font-size: 12px;
+}
+
+/* ─────────────────────────────────────────────── таблица раундов */
+
+.rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roundHead,
+.round {
+  display: grid;
+  grid-template-columns: 1fr 46px 46px 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.roundHead {
+  padding: 0 0 4px;
+  color: var(--txt3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.round {
+  padding: 3px 0;
+  border-radius: 8px;
+}
+
+.roundName {
+  overflow: hidden;
+  color: var(--txt2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Унаследованное значение серое: видно, что оно от общего правила. */
+.cell {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--card2);
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+  transition: border-color 0.13s, color 0.13s;
+}
+
+.cell:hover {
+  border-color: var(--line);
+}
+
+.cell:focus {
+  border-color: rgba(255, 111, 177, 0.5);
+  color: var(--txt);
+  outline: none;
+}
+
+.cellOwn {
+  color: var(--txt);
+}
+
+.reset {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--txt3);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.reset:hover {
+  background: var(--card2);
+  color: var(--pink);
+}
+
+.note {
+  grid-column: 1 / -1;
+  padding: 0 0 5px;
+  color: var(--red);
+  font-size: 11px;
+}
+
+.hint {
+  grid-column: 1 / -1;
+  padding: 0 0 5px;
+  color: var(--txt3);
+  font-size: 11px;
+}
+
+/* ─────────────────────────────────────────────── строки со значением */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 12px;
+}
+
+.rowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--txt2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowValue {
+  flex: 0 0 auto;
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--txt);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Привязка маппула к раунду: название раунда отдельной строкой. Вместе с
+   именем маппула они в 320 px не влезают, а обрезанное «Верхн…» бесполезно. */
+.bind {
+  display: grid;
+  grid-template-columns: 1fr 20px;
+  gap: 3px 6px;
+  padding: 5px 0;
+}
+
+.bind + .bind {
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.bindName {
+  grid-column: 1 / -1;
+  color: var(--txt2);
+  font-size: 11.5px;
+}
+
+.wrap {
+  position: relative;
+}
+
+/* ─────────────────────────────────────────────── кнопки и чипы */
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip,
+.chipOn {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s, border-color 0.13s;
+}
+
+.chip:hover {
+  background: var(--card2);
+  color: var(--txt);
+}
+
+.chipOn {
+  border-color: rgba(255, 111, 177, 0.55);
+  background: rgba(255, 111, 177, 0.12);
+  color: var(--txt);
+}
+
+.pick {
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s, border-color 0.13s;
+}
+
+.pick:hover {
+  background: var(--card2);
+  color: var(--txt);
+}
+
+.pickOn {
+  border-color: rgba(91, 200, 245, 0.45);
+  color: var(--txt);
+}
+
+/* ─────────────────────────────────────────────── состав */
+
+.seeds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.seed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: var(--card2);
+}
+
+.grip {
+  width: 12px;
+  color: var(--txt3);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+
+.seedNo {
+  width: 16px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+}
+
+.dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.seedName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bye {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.x,
+.more {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--txt3);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.more:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--txt);
+}
+
+.x:hover {
+  background: rgba(255, 107, 107, 0.14);
+  color: var(--red);
+}
+
+/* Палитра цветов: занятые помечены точкой. */
+.palette {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 5px;
+  padding: 8px;
+}
+
+.swatch {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.swatchTaken::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* Цвет, который стоит сейчас: обводкой, а не точкой занятости. */
+.swatchOn {
+  border-color: var(--txt);
+  box-shadow: 0 0 0 2px var(--card);
+}
+
+.search {
+  margin-top: 10px;
+}
+
+.found {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.add:hover {
+  background: var(--card2);
+  color: var(--txt);
+}
+
+/* ─────────────────────────────────────────────── подвал колонки */
+
+.foot {
+  flex: 0 0 auto;
+  padding: 9px 11px;
+  border-top: 1px solid var(--line);
+}
+
+.edits {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--txt3);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.edits:hover {
+  background: var(--card2);
+  color: var(--txt2);
+}
+
+.footRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.danger {
+  margin-top: 8px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 107, 107, 0.28);
+  border-radius: 9px;
+  background: rgba(255, 107, 107, 0.07);
+}
+
+/* ─────────────────────────────────────────────── журнал правок */
+
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 260px;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.logRow {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 7px;
+  align-items: baseline;
+  padding: 5px 7px;
+  border-left: 2px solid transparent;
+  border-radius: 7px;
+  background: var(--card2);
+  font-size: 11.5px;
+}
+
+/* Аварийные правки выделены красной полосой слева. */
+.logDanger {
+  border-left-color: var(--red);
+}
+
+.logUndone {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.logN {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-align: right;
+}
+
+.logNote {
+  color: var(--txt2);
+  overflow-wrap: anywhere;
+}
+
+.logAt {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* ─────────────────────────────────────────────── диалог последствий */
+
+.shade {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 9, 13, 0.6);
+  backdrop-filter: blur(2px);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 460px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.dialogTitle {
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+.impact {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+
+.impactRow {
+  display: flex;
+  gap: 8px;
+  color: var(--txt2);
+  font-size: 12.5px;
+}
+
+.impactMark {
+  color: var(--txt3);
+}
+
+.score {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.scoreSide {
+  flex: 1;
+  min-width: 0;
+}
+
+.dialogButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

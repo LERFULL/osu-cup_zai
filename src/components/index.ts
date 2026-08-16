@@ -1,6 +1,9 @@
 export { Hex } from './Hex';
 export type { HexProps } from './Hex';
 
+export { Avatar } from './Avatar';
+export type { AvatarProps } from './Avatar';
+
 export { MapRow } from './MapRow';
 export type { MapRowProps, MapRowEnd, MapRowBase } from './MapRow';
 

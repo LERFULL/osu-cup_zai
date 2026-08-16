@@ -12,6 +12,7 @@ use crate::model::{
 const SCHEMA: &str = include_str!("schema.sql");
 const BUILTIN_TEMPLATES: &str = include_str!("migrations/002_builtin_templates.sql");
 const SERIES: &str = include_str!("migrations/003_series_sources_exclusions.sql");
+const EDITOR: &str = include_str!("migrations/004_tournament_editor.sql");
 
 fn db() -> Connection {
     let conn = Connection::open_in_memory().expect("база в памяти");
@@ -20,6 +21,7 @@ fn db() -> Connection {
     conn.execute_batch(BUILTIN_TEMPLATES)
         .expect("шаблоны из коробки применились");
     conn.execute_batch(SERIES).expect("серии применились");
+    conn.execute_batch(EDITOR).expect("редактор турниров применился");
     conn
 }
 
@@ -2059,7 +2061,7 @@ fn seeded_tournament(conn: &mut Connection, nicks: &[&str]) -> i64 {
     let t = tournaments::create(conn, "Кубок", 2, 1).unwrap();
     for nick in nicks {
         let p = players::create(conn, nick, None, None).unwrap();
-        tournaments::add_player(conn, t, p).unwrap();
+        tournaments::add_player(conn, t, p, false).unwrap();
     }
     tournaments::start(conn, t).unwrap();
     t
@@ -2089,7 +2091,7 @@ fn player_delete_only_before_tournaments() {
 
     let p = players::create(&conn, "Bo", None, None).unwrap();
     let t = tournaments::create(&conn, "Кубок", 2, 1).unwrap();
-    tournaments::add_player(&conn, t, p).unwrap();
+    tournaments::add_player(&conn, t, p, false).unwrap();
 
     // Уже играл — только в архив, иначе история осталась бы без имени.
     assert!(players::delete(&conn, p).is_err());
@@ -2108,8 +2110,8 @@ fn tournament_players_get_distinct_colors() {
     let b = players::create(&conn, "Bo", None, Some(&first)).unwrap();
 
     let t = tournaments::create(&conn, "Кубок", 2, 1).unwrap();
-    tournaments::add_player(&conn, t, a).unwrap();
-    tournaments::add_player(&conn, t, b).unwrap();
+    tournaments::add_player(&conn, t, a, false).unwrap();
+    tournaments::add_player(&conn, t, b, false).unwrap();
 
     let colors: Vec<String> = tournaments::players_of(&conn, t)
         .unwrap()
@@ -2128,7 +2130,9 @@ fn odd_player_count_seats_the_bye_straight_into_the_next_round() {
     let t = tournament(&mut conn, &["Ari", "Bo", "Cy"]);
     let br = tournaments::bracket_of(&conn, t).unwrap();
 
-    assert_eq!(br.tournament.bracket_size, 4);
+    // Размер сетки — это фактический состав, а не округление вверх: «трое
+    // игроков» и «сетка на 4» рядом читаются как ошибка.
+    assert_eq!(br.tournament.bracket_size, 3);
 
     // Матча с пустотой в сетке нет вовсе: он бы занимал место и требовал
     // техпобеды там, где играть изначально не с кем.
@@ -2156,7 +2160,7 @@ fn roster_locked_after_start() {
     let t = tournament(&mut conn, &["Ari", "Bo"]);
     let extra = players::create(&conn, "Cy", None, None).unwrap();
 
-    assert!(tournaments::add_player(&conn, t, extra).is_err());
+    assert!(tournaments::add_player(&conn, t, extra, false).is_err());
     assert!(tournaments::start(&mut conn, t).is_err());
 }
 
@@ -2210,7 +2214,7 @@ fn reopen_returns_unplayed_bracket_to_draft() {
 
     // Состав снова открыт.
     let extra = players::create(&conn, "Di", None, None).unwrap();
-    assert!(tournaments::add_player(&conn, t, extra).is_ok());
+    assert!(tournaments::add_player(&conn, t, extra, false).is_ok());
 }
 
 /// Матч двух игроков с маппулом и назначенным первым баном.
@@ -2351,7 +2355,9 @@ fn manual_result_replaces_log() {
     let (m, a, b) = ready_match(&mut conn);
     matches::ban(&conn, m, "NM1").unwrap();
 
-    matches::set_manual_result(&conn, m, b, 0, 2).unwrap();
+    // Ручной счёт в идущем турнире — аварийная правка: без неё не пускаем.
+    assert!(matches::set_manual_result(&conn, m, b, 0, 2, false).is_err());
+    matches::set_manual_result(&conn, m, b, 0, 2, true).unwrap();
 
     let st = matches::state(&conn, m).unwrap();
     assert_eq!(st.match_info.status, "finished");
@@ -2551,12 +2557,374 @@ fn unplayable_rules_are_reported_next_to_the_pools() {
 
     let br = tournaments::bracket_of(&conn, t).unwrap();
     assert_eq!(br.problems.len(), 1, "нестыковку видно на экране турнира");
-    assert_eq!(br.problems[0].pool_id, pool);
-    assert_eq!(br.problems[0].round, None);
+    assert_eq!(br.problems[0].pool_id, Some(pool));
+    // На двоих вся сетка — один матч верхней, за него и отвечает правило.
+    assert_eq!(br.problems[0].key, "upper:1");
     assert!(!br.problems[0].notes.is_empty());
 
     // По одному бану карт хватает — предупреждение уходит.
     rules(1);
     let br = tournaments::bracket_of(&conn, t).unwrap();
     assert!(br.problems.is_empty());
+}
+
+// ────────────────────────────────────────────────── редактор турниров
+
+#[test]
+fn rounds_show_up_before_the_bracket_is_built() {
+    let conn = db();
+    let t = tournaments::create(&conn, "Кубок", 4, 1).unwrap();
+    for nick in ["Ari", "Bo", "Cy", "Di"] {
+        let p = players::create(&conn, nick, None, None).unwrap();
+        tournaments::add_player(&conn, t, p, false).unwrap();
+    }
+
+    // Сетки ещё нет, но править правило финала надо уже сейчас: считаем
+    // раунды по составу.
+    let rounds = tournaments::editor(&conn, t).unwrap().rounds;
+    let keys: Vec<&str> = rounds.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        vec!["upper:1", "upper:2", "lower:1", "lower:2", "grand:1"]
+    );
+    assert_eq!(rounds[1].title, "Финал верхней");
+    assert_eq!(rounds[4].title, "Гранд-финал");
+    // Пока правило не задано отдельно, оно унаследовано — это видно по флагу.
+    assert!(rounds.iter().all(|r| !r.target_own && r.target == 4));
+}
+
+#[test]
+fn round_rule_applies_only_to_its_own_round() {
+    let mut conn = db();
+    let t = seeded_tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+
+    // Финал верхней играем длиннее группового: это и есть исключение.
+    tournaments::set_round_rule(&conn, t, "upper:2", Some(5), Some(2)).unwrap();
+
+    let rounds = tournaments::editor(&conn, t).unwrap().rounds;
+    let by = |key: &str| rounds.iter().find(|r| r.key == key).unwrap().clone();
+    assert_eq!((by("upper:2").target, by("upper:2").bans), (5, 2));
+    assert!(by("upper:2").target_own && by("upper:2").bans_own);
+    // Нижняя сетка со своим первым раундом ничего не переняла: у неё свой ключ.
+    assert_eq!(by("lower:1").target, 2);
+    assert!(!by("lower:1").target_own);
+
+    // ⟲ — возврат к общему: запись из исключений уходит.
+    tournaments::set_round_rule(&conn, t, "upper:2", None, None).unwrap();
+    let rounds = tournaments::editor(&conn, t).unwrap().rounds;
+    let upper_final = rounds.iter().find(|r| r.key == "upper:2").unwrap();
+    assert_eq!(upper_final.target, 2);
+    assert!(!upper_final.target_own);
+}
+
+#[test]
+fn match_takes_its_rule_at_the_start_and_keeps_it() {
+    let mut conn = db();
+    let (m, _, _) = ready_match(&mut conn);
+    let t = matches::get(&conn, m).unwrap().tournament_id;
+
+    assert_eq!(matches::state(&conn, m).unwrap().target, 2);
+
+    // Правило поменяли посреди матча: идущий матч играет по своему прежнему,
+    // иначе уже сыгранные карты пересчитались бы под новый счёт.
+    tournaments::set_rules(
+        &conn,
+        t,
+        &ByRound::new(5),
+        &ByRound::new(1),
+        "random",
+        true,
+    )
+    .unwrap();
+    assert_eq!(matches::state(&conn, m).unwrap().target, 2);
+
+    // А неначатый матч того же раунда берёт новое правило.
+    let other = tournaments::bracket_of(&conn, t)
+        .unwrap()
+        .matches
+        .into_iter()
+        .find(|x| x.id != m && x.bracket == "upper" && x.round == 1)
+        .unwrap();
+    assert_eq!(matches::state(&conn, other.id).unwrap().target, 5);
+}
+
+#[test]
+fn pool_bound_to_a_round_wins_over_the_cycle() {
+    let mut conn = db();
+    let t = seeded_tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    let first = pool_with_tb(&conn);
+    let finals = pools::create(&conn, "Финалы", None).unwrap();
+    tournaments::set_pools(&conn, t, &[first]).unwrap();
+
+    // Пул, привязанный к раунду, но не добавленный в турнир, добавляется сам:
+    // иначе привязка не сработала бы молча.
+    tournaments::set_round_pool(&conn, t, "grand:1", Some(finals)).unwrap();
+    assert!(tournaments::get(&conn, t).unwrap().pool_ids.contains(&finals));
+
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+    let grand = br.matches.iter().find(|m| m.bracket == "grand").unwrap();
+    assert_eq!(grand.pool_id, Some(finals));
+    // Остальные раунды закреплённый пул по кругу не получают.
+    assert!(br
+        .matches
+        .iter()
+        .filter(|m| m.bracket != "grand")
+        .all(|m| m.pool_id == Some(first)));
+
+    // Маппул убрали из турнира — привязка не может остаться висеть.
+    tournaments::set_pools(&conn, t, &[first]).unwrap();
+    let after = tournaments::get(&conn, t).unwrap();
+    assert!(after.pool_by_round.is_empty());
+}
+
+#[test]
+fn grand_advantage_counts_in_the_match_but_not_in_map_stats() {
+    let mut conn = db();
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(&conn, t, &[pool]).unwrap();
+    tournaments::set_round_rule(&conn, t, "grand:1", Some(2), Some(1)).unwrap();
+    tournaments::set_grand_advantage(&conn, t, 1).unwrap();
+
+    // Доигрываем всё, кроме гранд-финала: победитель верхней должен приехать
+    // туда с преимуществом. Порядок именно такой — нижняя сетка получает
+    // выбывших из верхней, и раньше неё играть в ней некому.
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+    let mut order: Vec<_> = br
+        .matches
+        .iter()
+        .filter(|m| m.bracket != "grand")
+        .cloned()
+        .collect();
+    order.sort_by_key(|m| {
+        (
+            if m.bracket == "upper" { 0 } else { 1 },
+            m.round,
+            m.slot_in_bracket,
+        )
+    });
+    for m in &order {
+        let live = matches::get(&conn, m.id).unwrap();
+        if live.status == "finished" {
+            continue;
+        }
+        play_out(&conn, pool, m.id, live.player_a.unwrap());
+    }
+
+    let grand = tournaments::bracket_of(&conn, t)
+        .unwrap()
+        .matches
+        .into_iter()
+        .find(|m| m.bracket == "grand")
+        .unwrap();
+    assert_eq!(
+        (grand.bonus_a, grand.bonus_b),
+        (1, 0),
+        "преимущество достаётся приехавшему из верхней сетки"
+    );
+    assert_eq!((grand.score_a, grand.score_b), (0, 0), "карт ещё не играли");
+
+    // Матч решается по счёту с преимуществом: одной победы хватит.
+    play_out(&conn, pool, grand.id, grand.player_a.unwrap());
+    let done = tournaments::bracket_of(&conn, t).unwrap();
+    let played = done
+        .matches
+        .iter()
+        .find(|m| m.bracket == "grand")
+        .unwrap()
+        .score_a;
+    assert_eq!(played, 1, "сыграна одна карта, вторую победу дало преимущество");
+
+    // В покартовую статистику преимущество не идёт: карта не игралась.
+    // Два матча по две карты плюс одна в гранд-финале — пять, а не шесть.
+    let champion = done.standings.iter().find(|s| s.placement == 1).unwrap();
+    assert_eq!(champion.map_wins, 5);
+}
+
+#[test]
+fn advantage_cannot_win_the_grand_final_before_the_first_map() {
+    let mut conn = db();
+    let t = seeded_tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    // Гранд-финал играется до двух побед — преимущество в две выиграло бы его
+    // до первой карты.
+    assert!(tournaments::set_grand_advantage(&conn, t, 2).is_err());
+    tournaments::set_grand_advantage(&conn, t, 1).unwrap();
+    // И обратно: правило, которое обесценило бы уже выданное преимущество.
+    assert!(tournaments::set_round_rule(&conn, t, "grand:1", Some(1), None).is_err());
+}
+
+#[test]
+fn resetting_a_result_cascades_forward() {
+    let mut conn = db();
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(&conn, t, &[pool]).unwrap();
+
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+    let first = br
+        .matches
+        .iter()
+        .find(|m| m.bracket == "upper" && m.round == 1)
+        .unwrap()
+        .clone();
+    let winner = first.player_a.unwrap();
+    let loser = first.player_b.unwrap();
+    play_out(&conn, pool, first.id, winner);
+
+    // Победитель уже сидит выше, проигравший — в нижней сетке.
+    let ahead = first.next_win_slot.unwrap();
+    let down = first.next_lose_slot.unwrap();
+    assert!(matches::get(&conn, ahead).unwrap().player_a == Some(winner)
+        || matches::get(&conn, ahead).unwrap().player_b == Some(winner));
+
+    // Предпросмотр называет, что сбросится, до самой правки.
+    let impact = matches::impact(&conn, first.id).unwrap();
+    assert!(impact.maps > 0);
+    assert!(!impact.returns.is_empty(), "проигравший вернётся в турнир");
+
+    matches::reset(&conn, first.id, true).unwrap();
+
+    let after = matches::get(&conn, first.id).unwrap();
+    assert_eq!(after.status, "pending");
+    assert_eq!(after.winner_id, None);
+    assert_eq!(after.pool_id, Some(pool), "маппул остаётся: матч переигрывают");
+    assert!(matches::state(&conn, first.id).unwrap().actions.is_empty());
+
+    // Ни выше, ни ниже по сетке участников этого матча больше нет.
+    let ahead = matches::get(&conn, ahead).unwrap();
+    assert!(ahead.player_a != Some(winner) && ahead.player_b != Some(winner));
+    let down = matches::get(&conn, down).unwrap();
+    assert!(down.player_a != Some(loser) && down.player_b != Some(loser));
+}
+
+#[test]
+fn reset_requires_emergency_while_the_tournament_runs() {
+    let mut conn = db();
+    let (m, a, _) = ready_match(&mut conn);
+    let pool = matches::get(&conn, m).unwrap().pool_id.unwrap();
+    play_out(&conn, pool, m, a);
+
+    assert!(matches::reset(&conn, m, false).is_err());
+    assert!(matches::reset(&conn, m, true).is_ok());
+}
+
+#[test]
+fn undo_puts_the_tournament_back_and_keeps_the_record() {
+    let mut conn = db();
+    let t = seeded_tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(&conn, t, &[pool]).unwrap();
+
+    tournaments::set_round_rule(&conn, t, "upper:2", Some(6), None).unwrap();
+    let n = tournaments::edits(&conn, t).unwrap()[0].n;
+
+    tournaments::undo_last_edit(&conn, t).unwrap();
+
+    // Значение вернулось к общему.
+    let rounds = tournaments::editor(&conn, t).unwrap().rounds;
+    assert_eq!(rounds.iter().find(|r| r.key == "upper:2").unwrap().target, 2);
+
+    // Запись не исчезла: рядом легла парная отмена, а у правки — ссылка на неё.
+    let log = tournaments::edits(&conn, t).unwrap();
+    assert_eq!(log[0].kind, "undo");
+    let undone = log.iter().find(|e| e.n == n).unwrap();
+    assert_eq!(undone.undone_by, Some(log[0].n));
+}
+
+#[test]
+fn undo_refuses_when_a_match_was_played_after_the_edit() {
+    let mut conn = db();
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(&conn, t, &[pool]).unwrap();
+    tournaments::set_round_rule(&conn, t, "upper:2", Some(3), None).unwrap();
+
+    let first = tournaments::bracket_of(&conn, t)
+        .unwrap()
+        .matches
+        .into_iter()
+        .find(|m| m.bracket == "upper" && m.round == 1)
+        .unwrap();
+    play_out(&conn, pool, first.id, first.player_a.unwrap());
+
+    // Пересчёт вернул бы турнир в состояние, которого не было.
+    assert!(tournaments::undo_last_edit(&conn, t).is_err());
+    assert!(tournaments::editor(&conn, t)
+        .unwrap()
+        .undo_blocked
+        .is_some());
+}
+
+#[test]
+fn roster_change_rebuilds_the_bracket_while_it_is_only_seeded() {
+    let mut conn = db();
+    let t = seeded_tournament(&mut conn, &["Ari", "Bo"]);
+    assert_eq!(tournaments::bracket_of(&conn, t).unwrap().matches.len(), 1);
+
+    let extra = players::create(&conn, "Cy", None, None).unwrap();
+    tournaments::add_player(&conn, t, extra, false).unwrap();
+
+    // Сетка — это и есть предпросмотр: правка состава видна на ней сразу.
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+    assert_eq!(br.tournament.status, "seeded");
+    assert!(br.matches.len() > 1);
+    assert_eq!(br.tournament.bracket_size, 3);
+    assert_eq!(
+        tournaments::editor(&conn, t).unwrap().byes.len(),
+        1,
+        "трое на сетке из четырёх — старшему играть не с кем"
+    );
+}
+
+#[test]
+fn substitute_cannot_be_someone_already_in_the_tournament() {
+    let mut conn = db();
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+    let m = br
+        .matches
+        .iter()
+        .find(|m| m.bracket == "upper" && m.round == 1)
+        .unwrap();
+    let inside = br.tournament.players[3].player_id;
+
+    // Два места одного игрока в сетке — это уже не сетка.
+    assert!(matches::replace_player(&conn, m.id, "a", inside, true).is_err());
+
+    let fresh = players::create(&conn, "Ed", None, None).unwrap();
+    matches::replace_player(&conn, m.id, "a", fresh, true).unwrap();
+    assert_eq!(matches::get(&conn, m.id).unwrap().player_a, Some(fresh));
+    // Заменяющий появился в составе, а прежний остался: его матчи — его.
+    let after = tournaments::get(&conn, t).unwrap();
+    assert_eq!(after.players.len(), 5);
+}
+
+#[test]
+fn editor_blocks_only_what_stops_the_bracket() {
+    let conn = db();
+    let t = tournaments::create(&conn, "Кубок", 4, 1).unwrap();
+
+    let state = tournaments::editor(&conn, t).unwrap();
+    let blocking: Vec<&str> = state
+        .checks
+        .iter()
+        .filter(|c| c.blocking)
+        .map(|c| c.section.as_str())
+        .collect();
+    assert_eq!(blocking, vec!["players", "pools"]);
+
+    // Раундов больше, чем маппулов, — предупреждение, но не запрет.
+    for nick in ["Ari", "Bo", "Cy", "Di"] {
+        let p = players::create(&conn, nick, None, None).unwrap();
+        tournaments::add_player(&conn, t, p, false).unwrap();
+    }
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(&conn, t, &[pool]).unwrap();
+
+    let state = tournaments::editor(&conn, t).unwrap();
+    assert!(state.checks.iter().all(|c| !c.blocking));
+    assert!(state
+        .checks
+        .iter()
+        .any(|c| c.section == "pools" && c.text.contains("повтором")));
 }

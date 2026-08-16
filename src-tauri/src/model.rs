@@ -848,9 +848,16 @@ pub struct PlayerStats {
 #[serde(rename_all = "camelCase")]
 pub struct ByRound {
     pub default: i64,
-    /// Ключ — номер раунда как строка: JSON не умеет числовые ключи.
+    /// Ключ — раунд сетки: «upper:2», «lower:1», «grand:1». У верхней и нижней
+    /// сетки свои раунды, одним номером их не разделить. Голое число читается
+    /// как «любая сетка, этот раунд» — так лежали данные до редактора.
     #[serde(default)]
     pub rounds: std::collections::HashMap<String, i64>,
+}
+
+/// Ключ раунда: по нему адресуются и правила, и привязка маппула.
+pub fn round_key(bracket: &str, round: i64) -> String {
+    format!("{bracket}:{round}")
 }
 
 impl ByRound {
@@ -861,11 +868,17 @@ impl ByRound {
         }
     }
 
-    pub fn at(&self, round: i64) -> i64 {
+    /// Значение для конкретного раунда сетки.
+    pub fn at_key(&self, bracket: &str, round: i64) -> i64 {
+        self.own(bracket, round).unwrap_or(self.default)
+    }
+
+    /// Задано ли для этого раунда своё значение. `None` — унаследовано.
+    pub fn own(&self, bracket: &str, round: i64) -> Option<i64> {
         self.rounds
-            .get(&round.to_string())
+            .get(&round_key(bracket, round))
+            .or_else(|| self.rounds.get(&round.to_string()))
             .copied()
-            .unwrap_or(self.default)
     }
 }
 
@@ -877,12 +890,20 @@ pub struct Tournament {
     pub id: i64,
     pub name: String,
     pub status: String,
+    /// Фактическое число игроков. Скелет сетки по-прежнему строится на
+    /// ближайшую степень двойки, а лишние места срезаются.
     pub bracket_size: i64,
     pub target_score: ByRound,
     pub bans_per_round: ByRound,
     /// random | higherSeed | lowerSeed — решается на старте каждого матча.
     pub first_ban: String,
     pub no_repeat_pool: bool,
+    /// Какой маппул закреплён за раундом. Ключ — «upper:2».
+    pub pool_by_round: std::collections::HashMap<String, i64>,
+    /// Сколько побед победитель верхней получает в гранд-финале заранее.
+    pub grand_advantage: i64,
+    /// Сеяния, прошедшие первый раунд без игры.
+    pub bye_seeds: Vec<i64>,
     pub created_at: String,
     pub finished_at: Option<String>,
     pub players: Vec<TournamentPlayer>,
@@ -898,6 +919,8 @@ pub struct TournamentPlayer {
     pub nickname: String,
     pub seed: Option<i64>,
     pub color: String,
+    /// Аватар из профиля osu!. Свой у игрока, а не у турнира.
+    pub avatar_path: Option<String>,
     pub placement: Option<i64>,
 }
 
@@ -922,9 +945,18 @@ pub struct Match {
     pub next_lose_slot: Option<i64>,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
+    /// Правило, взятое на старте матча. `None` — матч ещё не начинали,
+    /// значит правило берётся из турнира и может поменяться.
+    pub target_score: Option<i64>,
+    pub bans_each: Option<i64>,
     /// Счёт по сыгранным картам. Считается из действий, а не хранится.
     pub score_a: i64,
     pub score_b: i64,
+    /// Преимущество сетки в гранд-финале: победы, которые в матче считаются,
+    /// но сыгранными картами не являются — в покартовую статистику они
+    /// поэтому не идут.
+    pub bonus_a: i64,
+    pub bonus_b: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1013,18 +1045,125 @@ pub struct MatchState {
 
 /// Правила турнира и маппул не сходятся: карт не хватит доиграть матч.
 ///
-/// Считается на экране турнира, где и то и другое выбирают: узнать об этом
-/// посреди матча — значит узнать поздно.
+/// Считается по раундам: у каждого своё правило и свой маппул, и общей
+/// проверкой такую нестыковку не поймать.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuleProblem {
-    pub pool_id: i64,
+    /// Ключ раунда: «upper:2».
+    pub key: String,
+    /// Как раунд называется на сетке: «Финал верхней».
+    pub title: String,
+    pub pool_id: Option<i64>,
     pub pool_name: String,
-    /// Раунд, для которого правило задано отдельно. `None` — общее правило.
-    pub round: Option<i64>,
     pub target: i64,
     pub bans_each: i64,
     pub notes: Vec<String>,
+}
+
+/// Строка таблицы раундов в редакторе: правило, маппул и что с ними не так.
+///
+/// До построения сетки считается по проектной — той, что получится при
+/// текущем составе: править правила финала, не собрав сетку, нормально.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorRound {
+    pub key: String,
+    pub bracket: String,
+    pub round: i64,
+    pub title: String,
+    pub target: i64,
+    pub bans: i64,
+    /// Значение задано для этого раунда, а не унаследовано от общего.
+    pub target_own: bool,
+    pub bans_own: bool,
+    /// Маппул, закреплённый за раундом. `None` — «любой свободный».
+    pub pool_id: Option<i64>,
+    /// Что раунд играет на самом деле: закреплённый или выданный по кругу.
+    pub playing_pool_id: Option<i64>,
+    pub playing_pool_name: Option<String>,
+    /// Карт в маппуле без тайбрейка и есть ли сам тайбрейк.
+    pub pool_playable: i64,
+    pub pool_has_tiebreaker: bool,
+    pub matches: i64,
+    pub played: i64,
+    /// Хоть один матч раунда начат: правило внутри него уже не поменять.
+    pub started: bool,
+    /// Нестыковки правила с маппулом этого раунда.
+    pub notes: Vec<String>,
+}
+
+/// Сеяние, прошедшее первый раунд без игры, и почему.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorBye {
+    pub seed: i64,
+    pub nickname: String,
+    pub why: String,
+}
+
+/// Предупреждение раздела. Блокирует только то, без чего сетку не построить.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorCheck {
+    /// rules | bracket | pools | players
+    pub section: String,
+    pub text: String,
+    pub blocking: bool,
+}
+
+/// Одна запись журнала правок турнира.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TournamentEdit {
+    pub n: i64,
+    pub kind: String,
+    pub at: String,
+    pub emergency: bool,
+    /// Что поменяли, человеческими словами: «маппул раунда 2».
+    pub note: String,
+    /// `n` правки-отмены, если эту откатили.
+    pub undone_by: Option<i64>,
+}
+
+/// Всё, что нужно колонке разделов. Считается на каждое чтение: правка
+/// меняет исходные данные, а производные величины пересчитываются целиком.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorState {
+    pub rounds: Vec<EditorRound>,
+    pub byes: Vec<EditorBye>,
+    pub checks: Vec<EditorCheck>,
+    /// Карты, попавшие в два маппула турнира, с названиями раундов.
+    pub overlaps: Vec<PoolOverlap>,
+    pub edits: Vec<TournamentEdit>,
+    /// Почему отмена недоступна. `None` — можно отменять.
+    pub undo_blocked: Option<String>,
+    /// Сколько матчей уже начато и сыграно — по ним решается, что запирать.
+    pub matches_total: i64,
+    pub matches_started: i64,
+    pub matches_played: i64,
+    /// Сколько матчей будет в сетке при текущем составе.
+    pub projected_matches: i64,
+    /// Аварийная правка вообще доступна: турнир идёт или сыгран.
+    pub emergency_available: bool,
+}
+
+/// Что случится, если применить правку сыгранного. Считается обходом сетки
+/// вперёд, а не пишется руками.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditImpact {
+    /// Названия матчей, которые сбросятся.
+    pub matches: Vec<String>,
+    /// Игроки, чья статистика пересчитается.
+    pub players: Vec<String>,
+    /// Сколько сыгранных карт перестанет учитываться.
+    pub maps: i64,
+    /// Кто вернётся в турнир из нижней сетки и с каким счётом поражений.
+    pub returns: Vec<String>,
+    /// Турнир перестанет быть завершённым.
+    pub reopens_tournament: bool,
 }
 
 /// Турнир вместе с сеткой — то, из чего рисуется экран турнира.
@@ -1041,15 +1180,29 @@ pub struct Bracket {
 }
 
 /// Строка итоговой таблицы турнира.
+///
+/// Это единственное место, где турнир виден целиком уже сыгранным, поэтому
+/// цифр здесь больше, чем в сетке: путь по матчам, доля карт, разбивка по
+/// мод-тегам и тайбрейки.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Standing {
     pub player_id: i64,
     pub nickname: String,
     pub color: String,
+    pub avatar_path: Option<String>,
     pub placement: i64,
     pub match_wins: i64,
     pub match_losses: i64,
     pub map_wins: i64,
     pub map_losses: i64,
+    /// Сыграно и выиграно карт по каждому мод-тегу этого турнира.
+    pub by_mod: Vec<ModStats>,
+    /// Тайбрейков сыграно и выиграно: они решают матч и стоят отдельно.
+    pub tiebreakers: i64,
+    pub tiebreakers_won: i64,
+    /// Матчей, доставшихся без игры.
+    pub walkovers: i64,
+    /// Самая длинная серия побед по картам подряд внутри турнира.
+    pub best_streak: i64,
 }

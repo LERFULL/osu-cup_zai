@@ -160,8 +160,17 @@ pub fn run() {
             commands::tournaments::add_tournament_player,
             commands::tournaments::remove_tournament_player,
             commands::tournaments::set_tournament_seeds,
+            commands::tournaments::swap_tournament_seeds,
+            commands::tournaments::place_tournament_player,
+            commands::tournaments::shuffle_tournament_seeds,
             commands::tournaments::set_tournament_player_color,
             commands::tournaments::set_tournament_pools,
+            commands::tournaments::set_tournament_round_rule,
+            commands::tournaments::set_tournament_round_pool,
+            commands::tournaments::add_tournament_series,
+            commands::tournaments::set_tournament_grand_advantage,
+            commands::tournaments::tournament_editor,
+            commands::tournaments::undo_tournament_edit,
             commands::tournaments::start_tournament,
             commands::tournaments::confirm_tournament,
             commands::tournaments::reopen_tournament,
@@ -178,6 +187,9 @@ pub fn run() {
             commands::matches::undo_match_action,
             commands::matches::set_match_walkover,
             commands::matches::set_match_manual_result,
+            commands::matches::match_impact,
+            commands::matches::reset_match,
+            commands::matches::replace_match_player,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить приложение");
