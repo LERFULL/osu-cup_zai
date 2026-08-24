@@ -16,33 +16,24 @@ type Renderer = ComponentType<{ p: never }>;
 const REGISTRY: Partial<Record<SceneId, Renderer>> = {
   // сцены матча
   matchIntro: match.MatchIntro as Renderer,
-  firstBanDraw: match.FirstBanDraw as Renderer,
   matchLive: match.MatchLive as Renderer,
   banReveal: match.BanReveal as Renderer,
   pickReveal: match.PickReveal as Renderer,
   mapProgress: match.MapProgress as Renderer,
   mapResult: match.MapResult as Renderer,
-  matchPoint: match.MatchPoint as Renderer,
-  decider: match.Decider as Renderer,
   matchResult: match.MatchResult as Renderer,
 
   // сцены паузы
   bracket: pause.BracketScene as Renderer,
-  poolShowcase: pause.PoolShowcase as Renderer,
   standings: pause.Standings as Renderer,
   nextUp: pause.NextUp as Renderer,
   countdown: pause.Countdown as Renderer,
   playerCard: pause.PlayerCard as Renderer,
-  headToHead: pause.HeadToHead as Renderer,
-  playerPath: pause.PlayerPath as Renderer,
   records: pause.Records as Renderer,
-  modStats: pause.ModStats as Renderer,
-  poolRecap: pause.PoolRecap as Renderer,
   champion: pause.Champion as Renderer,
   credits: pause.Credits as Renderer,
   idle: pause.Idle as Renderer,
   message: pause.Message as Renderer,
-  clip: pause.Clip as Renderer,
 };
 
 /** Рисует слой. `null` — такого рендерера нет, слой пропускается молча. */

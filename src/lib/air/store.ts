@@ -982,8 +982,6 @@ function buildScene(
       return state.config.message.trim() === ''
         ? null
         : done({ text: state.config.message, note: null });
-    case 'clip':
-      return state.config.clip.trim() === '' ? null : done({ src: state.config.clip, title: null });
     case 'bracket':
       return ctx.bracket.matches.length === 0 ? null : done(build.bracketScene(ctx));
     case 'standings':
@@ -996,32 +994,11 @@ function buildScene(
       return state.countdownUntil === null
         ? null
         : done({ until: state.countdownUntil, label: 'следующий матч через' });
-    case 'poolShowcase': {
-      const poolId = Number(objectKey.replace('pool:', ''));
-      const pool = ctx.pools.find((p) => p.id === poolId) ?? null;
-      if (pool === null) return null;
-      const round = ctx.editor.rounds.find((r) => r.playingPoolId === poolId) ?? null;
-      return done(build.poolShowcase(pool, round?.title ?? pool.name));
-    }
     case 'playerCard':
       return done(build.playerCard(ctx, Number(objectKey.replace('p:', ''))));
-    case 'playerPath':
-      return done(build.playerPath(ctx, Number(objectKey.replace('p:', ''))));
-    case 'headToHead': {
-      const [a, b] = objectKey.replace('vs:', '').split('-').map(Number);
-      return a === undefined || b === undefined ? null : done(build.headToHead(ctx, a, b));
-    }
     case 'records': {
       const tally = build.buildTally(ctx);
       return tally.records.length === 0 ? null : done({ items: tally.records });
-    }
-    case 'modStats': {
-      const tally = build.buildTally(ctx);
-      return tally.mods.length === 0 ? null : done(build.modStats(tally));
-    }
-    case 'poolRecap': {
-      const recap = build.poolRecap(build.buildTally(ctx));
-      return recap.rows.length === 0 ? null : done(recap);
     }
     case 'champion':
       return done(build.champion(ctx));
@@ -1082,10 +1059,10 @@ function objectsFor(state: AirStore, id: SceneId): string[] {
   const ctx = state.ctx;
   if (ctx === null || !sceneMeta(id).byObject) return [''];
 
-  if (id === 'playerCard' || id === 'playerPath') {
+  if (id === 'playerCard') {
     // Первыми — те, кто играет в следующем матче: их карточка к месту, а
-    // карточка случайного игрока — просто заполнение времени. Плейлист берёт
-    // объекты по порядку, поэтому порядок здесь и решает, кого покажут.
+    // карточка случайного игрока — просто заполнение времени. Порядок здесь
+    // и решает, кого покажут: пауза берёт объекты по нему.
     const next = ctx.bracket.matches.find(
       (m) => m.status !== 'finished' && m.playerA !== null && m.playerB !== null,
     );
@@ -1093,16 +1070,6 @@ function objectsFor(state: AirStore, id: SceneId): string[] {
     return [...ctx.bracket.players]
       .sort((x, y) => Number(soon.includes(y.playerId)) - Number(soon.includes(x.playerId)))
       .map((p) => `p:${p.playerId}`);
-  }
-  if (id === 'headToHead') {
-    const next = ctx.bracket.matches.find(
-      (m) => m.status !== 'finished' && m.playerA !== null && m.playerB !== null,
-    );
-    return next === undefined ? [] : [`vs:${next.playerA as number}-${next.playerB as number}`];
-  }
-  if (id === 'poolShowcase') {
-    const next = ctx.bracket.matches.find((m) => m.status !== 'finished' && m.poolId !== null);
-    return next?.poolId == null ? [] : [`pool:${next.poolId}`];
   }
   return [''];
 }
@@ -1115,23 +1082,15 @@ function reasonFor(state: AirStore, id: SceneId): string {
   switch (id) {
     case 'message':
       return 'надпись не набрана';
-    case 'clip':
-      return 'файл не выбран';
     case 'countdown':
       return 'отсчёт не запущен';
     case 'champion':
     case 'credits':
       return 'турнир ещё не сыгран';
-    case 'headToHead':
-      return 'встретились впервые';
     case 'playerCard':
       return 'нет статистики по игроку';
     case 'records':
-    case 'modStats':
-    case 'poolRecap':
       return 'сыграно слишком мало';
-    case 'poolShowcase':
-      return 'маппул следующего матча не назначен';
     case 'bracket':
       return 'сетки ещё нет';
     default:
@@ -1152,13 +1111,6 @@ function requiredNow(state: AirStore, id: SceneId): boolean {
     return !ctx.bracket.matches.some(
       (m) => m.bracket === last.bracket && m.round === last.round && m.status !== 'finished',
     );
-  }
-
-  // Маппул — перед матчем, маппул которого ещё не разыгрывали.
-  if (id === 'poolShowcase') {
-    const next = ctx.bracket.matches.find((m) => m.status !== 'finished' && m.poolId !== null);
-    if (next?.poolId == null) return false;
-    return !ctx.logs.some((m) => m.poolId === next.poolId);
   }
 
   return false;

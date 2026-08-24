@@ -54,8 +54,7 @@ describe('плейлист паузы', () => {
         can('bracket'),
         can('standings'),
         can('records'),
-        can('modStats'),
-        can('poolRecap'),
+        can('playerCard'),
         can('nextUp'),
       ],
       shows: [],
@@ -89,14 +88,14 @@ describe('плейлист паузы', () => {
   it('не повторяет то, что уже показывали', () => {
     const list = buildPlaylist({
       budget: 300,
-      candidates: [can('poolShowcase'), can('nextUp')],
-      shows: [shown('poolShowcase', '2026-08-16T10:00:00Z')],
+      candidates: [can('playerCard'), can('nextUp')],
+      shows: [shown('playerCard', '2026-08-16T10:00:00Z')],
       hasCountdown: false,
     });
 
-    expect(ids(list.items)).not.toContain('poolShowcase');
+    expect(ids(list.items)).not.toContain('playerCard');
     expect(list.dropped).toEqual([
-      { id: 'poolShowcase', objectKey: '', reason: 'уже показывали' },
+      { id: 'playerCard', objectKey: '', reason: 'уже показывали' },
     ]);
   });
 
@@ -153,7 +152,7 @@ describe('плейлист паузы', () => {
     const list = buildPlaylist({
       budget: 300,
       candidates: [
-        can('headToHead', { available: false, reason: 'встретились впервые' }),
+        can('playerCard', { available: false, reason: 'нет статистики по игроку' }),
         can('nextUp'),
       ],
       shows: [],
@@ -161,7 +160,7 @@ describe('плейлист паузы', () => {
     });
 
     expect(ids(list.items)).not.toContain('headToHead');
-    expect(list.dropped[0]?.reason).toBe('встретились впервые');
+    expect(list.dropped[0]?.reason).toBe('нет статистики по игроку');
   });
 
   it('сцены без таймера в плейлист не попадают', () => {

@@ -4,28 +4,22 @@
 // затягивания. Поэтому каждая укладывается в отведённые ей секунды, а какие
 // сцены вообще выйдут, решает бюджет паузы, а не порядок в этом файле.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type {
   AirBracketStop,
   BracketPayload,
   ChampionPayload,
-  ClipPayload,
   CountdownPayload,
   CreditsPayload,
-  HeadToHeadPayload,
   IdlePayload,
   MessagePayload,
-  ModStatsPayload,
   NextUpPayload,
   PlayerCardPayload,
-  PlayerPathPayload,
-  PoolRecapPayload,
-  PoolShowcasePayload,
   RecordsPayload,
   StandingsPayload,
 } from '@/lib/air/types';
-import { useEnv, useLayer } from './env';
-import { big, Face, Frame, Head, Hex, MapLine, previewOf, Stat } from './parts';
+import { useLayer } from './env';
+import { big, Face, Frame, Head, Stat } from './parts';
 import s from './pause.module.css';
 
 // ─────────────────────────────────────────────────────────────── сетка
@@ -167,65 +161,6 @@ function useStop(stops: AirBracketStop[]): number {
 }
 
 // ────────────────────────────────────────────────────────────── маппул
-
-/**
- * Маппул следующего матча. Превью-аудио играет только если зритель разрешил
- * звук: браузеры не дают проигрывать аудио до действия пользователя, и обойти
- * это нельзя — можно только не делать вид, что звук есть.
- */
-export function PoolShowcase({ p }: { p: PoolShowcasePayload }) {
-  const { sound } = useEnv();
-  const all = p.groups.flatMap((g) => g.maps);
-  const [current, setCurrent] = useState(0);
-
-  // Обложки идут по одной, а не все сразу: так видно каждую, а не мозаику.
-  useEffect(() => {
-    if (all.length === 0) return;
-    const id = window.setInterval(() => setCurrent((n) => (n + 1) % all.length), 2600);
-    return () => window.clearInterval(id);
-  }, [all.length]);
-
-  const playing = all[current] ?? null;
-
-  return (
-    <Frame title="Маппул" note={p.title}>
-      {sound && playing !== null ? <Preview setId={playing.beatmapsetId} /> : null}
-
-      <div className={s.pool}>
-        {p.groups.map((group) => (
-          <div key={group.mod} className={s.poolGroup}>
-            {group.maps.map((map) => (
-              <MapLine
-                key={map.slot}
-                map={map}
-                index={all.findIndex((x) => x.slot === map.slot)}
-                glow={playing !== null && playing.slot === map.slot}
-                className={s.poolLine}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
-    </Frame>
-  );
-}
-
-/** Десять секунд превью с osu!. Через хост не идёт: это его исходящий канал. */
-function Preview({ setId }: { setId: number | null }) {
-  const ref = useRef<HTMLAudioElement | null>(null);
-  const src = previewOf(setId);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (el === null || src === null) return;
-    el.volume = 0.35;
-    // Отказ проигрывать — не ошибка кадра: сцена просто идёт без звука.
-    void el.play().catch(() => undefined);
-  }, [src]);
-
-  if (src === null) return null;
-  return <audio ref={ref} src={src} />;
-}
 
 // ───────────────────────────────────────────────────────── кто в игре
 
@@ -412,67 +347,7 @@ export function PlayerCard({ p }: { p: PlayerCardPayload }) {
 
 // ─────────────────────────────────────────────────── личная встреча
 
-export function HeadToHead({ p }: { p: HeadToHeadPayload }) {
-  const nick = (id: number | null) => (id === p.a.id ? p.a.nick : id === p.b.id ? p.b.nick : '—');
-
-  return (
-    <Frame title="Как они играли раньше">
-      <div className={s.h2h}>
-        <Head player={p.a} size={130} note={`${p.winsA} побед`} />
-        <div className={s.h2hScore}>
-          <span style={{ color: p.a.color }}>{p.winsA}</span>
-          <i>:</i>
-          <span style={{ color: p.b.color }}>{p.winsB}</span>
-        </div>
-        <Head player={p.b} size={130} right note={`${p.winsB} побед`} />
-      </div>
-
-      <div className={s.h2hList}>
-        {p.matches.map((m, index) => (
-          <div key={index} className={s.h2hRow} style={{ '--i': index } as React.CSSProperties}>
-            <span className={s.h2hRound}>{m.round}</span>
-            <span className={s.h2hRowScore}>{m.score}</span>
-            <span className={s.h2hWinner}>{nick(m.winner)}</span>
-          </div>
-        ))}
-      </div>
-
-      {p.favourites.length > 0 ? (
-        <div className={s.h2hFav}>
-          {p.favourites.map((f) => (
-            <div key={f.playerId} className={s.h2hFavRow}>
-              <span className={s.h2hFavWho}>{nick(f.playerId)}</span> чаще всех выигрывает{' '}
-              <span className={s.h2hFavMap}>{f.title}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </Frame>
-  );
-}
-
 // ─────────────────────────────────────────────────────── путь по сетке
-
-export function PlayerPath({ p }: { p: PlayerPathPayload }) {
-  return (
-    <Frame title={`Путь ${p.player.nick}`}>
-      <div className={s.path} style={{ '--who': p.player.color } as React.CSSProperties}>
-        {p.steps.map((step, index) => (
-          <div
-            key={index}
-            className={[s.step, step.won ? s.stepWon : s.stepLost].join(' ')}
-            style={{ '--i': index } as React.CSSProperties}
-          >
-            <span className={s.stepRound}>{step.round}</span>
-            <span className={s.stepAgainst}>{step.against}</span>
-            <span className={s.stepScore}>{step.score}</span>
-            <span className={s.stepMark}>{step.won ? 'прошёл' : 'проиграл'}</span>
-          </div>
-        ))}
-      </div>
-    </Frame>
-  );
-}
 
 // ────────────────────────────────────────────────────── рекорды и моды
 
@@ -487,68 +362,6 @@ export function Records({ p }: { p: RecordsPayload }) {
             value={item.value}
             note={item.note}
             index={index}
-          />
-        ))}
-      </div>
-    </Frame>
-  );
-}
-
-export function ModStats({ p }: { p: ModStatsPayload }) {
-  const most = Math.max(1, ...p.rows.map((r) => r.played + r.banned));
-
-  return (
-    <Frame title="Разбор по мод-тегам">
-      <div className={s.mods}>
-        {p.rows.map((row, index) => (
-          <div
-            key={row.mod}
-            className={s.modRow}
-            style={
-              { '--mod': `var(--${row.mod.toLowerCase()})`, '--i': index } as React.CSSProperties
-            }
-          >
-            <Hex mod={row.mod} small />
-            <div className={s.modBars}>
-              <div className={s.modBar}>
-                <div
-                  className={s.modPlayed}
-                  style={{ width: `${((row.played / most) * 100).toFixed(1)}%` }}
-                />
-                <div
-                  className={s.modBanned}
-                  style={{ width: `${((row.banned / most) * 100).toFixed(1)}%` }}
-                />
-              </div>
-              <div className={s.modNums}>
-                <span>сыграно {row.played}</span>
-                <span className={s.modBannedText}>забанено {row.banned}</span>
-                {row.blowouts > 0 ? <span>разгромов {row.blowouts}</span> : null}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Frame>
-  );
-}
-
-export function PoolRecap({ p }: { p: PoolRecapPayload }) {
-  return (
-    <Frame title="Что уже разыграли">
-      <div className={s.recap}>
-        {p.rows.slice(0, 8).map((row, index) => (
-          <MapLine
-            key={`${row.slot}-${row.title}`}
-            map={row}
-            index={index}
-            className={s.recapLine}
-            end={
-              <span className={s.recapNums}>
-                <span>{row.played} раз</span>
-                <span className={s.recapBanned}>{row.banned} бан</span>
-              </span>
-            }
           />
         ))}
       </div>
@@ -629,38 +442,3 @@ export function Message({ p }: { p: MessagePayload }) {
   );
 }
 
-/**
- * Свой видеофайл. Раздаётся локальным сервером — единственным, который есть:
- * наружу интернета эфир не выходит.
- */
-export function Clip({ p }: { p: ClipPayload }) {
-  const ref = useRef<HTMLVideoElement | null>(null);
-  const [broken, setBroken] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (el === null) return;
-    void el.play().catch(() => setBroken(true));
-  }, [p.src]);
-
-  if (broken) {
-    return (
-      <div className={s.message}>
-        <div className={s.messageNote}>файл не читается</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={s.clip}>
-      <video
-        ref={ref}
-        className={s.clipVideo}
-        src={p.src}
-        onError={() => setBroken(true)}
-        playsInline
-      />
-      {p.title !== null && p.title !== '' ? <div className={s.clipTitle}>{p.title}</div> : null}
-    </div>
-  );
-}

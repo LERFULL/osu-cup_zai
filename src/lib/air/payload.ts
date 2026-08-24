@@ -37,20 +37,15 @@ import type {
   BracketPayload,
   ChampionPayload,
   CreditsPayload,
-  HeadToHeadPayload,
   LobbyGame,
   MapProgressPayload,
   MapResultPayload,
   MatchIntroPayload,
   MatchLivePayload,
   MatchResultPayload,
-  ModStatsPayload,
   NextUpPayload,
   OsuProfile,
   PlayerCardPayload,
-  PlayerPathPayload,
-  PoolRecapPayload,
-  PoolShowcasePayload,
   RecordsPayload,
   StandingsPayload,
 } from './types';
@@ -591,17 +586,6 @@ const SIDE_SHORT: Record<BracketSide, string> = { upper: 'ВС', lower: 'НС', 
 const shortName = (m: Match): string =>
   `${SIDE_SHORT[m.bracket]} R${m.round}-${m.slotInBracket + 1}`;
 
-export function poolShowcase(pool: Pool, title: string): PoolShowcasePayload {
-  const groups: PoolShowcasePayload['groups'] = [];
-  for (const slot of pool.slots) {
-    const map = airMap(slot.slotLabel, slot.mod, slot.beatmap, slot.starRatingWithMods);
-    const last = groups[groups.length - 1];
-    if (last !== undefined && last.mod === slot.mod) last.maps.push(map);
-    else groups.push({ mod: slot.mod, maps: [map] });
-  }
-  return { title, groups };
-}
-
 export function standings(ctx: AirContext): StandingsPayload {
   const rows = ctx.bracket.players.map((p) => {
     const losses = ctx.bracket.matches.filter(
@@ -685,75 +669,6 @@ export function playerCard(ctx: AirContext, playerId: number): PlayerCardPayload
   };
 }
 
-export function headToHead(ctx: AirContext, aId: number, bId: number): HeadToHeadPayload | null {
-  const a = airPlayer(ctx, aId);
-  const b = airPlayer(ctx, bId);
-  if (a === null || b === null) return null;
-
-  const versus = ctx.stats.get(aId)?.versus.find((v) => v.playerId === bId) ?? null;
-  // Встретились впервые — сцене нечего показать, и в плейлист она не идёт.
-  if (versus === null || versus.wins + versus.losses === 0) return null;
-
-  const matches = ctx.logs
-    .filter(
-      (m) =>
-        (m.playerA === aId && m.playerB === bId) || (m.playerA === bId && m.playerB === aId),
-    )
-    .map((m) => ({
-      round: roundTitle(ctx, m),
-      score: `${m.scoreA + m.bonusA}:${m.scoreB + m.bonusB}`,
-      winner: m.winnerId,
-    }));
-
-  const favourites: HeadToHeadPayload['favourites'] = [];
-  for (const [playerId, stats] of [
-    [aId, ctx.stats.get(aId)] as const,
-    [bId, ctx.stats.get(bId)] as const,
-  ]) {
-    const beatmapId = stats?.favouriteBeatmap ?? null;
-    if (beatmapId === null) continue;
-    const title = findMapTitle(ctx, beatmapId);
-    if (title !== null) favourites.push({ playerId, title });
-  }
-
-  return { a, b, winsA: versus.wins, winsB: versus.losses, matches, favourites };
-}
-
-function findMapTitle(ctx: AirContext, beatmapId: number): string | null {
-  for (const pool of ctx.pools) {
-    const slot = pool.slots.find((s) => s.beatmapId === beatmapId);
-    if (slot?.beatmap != null) return `${slot.beatmap.artist} — ${slot.beatmap.title}`;
-  }
-  return null;
-}
-
-export function playerPath(ctx: AirContext, playerId: number): PlayerPathPayload | null {
-  const player = airPlayer(ctx, playerId);
-  if (player === null) return null;
-
-  const steps = ctx.bracket.matches
-    .filter(
-      (m) =>
-        m.status === 'finished' && (m.playerA === playerId || m.playerB === playerId),
-    )
-    .sort((x, y) => sortKey(x) - sortKey(y))
-    .map((m) => {
-      const mine = m.playerA === playerId;
-      const other = airPlayer(ctx, mine ? m.playerB : m.playerA);
-      const my = (mine ? m.scoreA + m.bonusA : m.scoreB + m.bonusB);
-      const their = (mine ? m.scoreB + m.bonusB : m.scoreA + m.bonusA);
-      return {
-        round: roundTitle(ctx, m),
-        against: other?.nick ?? '—',
-        score: `${my}:${their}`,
-        won: m.winnerId === playerId,
-      };
-    });
-
-  if (steps.length === 0) return null;
-  return { player, steps };
-}
-
 // ────────────────────────────────────────── итоги по журналам матчей
 
 /** Сколько раз карту играли и банили. Ключ — id карты. */
@@ -766,47 +681,30 @@ interface MapTally {
 /** Разбор журналов сыгранных матчей. Считается один раз на паузу. */
 export interface Tally {
   maps: MapTally[];
-  mods: ModStatsPayload['rows'];
   /** Самая близкая карта, длинная серия, быстрый матч, забаненная карта. */
   records: RecordsPayload['items'];
 }
 
 export function buildTally(ctx: AirContext): Tally {
   const byMap = new Map<string, MapTally>();
-  const byMod = new Map<ModTag, { played: number; banned: number; blowouts: number }>();
-
-  const bump = (mod: ModTag) => {
-    const had = byMod.get(mod);
-    if (had !== undefined) return had;
-    const fresh = { played: 0, banned: 0, blowouts: 0 };
-    byMod.set(mod, fresh);
-    return fresh;
-  };
 
   for (const m of ctx.logs) {
     for (const row of m.rows) {
       const map = rowMap(row);
       const key = `${row.slotLabel}|${map.title}`;
       const tally = byMap.get(key) ?? { map, played: 0, banned: 0 };
-      const mod = bump(row.mod);
 
       if (row.state.kind === 'played') {
         tally.played += 1;
-        mod.played += 1;
       } else if (row.state.kind === 'banned') {
         tally.banned += 1;
-        mod.banned += 1;
       }
       byMap.set(key, tally);
     }
   }
 
   const maps = [...byMap.values()].sort((x, y) => y.played + y.banned - (x.played + x.banned));
-  const mods = [...byMod.entries()]
-    .map(([mod, v]) => ({ mod, ...v }))
-    .sort((x, y) => y.played - x.played);
-
-  return { maps, mods, records: records(ctx, maps) };
+  return { maps, records: records(ctx, maps) };
 }
 
 function records(ctx: AirContext, maps: MapTally[]): RecordsPayload['items'] {
@@ -871,18 +769,6 @@ function span(from: string | null, to: string | null): number {
   const b = Date.parse(to);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
   return Math.round((b - a) / 1000);
-}
-
-export function poolRecap(tally: Tally): PoolRecapPayload {
-  return {
-    rows: tally.maps
-      .filter((x) => x.played + x.banned > 0)
-      .map((x) => ({ ...x.map, played: x.played, banned: x.banned })),
-  };
-}
-
-export function modStats(tally: Tally): ModStatsPayload {
-  return { rows: tally.mods };
 }
 
 export function champion(ctx: AirContext): ChampionPayload | null {

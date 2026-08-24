@@ -108,34 +108,25 @@ export interface AirScore {
 
 export const MATCH_SCENES = [
   'matchIntro',
-  'firstBanDraw',
   'matchLive',
   'banReveal',
   'pickReveal',
   'mapProgress',
   'mapResult',
-  'matchPoint',
-  'decider',
   'matchResult',
 ] as const;
 
 export const PAUSE_SCENES = [
   'bracket',
-  'poolShowcase',
   'standings',
   'nextUp',
   'countdown',
   'playerCard',
-  'headToHead',
-  'playerPath',
   'records',
-  'modStats',
-  'poolRecap',
   'champion',
   'credits',
   'idle',
   'message',
-  'clip',
 ] as const;
 
 export type MatchSceneId = (typeof MATCH_SCENES)[number];
@@ -162,15 +153,6 @@ export interface MatchIntroPayload {
   versusB: number;
   target: number;
   round: string;
-}
-
-export interface FirstBanDrawPayload {
-  a: AirPlayer;
-  b: AirPlayer;
-  /** Кто банит первым. */
-  first: number;
-  /** «жеребьёвка» или «по сеянию» — почему именно он. */
-  why: string;
 }
 
 export interface MatchLivePayload {
@@ -219,24 +201,6 @@ export interface MapResultPayload {
   scoreB: number;
   a: AirPlayer;
   b: AirPlayer;
-}
-
-export interface MatchPointPayload {
-  who: AirPlayer;
-  a: AirPlayer;
-  b: AirPlayer;
-  scoreA: number;
-  scoreB: number;
-}
-
-export interface DeciderPayload {
-  /** Тайбрейк, если он есть в маппуле. */
-  map: AirMap | null;
-  a: AirPlayer;
-  b: AirPlayer;
-  scoreA: number;
-  scoreB: number;
-  why: string;
 }
 
 export interface MatchResultPayload {
@@ -326,11 +290,6 @@ export interface BracketPayload {
   stops: AirBracketStop[];
 }
 
-export interface PoolShowcasePayload {
-  title: string;
-  groups: { mod: ModTag; maps: AirMap[] }[];
-}
-
 export interface StandingsPayload {
   rows: {
     nick: string;
@@ -373,32 +332,9 @@ export interface PlayerCardPayload {
   worstMod: string | null;
 }
 
-export interface HeadToHeadPayload {
-  a: AirPlayer;
-  b: AirPlayer;
-  winsA: number;
-  winsB: number;
-  matches: { round: string; score: string; winner: number | null }[];
-  /** Любимая карта каждого. Пусто — не играли столько, чтобы было видно. */
-  favourites: { playerId: number; title: string }[];
-}
-
-export interface PlayerPathPayload {
-  player: AirPlayer;
-  steps: { round: string; against: string; score: string; won: boolean }[];
-}
-
 export interface RecordsPayload {
   /** Строки собирает хост: он один знает, что посчиталось, а что нет. */
   items: { title: string; value: string; note: string | null }[];
-}
-
-export interface ModStatsPayload {
-  rows: { mod: ModTag; played: number; banned: number; blowouts: number }[];
-}
-
-export interface PoolRecapPayload {
-  rows: (AirMap & { played: number; banned: number })[];
 }
 
 export interface ChampionPayload {
@@ -418,40 +354,25 @@ export interface CreditsPayload {
   rows: { place: number | null; nick: string; color: string }[];
 }
 
-export interface ClipPayload {
-  /** Адрес файла. Раздаётся только локальным сервером — см. `localOnly`. */
-  src: string;
-  title: string | null;
-}
-
 /** Все виды содержимого. Сцена выбирает рендерер по `id`, а не по форме данных. */
 export type ScenePayload =
   | IdlePayload
   | MessagePayload
   | MatchIntroPayload
-  | FirstBanDrawPayload
   | MatchLivePayload
   | BanRevealPayload
   | PickRevealPayload
   | MapProgressPayload
   | MapResultPayload
-  | MatchPointPayload
-  | DeciderPayload
   | MatchResultPayload
   | BracketPayload
-  | PoolShowcasePayload
   | StandingsPayload
   | NextUpPayload
   | CountdownPayload
   | PlayerCardPayload
-  | HeadToHeadPayload
-  | PlayerPathPayload
   | RecordsPayload
-  | ModStatsPayload
-  | PoolRecapPayload
   | ChampionPayload
   | CreditsPayload
-  | ClipPayload
   | Record<string, never>;
 
 // ──────────────────────────────────────────────── пульт: что знает хост
@@ -490,24 +411,18 @@ export interface AirConfig {
   pauseAuto: boolean;
   /** Своя надпись для сцены `message`. */
   message: string;
-  /** Файл для сцены `clip`. */
-  clip: string;
 }
 
 export const DEFAULT_CONFIG: AirConfig = {
   // По умолчанию не придерживаем: эфир не должен требовать внимания.
   holdPicks: false,
-  // Включено всё, что считается по самому турниру. Выключен только свой
-  // видеофайл: под него нужен файл, а без файла кнопка была бы обманом.
-  enabled: [
-    ...MATCH_SCENES,
-    ...PAUSE_SCENES.filter((id) => id !== 'clip'),
-  ],
+  // Включено всё: каждая сцена считается по самому турниру, и данных под них
+  // не надо доносить руками.
+  enabled: [...MATCH_SCENES, ...PAUSE_SCENES],
   roundPlans: {},
   pauseBudget: 240,
   pauseAuto: true,
   message: '',
-  clip: '',
 };
 
 /** Состояние эфира со стороны Rust. */

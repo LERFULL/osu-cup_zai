@@ -129,23 +129,6 @@ export function planMatch(
     return out;
   }
 
-  // ── жеребьёвка первого бана
-  if (prev.firstBanBy === null && next.firstBanBy !== null) {
-    const a = build.airPlayer(ctx, next.playerA);
-    const b = build.airPlayer(ctx, next.playerB);
-    const first = build.airPlayer(ctx, next.firstBanBy);
-    if (a !== null && b !== null && first !== null) {
-      out.push(
-        single(
-          'firstBanDraw',
-          { a, b, first: first.id, why: 'жеребьёвка' },
-          `Кто банит первым — ${first.nick}`,
-          live,
-        ),
-      );
-    }
-  }
-
   // ── бан сделан
   if (count(next, 'ban') > count(prev, 'ban')) {
     const reveal = build.banReveal(ctx, next);
@@ -191,49 +174,6 @@ export function planMatch(
           live,
         ),
       );
-    }
-
-    // ── решающая карта: обоим осталась одна победа
-    const a = next.scoreA + next.bonusA;
-    const b = next.scoreB + next.bonusB;
-    const sideA = build.airPlayer(ctx, next.playerA);
-    const sideB = build.airPlayer(ctx, next.playerB);
-
-    if (sideA !== null && sideB !== null && next.status !== 'finished') {
-      if (a === next.target - 1 && b === next.target - 1) {
-        const tb = next.rows.find((r) => r.mod === 'TB');
-        out.push(
-          single(
-            'decider',
-            {
-              map:
-                tb === undefined
-                  ? null
-                  : build.airMap(tb.slotLabel, tb.mod, tb.beatmap, tb.starRatingWithMods),
-              a: sideA,
-              b: sideB,
-              scoreA: a,
-              scoreB: b,
-              why: 'до победы одна карта',
-            },
-            'Решающая карта',
-            live,
-          ),
-        );
-      } else if (next.matchPoint.length > 0) {
-        // ── кому-то осталась одна победа
-        const who = build.airPlayer(ctx, next.matchPoint[0] ?? null);
-        if (who !== null) {
-          out.push(
-            single(
-              'matchPoint',
-              { who, a: sideA, b: sideB, scoreA: a, scoreB: b },
-              `Матчпоинт — ${who.nick}`,
-              live,
-            ),
-          );
-        }
-      }
     }
   }
 

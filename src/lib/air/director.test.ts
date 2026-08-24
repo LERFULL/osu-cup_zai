@@ -208,14 +208,6 @@ describe('сценарий эфира', () => {
     expect(p.round).toBe('Верхняя, раунд 1');
   });
 
-  it('жеребьёвка первого бана выходит один раз', () => {
-    const before = state({ firstBanBy: null, phase: { kind: 'notStarted' } });
-    const after = state({ firstBanBy: B });
-    expect(ids(planMatch(context(), before, after, null))).toEqual(['firstBanDraw']);
-    // Второй раз событие не повторяется: значение уже задано.
-    expect(planMatch(context(), after, after, null)).toEqual([]);
-  });
-
   it('бан — врезка поверх матча, и она возвращает матч', () => {
     const before = state();
     const after = state({
@@ -256,41 +248,6 @@ describe('сценарий эфира', () => {
     const out = planMatch(context(), before, after, null);
     expect(ids(out)).toEqual(['pickReveal']);
     expect(out[0]?.after).toEqual({ kind: 'progress' });
-  });
-
-  it('результат карты, а за ним матчпоинт — двумя кадрами', () => {
-    const before = state({
-      actions: [action(1, 'pick', 'NM2')],
-      scoreA: 1,
-      scoreB: 1,
-      rows: [row('NM2', 'NM', { kind: 'playing', by: A })],
-    });
-    const after = state({
-      actions: [action(1, 'pick', 'NM2'), action(2, 'result', 'NM2', { winnerId: A })],
-      scoreA: 2,
-      scoreB: 1,
-      matchPoint: [A],
-      rows: [row('NM2', 'NM', { kind: 'played', winner: A, n: 2 })],
-    });
-
-    const out = planMatch(context(), before, after, null);
-    expect(ids(out)).toEqual(['mapResult', 'matchPoint']);
-    expect(out[1]?.layers[0]?.payload).toMatchObject({ who: { nick: 'NAGISA' } });
-  });
-
-  it('при равном счёте в шаге от победы выходит решающая карта, а не матчпоинт', () => {
-    const before = state({ actions: [action(1, 'pick', 'NM2')], scoreA: 1, scoreB: 2 });
-    const after = state({
-      actions: [action(1, 'pick', 'NM2'), action(2, 'result', 'NM2', { winnerId: A })],
-      scoreA: 2,
-      scoreB: 2,
-      matchPoint: [A, B],
-      rows: [row('NM2', 'NM', { kind: 'played', winner: A, n: 2 })],
-    });
-
-    const out = planMatch(context(), before, after, null);
-    expect(ids(out)).toEqual(['mapResult', 'decider']);
-    expect(ids(out)).not.toContain('matchPoint');
   });
 
   it('без лобби результат карты идёт без цифр, но выходит', () => {

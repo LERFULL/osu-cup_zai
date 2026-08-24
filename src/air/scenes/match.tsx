@@ -7,17 +7,14 @@
 import { useEffect, useState } from 'react';
 import type {
   BanRevealPayload,
-  DeciderPayload,
-  FirstBanDrawPayload,
   MapProgressPayload,
   MapResultPayload,
   MatchIntroPayload,
   MatchLivePayload,
-  MatchPointPayload,
   MatchResultPayload,
   PickRevealPayload,
 } from '@/lib/air/types';
-import { big, coverOf, Face, Frame, Head, Hex, MapLine, Roll, Score, stars, time } from './parts';
+import { big, coverOf, Face, Frame, Head, Hex, MapLine, Roll, stars, time } from './parts';
 import s from './match.module.css';
 
 /** Секунды, прошедшие с момента. Тикает раз в 200 мс — этого хватает полосе. */
@@ -71,48 +68,6 @@ export function MatchIntro({ p }: { p: MatchIntroPayload }) {
 }
 
 // ───────────────────────────────────────────────────────── жеребьёвка
-
-/**
- * Подсветка бежит между двумя и останавливается на том, кто банит первым.
- * Останов задан анимацией, а не таймером: он должен совпасть у всех зрителей,
- * а сообщения приходят каждому в своё время.
- */
-export function FirstBanDraw({ p }: { p: FirstBanDrawPayload }) {
-  const first = p.first === p.a.id ? p.a : p.b;
-  const onB = p.first === p.b.id;
-
-  return (
-    <Frame title="Кто банит первым" note={p.why}>
-      <div className={s.draw}>
-        {/* Бегунок ходит поверх двух карточек и встаёт на нужной. Где он
-            остановится, знает CSS: `--stop` это 0 или 1. */}
-        <div
-          className={s.drawRunner}
-          style={{ '--stop': onB ? 1 : 0, '--who': first.color } as React.CSSProperties}
-          aria-hidden
-        />
-
-        <div
-          className={[s.drawSide, p.first === p.a.id ? s.drawWon : s.drawLost].join(' ')}
-          style={{ '--who': p.a.color } as React.CSSProperties}
-        >
-          <Face player={p.a} size={180} />
-          <div className={s.drawNick}>{p.a.nick}</div>
-        </div>
-        <div
-          className={[s.drawSide, p.first === p.b.id ? s.drawWon : s.drawLost].join(' ')}
-          style={{ '--who': p.b.color } as React.CSSProperties}
-        >
-          <Face player={p.b} size={180} />
-          <div className={s.drawNick}>{p.b.nick}</div>
-        </div>
-      </div>
-      <div className={s.drawResult} style={{ color: first.color }}>
-        {first.nick} банит первым
-      </div>
-    </Frame>
-  );
-}
 
 // ────────────────────────────────────────────────────────── ход матча
 
@@ -368,36 +323,6 @@ export function MapResult({ p }: { p: MapResultPayload }) {
 }
 
 // ─────────────────────────────────────────────────── матчпоинт и итог
-
-export function MatchPoint({ p }: { p: MatchPointPayload }) {
-  return (
-    <Frame title="Матчпоинт">
-      <div className={s.point}>
-        <Face player={p.who} size={220} />
-        <div className={s.pointNick} style={{ color: p.who.color }}>
-          {p.who.nick}
-        </div>
-        <div className={s.pointNote}>осталась одна победа</div>
-        <div className={s.pointScore}>
-          {p.scoreA} : {p.scoreB}
-        </div>
-      </div>
-    </Frame>
-  );
-}
-
-export function Decider({ p }: { p: DeciderPayload }) {
-  return (
-    <Frame title="Решающая карта" note={p.why}>
-      <Score a={p.a} b={p.b} scoreA={p.scoreA} scoreB={p.scoreB} target={p.scoreA + 1} />
-      {p.map !== null ? (
-        <MapLine map={p.map} glow className={s.deciderMap} />
-      ) : (
-        <div className={s.noScores}>тайбрейка в маппуле нет — играется следующая карта</div>
-      )}
-    </Frame>
-  );
-}
 
 export function MatchResult({ p }: { p: MatchResultPayload }) {
   const loser = p.winner.id === p.a.id ? p.b : p.a;
