@@ -1,9 +1,14 @@
-// Стор эфира. Здесь живёт то, что ведёт трансляцию: очередь предложений,
-// текущий кадр, плейлист паузы и таймеры.
+// Стор эфира. Здесь живёт то, что ведёт трансляцию: очередь кадров, текущий
+// кадр, плейлист паузы и таймеры.
 //
 // Он не привязан к экрану пульта нарочно: хост судит матч на одном экране, а
-// эфир должен идти сам. Поэтому стор сам опрашивает идущий матч и сам решает,
-// что показать, а пульт только рисует то, что здесь уже посчитано.
+// эфир идёт сам. Поэтому стор сам опрашивает идущий матч и сам решает, что
+// показать, а пульт только рисует то, что здесь уже посчитано.
+//
+// Режима управления один. Кадр выходит сам, потому что судья и хост — один
+// человек, и выбирать во время матча не из чего: у каждого состояния матча
+// есть ровно один правильный кадр. Единственное исключение — вскрытие пика,
+// которое можно придержать ради драмы.
 
 import { create } from 'zustand';
 import * as ipc from '@/lib/ipc';
@@ -37,9 +42,6 @@ const TICK = 400;
  * эфира невидим.
  */
 const BRACKET_EVERY = 2000;
-
-/** Глубина очереди предложений. Четвёртое выталкивает самое старое. */
-const QUEUE_DEPTH = 3;
 
 /** Что сейчас в эфире с точки зрения хоста. */
 interface Airing {
@@ -91,9 +93,11 @@ interface AirStore {
   watching: MatchState | null;
 
   airing: Airing | null;
+  /**
+   * Кадры, ждущие вывода. Обычно пусто или один: одно действие судьи даёт один
+   * кадр. Список — потому что бывает и два: результат карты, а за ним матчпоинт.
+   */
   proposals: Proposal[];
-  /** Предложения, вытесненные из очереди. Пульт про это говорит, а не молчит. */
-  overflow: number;
   /** Автоматика замерла на текущем кадре. */
   frozen: boolean;
   /**
@@ -130,8 +134,6 @@ interface AirStore {
   air: (p: Proposal) => Promise<void>;
   /** Дальше по сценарию: первое предложение или следующая сцена паузы. */
   next: () => Promise<void>;
-  /** Пропускает первое предложение. Оно не возвращается. */
-  skip: () => void;
   /** Замереть на текущем кадре или отпустить автоматику. */
   freeze: (value: boolean) => void;
   /** Своя надпись в эфир. */
@@ -180,7 +182,6 @@ export const useAir = create<AirStore>((set, get) => ({
 
   airing: null,
   proposals: [],
-  overflow: 0,
   frozen: false,
   hold: false,
 
@@ -239,7 +240,7 @@ export const useAir = create<AirStore>((set, get) => ({
 
     try {
       const status = await ipc.airStart(tournamentId, ctx?.bracket.name ?? 'Турнир');
-      set({ status, error: null, proposals: [], overflow: 0, frozen: false });
+      set({ status, error: null, proposals: [], frozen: false });
 
       // Эфир мог запуститься посреди турнира — это нормальный ход: заставка
       // до первого события, счётчики показов при этом не пустые. Заставка не
@@ -303,11 +304,6 @@ export const useAir = create<AirStore>((set, get) => ({
     await advancePause(get, set, true);
   },
 
-  skip() {
-    // Пропущенное предложение не возвращается: это решение, а не отсрочка.
-    set({ proposals: get().proposals.slice(1) });
-  },
-
   freeze(value) {
     set({ frozen: value });
   },
@@ -368,18 +364,13 @@ export const useAir = create<AirStore>((set, get) => ({
     const first = state.proposals[0];
     if (first !== undefined) {
       const rest = state.proposals.length - 1;
+      const held = heldPick(state);
+      const tail = rest > 0 ? ` · за ним ещё ${rest}` : '';
       return {
         label: first.label,
         source: 'match',
-        note:
-          state.config.mode === 'auto'
-            ? rest > 0
-              ? `выйдет сам · за ним ещё ${rest}`
-              : 'выйдет сам'
-            : rest > 0
-              ? `ждёт кнопки · за ним ещё ${rest}`
-              : 'ждёт кнопки',
-        automatic: state.config.mode === 'auto',
+        note: held ? `придержан — выпусти кнопкой${tail}` : `выйдет сам${tail}`,
+        automatic: !held,
       };
     }
 
@@ -649,23 +640,30 @@ function currentGame(lobby: LobbyState | null, m: MatchState): LobbyGame | null 
   return done[done.length - 1] ?? null;
 }
 
-/** Кладёт предложения в очередь. Очередь глубиной три. */
+/**
+ * Кладёт кадры в очередь и выпускает их сам.
+ *
+ * Сам — потому что режима управления один: у каждого состояния матча есть
+ * ровно один правильный кадр, и спрашивать про него не за что. Не сам эфир
+ * не выходит только в двух случаях: хост замер или придерживает пик.
+ */
 function enqueue(get: Get, set: Set, fresh: Proposal[]) {
   const state = get();
-  const merged = [...state.proposals, ...fresh];
-  const kept = merged.slice(Math.max(0, merged.length - QUEUE_DEPTH));
   const opensMatch = fresh.some((p) => isMatchScene(p.id));
 
   set({
-    proposals: kept,
-    overflow: state.overflow + (merged.length - kept.length),
+    proposals: [...state.proposals, ...fresh],
     // В матче что-то произошло — отыгранная пауза больше не отыграна.
     pauseDone: false,
     // Игра началась: отсчёт до неё больше ничего не считает.
     ...(opensMatch ? { countdownUntil: null } : {}),
   });
 
-  if (state.config.mode !== 'auto' || state.frozen) return;
+  if (state.frozen) return;
+
+  // Пик придержан: кадр стоит в очереди и ждёт кнопки. Всё, что встало за ним,
+  // ждёт тоже — иначе результат карты вышел бы раньше её вскрытия.
+  if (heldPick(get())) return;
 
   // Началась игра, а в эфире сцена паузы. Ждать её конца нельзя, но и рубить
   // кадр в тот же миг плохо: смена без перехода читается как сбой. Поэтому
@@ -683,6 +681,11 @@ function enqueue(get: Get, set: Set, fresh: Proposal[]) {
   }
 
   void get().next();
+}
+
+/** Первым в очереди стоит придержанный пик: он ждёт кнопки. */
+function heldPick(state: AirStore): boolean {
+  return state.config.holdPicks && state.proposals[0]?.id === 'pickReveal';
 }
 
 // ───────────────────────────────────────────────────────────── таймеры

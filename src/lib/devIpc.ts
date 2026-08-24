@@ -1745,6 +1745,23 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
   ...airHandlers(),
 };
 
+/**
+ * Ответ, отвязанный от состояния заглушки.
+ *
+ * Настоящий IPC Tauri сериализует ответ в JSON, поэтому каждый вызов отдаёт
+ * свежую копию. Заглушка обязана вести себя так же. Отдай она ссылку на свои
+ * массивы — и любой код, сравнивающий «было» со «стало», сломался бы молча:
+ * прошлое состояние дорастало бы вместе с нынешним.
+ *
+ * Именно так и случилось с эфиром. Он весь построен на разнице состояний матча,
+ * а `match_state` отдавал живой `actions`: длина «прошлого» всегда совпадала с
+ * длиной «нынешнего», разницы не находилось, и ни один кадр матча не выходил —
+ * в приложении при этом всё работало.
+ */
+function detached<T>(value: T): T {
+  return value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T);
+}
+
 /** Ставится один раз при старте, если настоящего Tauri в окне нет. */
 export function installMockIpc(): void {
   const w = window as unknown as Record<string, unknown>;
@@ -1760,7 +1777,7 @@ export function installMockIpc(): void {
     invoke: (cmd: string, args: Args = {}) => {
       const handler = HANDLERS[cmd];
       if (!handler) return Promise.reject(new Error(`Команда ${cmd} не заглушена`));
-      return Promise.resolve(handler(args));
+      return Promise.resolve(detached(handler(args)));
     },
     transformCallback: (cb: unknown) => {
       const id = callbackId++;

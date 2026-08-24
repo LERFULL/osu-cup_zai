@@ -64,9 +64,6 @@ export function useAirKeys(): void {
       if (e.code === 'Space') {
         e.preventDefault();
         void air.next();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        air.skip();
       } else if (e.key === 'Pause' || e.key.toLowerCase() === 'p') {
         e.preventDefault();
         air.freeze(!air.frozen);

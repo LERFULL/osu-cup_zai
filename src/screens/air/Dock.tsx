@@ -78,11 +78,6 @@ export function Dock() {
           <button className={s.go} type="button" onClick={() => void air.next()}>
             Дальше ▸
           </button>
-          {air.proposals.length > 0 ? (
-            <button className={s.btn} type="button" onClick={() => air.skip()}>
-              Пропустить
-            </button>
-          ) : null}
           <button
             className={air.frozen ? s.btnOn : s.btn}
             type="button"

@@ -1,35 +1,16 @@
 // Настройка эфира до запуска.
 //
-// Порядок блоков — порядок решений: сначала кто ведёт кадры, потом что вообще
-// можно показывать, потом сколько это длится, и только в конце — как зрители
-// это получат. Проверка связи стоит рядом с публичной ссылкой, а не отдельно:
-// узнать, что туннель не проходит, надо до эфира, а не посреди турнира.
+// Порядок блоков — порядок решений: сначала что вообще можно показывать, потом
+// сколько это длится, и только в конце — куда идёт кадр. Решений мало нарочно:
+// эфир идёт сам, и настраивать в нём почти нечего.
 
 import { Button, Field, Switch } from '@/components';
 import { Card } from './Card';
 import { RoundPlans } from './RoundPlans';
 import { MATCH_LIST, PAUSE_LIST, type SceneMeta } from '@/lib/air/catalog';
 import { useAir } from '@/lib/air/store';
-import type { AirMode, SceneId } from '@/lib/air/types';
+import type { SceneId } from '@/lib/air/types';
 import s from './Setup.module.css';
-
-const MODES: { id: AirMode; title: string; about: string }[] = [
-  {
-    id: 'manual',
-    title: 'Ручной',
-    about: 'Ничего не происходит само. Придержать вскрытие пика ради драмы — можно.',
-  },
-  {
-    id: 'confirm',
-    title: 'С подтверждением',
-    about: 'Приложение считает переходы, но ждёт кнопки. Сценарий помнить не надо.',
-  },
-  {
-    id: 'auto',
-    title: 'Авто',
-    about: 'Кадры выходят сами. Судишь матч и об эфире не думаешь.',
-  },
-];
 
 export function Setup() {
   const { config, patchConfig, start, ctx, error } = useAir();
@@ -77,22 +58,14 @@ export function Setup() {
     <div className={s.setup}>
       {error !== null ? <div className={s.error}>{error}</div> : null}
 
-      <Card title="Кто ведёт кадры">
-        <div className={s.modes}>
-          {MODES.map((mode) => (
-            <button
-              key={mode.id}
-              className={[s.mode, config.mode === mode.id ? s.modeOn : null]
-                .filter(Boolean)
-                .join(' ')}
-              type="button"
-              onClick={() => void patchConfig({ mode: mode.id })}
-            >
-              <span className={s.modeTitle}>{mode.title}</span>
-              <span className={s.modeAbout}>{mode.about}</span>
-            </button>
-          ))}
-        </div>
+      <Card title="Кто ведёт кадры" note="эфир идёт сам — судить и вести его может один человек">
+        <Switch
+          checked={config.holdPicks}
+          onChange={(v) => void patchConfig({ holdPicks: v })}
+          note="Пик — тот момент, который хочется вскрыть тогда, когда решил ты, а не когда судья ввёл. Всё остальное выходит без нажатий"
+        >
+          Придерживать вскрытие пика
+        </Switch>
       </Card>
 
       {group(

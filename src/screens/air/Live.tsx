@@ -24,7 +24,7 @@ const inTauri = isTauri();
 
 export function Live() {
   const air = useAir();
-  const { status, config, airing, proposals, overflow, frozen, playlist, lobby, error } = air;
+  const { status, config, airing, proposals, frozen, playlist, lobby, error } = air;
   const frame = useFrame();
 
   const [minutes, setMinutes] = useState(6);
@@ -80,9 +80,6 @@ export function Live() {
             <Button variant="primary" onClick={() => void air.next()}>
               Дальше ▸
             </Button>
-            {proposals.length > 0 ? (
-              <Button onClick={() => air.skip()}>Пропустить</Button>
-            ) : null}
             <Button
               {...(frozen ? ({ variant: 'primary' } as const) : {})}
               onClick={() => air.freeze(!frozen)}
@@ -102,12 +99,6 @@ export function Live() {
                   {p.label}
                 </div>
               ))}
-            </div>
-          ) : null}
-
-          {overflow > 0 ? (
-            <div className={s.warn}>
-              Очередь глубиной три: {overflow} предложений вытеснено, они не вернутся
             </div>
           ) : null}
 
@@ -233,27 +224,12 @@ export function Live() {
             </Card>
 
             <Card title="Как ведём">
-              <div className={s.modes}>
-                {(
-                  [
-                    ['manual', 'Руками', 'сценарий считается, но не выводится'],
-                    ['confirm', 'С подтверждением', 'предложение ждёт кнопки'],
-                    ['auto', 'Сам', 'кадры выходят без нажатий'],
-                  ] as const
-                ).map(([mode, title, note]) => (
-                  <button
-                    key={mode}
-                    className={[s.mode, config.mode === mode ? s.modeOn : null]
-                      .filter(Boolean)
-                      .join(' ')}
-                    type="button"
-                    onClick={() => void air.patchConfig({ mode })}
-                  >
-                    <span className={s.modeTitle}>{title}</span>
-                    <span className={s.modeNote}>{note}</span>
-                  </button>
-                ))}
-              </div>
+              <Switch
+                checked={config.holdPicks}
+                onChange={(value) => void air.patchConfig({ holdPicks: value })}
+              >
+                Придерживать вскрытие пика
+              </Switch>
 
               <Field
                 label="Ожидаемая пауза между матчами, минуты"
@@ -292,7 +268,7 @@ export function Live() {
 
       <div className={s.foot}>
         <span className={s.keys}>
-          Пробел — дальше · Esc — пропустить · P — замереть
+          Пробел — дальше · P — замереть
         </span>
         <Button
           variant="danger"
