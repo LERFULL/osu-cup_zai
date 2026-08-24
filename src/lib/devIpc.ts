@@ -32,6 +32,7 @@ import type {
 } from './types';
 import { COLLECTIONS, LABELS, MAPS } from './mock';
 import { tournamentHandlers } from './devTournaments';
+import { airHandlers } from './devAir';
 import { EMPTY_FILTER, EMPTY_RULES, MOD_TAGS } from './types';
 
 type Args = Record<string, unknown>;
@@ -1737,6 +1738,10 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     },
     overlaps,
   }),
+
+  // Эфир: сцены уходят в канал внутри браузера, а не по сети. Так пульт и
+  // `air.html` в двух вкладках дают посмотреть все сцены живьём.
+  ...airHandlers(),
 };
 
 /** Ставится один раз при старте, если настоящего Tauri в окне нет. */
@@ -1745,6 +1750,10 @@ export function installMockIpc(): void {
 
   // Обработчики колбэков Tauri живут в window по числовому идентификатору.
   let callbackId = 1;
+
+  // Метка заглушки: по ней пульт понимает, что настоящего сервера эфира нет
+  // и кадр надо смотреть каналом внутри браузера, а не по локальному адресу.
+  w['__OSUCUP_MOCK__'] = true;
 
   w['__TAURI_INTERNALS__'] = {
     invoke: (cmd: string, args: Args = {}) => {

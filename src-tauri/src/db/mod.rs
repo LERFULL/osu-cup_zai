@@ -1,10 +1,10 @@
 //! Слой SQLite. Одно соединение под мьютексом — приложение однопользовательское,
 //! конкуренции за запись нет, а WAL и busy_timeout закрывают редкие пересечения.
 
+pub mod air;
 pub mod beatmaps;
 pub mod bracket;
-pub mod collections;
-pub mod exclusions;
+pub mod collections;pub mod exclusions;
 pub mod feasible;
 pub mod generate;
 pub mod labels;
@@ -40,17 +40,21 @@ const SERIES: &str = include_str!("migrations/003_series_sources_exclusions.sql"
 /// замороженное правило матча и журнал правок.
 const EDITOR: &str = include_str!("migrations/004_tournament_editor.sql");
 
-/// Миграции по возрастанию версии. Чтобы добавить версию 5, допиши пару
-/// `(5, include_str!("migrations/005_...sql"))` — цикл применит её сам.
+/// Эфир: настройки, счётчик показов сцен и ссылка на лобби матча.
+const AIR: &str = include_str!("migrations/005_air.sql");
+
+/// Миграции по возрастанию версии. Чтобы добавить версию 6, допиши пару
+/// `(6, include_str!("migrations/006_...sql"))` — цикл применит её сам.
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, SCHEMA_V1),
     (2, BUILTIN_TEMPLATES),
     (3, SERIES),
     (4, EDITOR),
+    (5, AIR),
 ];
 
 /// Версия схемы, которую ожидает текущий код.
-const TARGET_VERSION: i64 = 4;
+const TARGET_VERSION: i64 = 5;
 
 pub struct Db {
     conn: Mutex<Connection>,

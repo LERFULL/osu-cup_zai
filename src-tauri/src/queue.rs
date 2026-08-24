@@ -30,6 +30,17 @@ impl RateLimiter {
 
     /// Ждёт, пока в окне освободится место, и отмечает израсходованное разрешение.
     pub async fn acquire(&self) {
+        self.acquire_reserving(0).await
+    }
+
+    /// То же, но оставляет `reserve` мест свободными.
+    ///
+    /// Так сделан приоритет опроса лобби над импортом: результат идущей карты
+    /// нужен сейчас, а обложки могут подождать. Очереди у окна нет вовсе — оно
+    /// скользящее, — поэтому приоритет получается не порядком, а тем, что импорт
+    /// не занимает последние места.
+    pub async fn acquire_reserving(&self, reserve: usize) {
+        let ceiling = self.limit.saturating_sub(reserve).max(1);
         loop {
             let wait = {
                 let mut hits = self.hits.lock().await;
@@ -43,7 +54,7 @@ impl RateLimiter {
                     }
                 }
 
-                if hits.len() < self.limit {
+                if hits.len() < ceiling {
                     hits.push_back(now);
                     return;
                 }

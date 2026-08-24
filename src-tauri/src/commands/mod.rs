@@ -1,5 +1,6 @@
 //! Команды, которые видит фронт. Сигнатуры зеркалят `src/lib/ipc.ts`.
 
+pub mod air;
 pub mod collections;
 pub mod imports;
 pub mod library;

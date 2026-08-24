@@ -12,6 +12,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "5177", "--directory", "design"],
       "port": 5177
+    },
+    {
+      "name": "app-worktree",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite"],
+      "port": 5180
     }
   ]
 }

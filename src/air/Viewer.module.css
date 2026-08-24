@@ -1,0 +1,145 @@
+/* Страница зрителя целиком. Кадр строится под 1920×1080 и масштабируется
+   целиком, а не переверстывается: зритель смотрит в окне произвольного
+   размера, а OBS ждёт ровно этот размер. */
+
+.screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+}
+
+/* Один переход на весь эфир, не зоопарк: новое приходит снизу с приближением,
+   старое уходит вверх и растворяется. Оба движения одной длины — иначе на
+   стыке видно щель или наложение. */
+.layerIn {
+  animation: enter var(--move) var(--ease) both;
+}
+
+@keyframes enter {
+  from {
+    transform: translateY(52px) scale(0.985);
+    opacity: 0;
+  }
+}
+
+/* Уходящий кадр не ловит мышь и не спорит с новым за место. */
+.layerOut {
+  z-index: 1;
+  pointer-events: none;
+  animation: leave var(--move) var(--ease) both;
+}
+
+@keyframes leave {
+  to {
+    transform: translateY(-40px) scale(1.015);
+    opacity: 0;
+  }
+}
+
+/* Врезка накрывает сцену под собой, а не заменяет её. */
+.layerTop {
+  z-index: 2;
+}
+
+.viewers {
+  position: absolute;
+  right: 40px;
+  top: 34px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: rgb(12 14 19 / 0.62);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  color: var(--txt2);
+}
+
+.viewers i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 14px var(--red);
+}
+
+.badge {
+  position: absolute;
+  left: 50%;
+  top: 34px;
+  z-index: 6;
+  transform: translateX(-50%);
+  padding: 14px 30px;
+  border-radius: 999px;
+  background: rgb(255 107 107 / 0.16);
+  border: 1px solid color-mix(in srgb, var(--red) 50%, transparent);
+  color: var(--red);
+  font-size: 26px;
+  font-weight: 700;
+}
+
+/* Пустой экран до первого кадра. Здесь ещё нечего накрывать. */
+.plain {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--txt2);
+  font-size: 32px;
+}
+
+/* Эфир окончен: надпись поверх последнего кадра, а не чёрный экран. */
+.over {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  background: rgb(12 14 19 / 0.82);
+  color: var(--txt);
+  font-size: 46px;
+  font-weight: 800;
+}
+
+.sound {
+  position: absolute;
+  left: 28px;
+  bottom: 28px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgb(22 25 34 / 0.9);
+  color: var(--txt);
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sound:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

@@ -337,6 +337,52 @@ export function MatchView({ id, onClose }: Props) {
             </div>
           ) : null}
 
+          {/* Лобби нужно эфиру: без него он покажет счёт по картам, но без
+              очков, точности и комбо. Матчу оно не нужно вовсе, поэтому поле
+              необязательное и стоит одной строкой. */}
+          <div className={s.lobby}>
+            <span className={s.lobbyLabel}>Лобби osu!</span>
+            {state.lobbyId === null ? (
+              <button
+                className={s.lobbyLink}
+                type="button"
+                onClick={() => {
+                  const raw = window.prompt(
+                    'Ссылка на мультиплеерный матч или его номер. Эфир возьмёт оттуда очки, точность и комбо.',
+                  );
+                  if (raw === null) return;
+                  const found = /(\d{5,})/.exec(raw);
+                  if (found === null) {
+                    setError('В этой строке нет номера матча');
+                    return;
+                  }
+                  void run(async () => {
+                    await ipc.setMatchLobby(id, Number(found[1]));
+                    return ipc.matchState(id);
+                  });
+                }}
+              >
+                привязать
+              </button>
+            ) : (
+              <>
+                <span className={s.lobbyId}>{state.lobbyId}</span>
+                <button
+                  className={s.lobbyLink}
+                  type="button"
+                  onClick={() =>
+                    void run(async () => {
+                      await ipc.setMatchLobby(id, null);
+                      return ipc.matchState(id);
+                    })
+                  }
+                >
+                  снять
+                </button>
+              </>
+            )}
+          </div>
+
           <div className={s.pool}>
             {groups.map((group) => (
               <div key={group.mod} className={s.group}>

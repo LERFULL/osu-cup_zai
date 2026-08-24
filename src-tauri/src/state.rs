@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::air::AirSlot;
 use crate::cache::CoverCache;
 use crate::config::ConfigStore;
 use crate::db::Db;
@@ -18,6 +19,9 @@ pub struct AppState {
     pub limiter: RateLimiter,
     pub batches: BatchRegistry,
     pub runner: RunnerGuard,
+    /// Идущий эфир. Один на приложение: две трансляции одного турнира с одной
+    /// машины — это два расходящихся состояния.
+    pub air: AirSlot,
     pub db_path: PathBuf,
     pub data_dir: PathBuf,
 }
@@ -38,6 +42,7 @@ impl AppState {
             limiter: RateLimiter::per_minute(60),
             batches: BatchRegistry::default(),
             runner: RunnerGuard::default(),
+            air: AirSlot::default(),
             db_path,
             data_dir,
         })

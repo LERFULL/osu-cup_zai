@@ -1,0 +1,308 @@
+/* Мини-пульт. Живёт поверх любого экрана, поэтому узкий и прижат в угол:
+   он подсказывает и даёт нажать, а не занимает место работы. */
+
+.dock {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--red) 32%, var(--line));
+  border-radius: 14px;
+  background: rgb(18 21 29 / 0.97);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.5);
+  backdrop-filter: blur(8px);
+  animation: dockIn 240ms cubic-bezier(0.16, 0.84, 0.28, 1);
+}
+
+@keyframes dockIn {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+}
+
+/* ── шапка */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 10px var(--red);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.viewers {
+  margin-right: auto;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.link,
+.fold {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.link:hover,
+.fold:hover {
+  border-color: var(--accent, var(--pink));
+  color: var(--txt);
+}
+
+.fold {
+  padding: 1px 7px 4px;
+  line-height: 1;
+}
+
+/* ── блоки «сейчас» и «дальше» */
+
+.block {
+  padding: 9px 12px 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* «Дальше» — то, ради чего панель и нужна: она отвечает на вопрос, который
+   хост задаёт себе каждые полминуты. */
+.blockNext {
+  background: rgb(255 255 255 / 0.02);
+}
+
+.label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--txt3);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.time {
+  margin-left: auto;
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.auto,
+.manual {
+  margin-left: auto;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+
+.auto {
+  color: var(--green);
+}
+
+.manual {
+  color: var(--gold);
+}
+
+.what {
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note {
+  margin-top: 2px;
+  color: var(--txt3);
+  font-size: 11px;
+}
+
+/* Полоса под названием кадра: сколько он уже отыграл. */
+.bar {
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.08);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--pink);
+  transition: width 200ms linear;
+}
+
+/* ── кнопки */
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.go,
+.btn,
+.btnOn,
+.btnDanger {
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--txt);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.14s, background 0.14s;
+}
+
+.go {
+  border-color: rgb(255 111 177 / 0.5);
+  background: rgb(255 111 177 / 0.14);
+  color: var(--pink);
+}
+
+.go:hover {
+  border-color: var(--pink);
+  background: rgb(255 111 177 / 0.22);
+}
+
+.btn:hover {
+  border-color: var(--txt2);
+  background: var(--card2);
+}
+
+.btnOn {
+  border-color: rgb(91 200 245 / 0.6);
+  background: rgb(91 200 245 / 0.14);
+  color: var(--cyan);
+}
+
+.btnDanger {
+  border-color: rgb(255 107 107 / 0.5);
+  color: var(--red);
+}
+
+.btnDanger:hover {
+  background: rgb(255 107 107 / 0.14);
+}
+
+.quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 9px 12px 11px;
+}
+
+.chip {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--txt2);
+  color: var(--txt);
+}
+
+.error {
+  padding: 7px 12px 9px;
+  border-top: 1px solid rgb(255 107 107 / 0.3);
+  color: var(--red);
+  font-size: 11px;
+}
+
+/* ── свёрнутое состояние */
+
+.pill {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 420px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--red) 32%, var(--line));
+  border-radius: 999px;
+  background: rgb(18 21 29 / 0.97);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.4);
+  color: var(--txt);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.pill i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 10px var(--red);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.pillNow {
+  font-weight: 700;
+}
+
+.pillNext {
+  overflow: hidden;
+  color: var(--txt3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pillViewers {
+  padding-left: 9px;
+  border-left: 1px solid var(--line);
+  color: var(--txt2);
+  font-family: var(--mono);
+}

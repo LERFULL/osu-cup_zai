@@ -10,18 +10,26 @@ use crate::model::{
 };
 
 const SCHEMA: &str = include_str!("schema.sql");
-const BUILTIN_TEMPLATES: &str = include_str!("migrations/002_builtin_templates.sql");
-const SERIES: &str = include_str!("migrations/003_series_sources_exclusions.sql");
-const EDITOR: &str = include_str!("migrations/004_tournament_editor.sql");
 
+/// Одна миграция по номеру версии — для тестов, которые проверяют именно её.
+fn migration(version: i64) -> &'static str {
+    super::MIGRATIONS
+        .iter()
+        .find(|(v, _)| *v == version)
+        .map(|(_, sql)| *sql)
+        .unwrap_or_else(|| panic!("миграции {version} нет в списке"))
+}
+
+/// База для теста. Миграции берём тем же списком, что и приложение: перечислять
+/// их здесь заново значит однажды забыть новую и получить падение всех тестов
+/// матчей вместо понятной ошибки.
 fn db() -> Connection {
     let conn = Connection::open_in_memory().expect("база в памяти");
     conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    conn.execute_batch(SCHEMA).expect("схема применилась");
-    conn.execute_batch(BUILTIN_TEMPLATES)
-        .expect("шаблоны из коробки применились");
-    conn.execute_batch(SERIES).expect("серии применились");
-    conn.execute_batch(EDITOR).expect("редактор турниров применился");
+    for (version, sql) in super::MIGRATIONS {
+        conn.execute_batch(sql)
+            .unwrap_or_else(|e| panic!("миграция {version} не применилась: {e}"));
+    }
     conn
 }
 
@@ -688,7 +696,7 @@ fn summary_follows_the_filter() {
 fn builtin_templates_are_seeded_once() {
     let conn = db();
     // Миграция идемпотентна: повторный запуск не должен удваивать шаблоны.
-    conn.execute_batch(BUILTIN_TEMPLATES).unwrap();
+    conn.execute_batch(migration(2)).unwrap();
 
     let list = templates::list(&conn).unwrap();
     assert_eq!(list.len(), 2);
@@ -1221,7 +1229,7 @@ fn old_rules_move_into_exclusions_on_migration() {
     )
     .unwrap();
 
-    conn.execute_batch(SERIES).unwrap();
+    conn.execute_batch(migration(3)).unwrap();
 
     let list = exclusions::raw_list(&conn, Owner::Template(7)).unwrap();
     assert!(
@@ -2195,6 +2203,31 @@ fn seeded_bracket_can_be_rebuilt_but_not_played() {
         .into_iter()
         .find(|m| m.player_a.is_some() && m.player_b.is_some())
         .unwrap();
+    assert!(matches::set_first_ban(&conn, m.id, m.player_a.unwrap()).is_ok());
+}
+
+/// Турнир не всегда доигрывается в тот же вечер: остановка выводит его из
+/// «идёт», не теряя результатов, и по остановленному играть нельзя.
+#[test]
+fn stopped_tournament_holds_results_and_refuses_play() {
+    let mut conn = db();
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy"]);
+
+    tournaments::stop(&conn, t).unwrap();
+    assert_eq!(tournaments::get(&conn, t).unwrap().status, "stopped");
+
+    let m = tournaments::bracket_of(&conn, t)
+        .unwrap()
+        .matches
+        .into_iter()
+        .find(|m| m.player_a.is_some() && m.player_b.is_some())
+        .unwrap();
+    assert!(matches::set_first_ban(&conn, m.id, m.player_a.unwrap()).is_err());
+
+    // Второй раз останавливать нечего, а продолжить можно.
+    assert!(tournaments::stop(&conn, t).is_err());
+    tournaments::resume(&conn, t).unwrap();
+    assert_eq!(tournaments::get(&conn, t).unwrap().status, "running");
     assert!(matches::set_first_ban(&conn, m.id, m.player_a.unwrap()).is_ok());
 }
 

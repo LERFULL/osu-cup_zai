@@ -29,6 +29,16 @@ export default defineConfig({
     target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
     minify: process.env.TAURI_ENV_DEBUG ? false : 'esbuild',
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+
+    // Две точки входа: приложение и страница зрителя. Страница собирается
+    // отдельно, потому что не должна тянуть код IPC, библиотеки и редакторов —
+    // её отдаёт свой сервер зрителям, а не вебвью Tauri.
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        air: fileURLToPath(new URL('./air.html', import.meta.url)),
+      },
+    },
   },
 
   test: {

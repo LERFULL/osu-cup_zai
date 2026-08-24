@@ -694,8 +694,12 @@ export interface PlayerStats {
 /**
  * `seeded` — сетка построена, но турнир ещё не начат: её можно
  * рассмотреть, пересобрать или вернуть состав в черновик.
+ *
+ * `stopped` — турнир не доигран и отложен. Не всякий турнир доигрывается
+ * в тот же вечер, а до этого статуса выйти из «идёт» было нельзя вовсе:
+ * закрыть турнир умел только последний сыгранный матч.
  */
-export type TournamentStatus = 'draft' | 'seeded' | 'running' | 'finished';
+export type TournamentStatus = 'draft' | 'seeded' | 'running' | 'stopped' | 'finished';
 
 /** Кто банит первым: жеребьёвкой или по сеянию. */
 export type FirstBan = 'random' | 'higherSeed' | 'lowerSeed';
@@ -772,6 +776,9 @@ export interface Match {
   /** Правило, взятое на старте матча. `null` — матч ещё не начинали. */
   targetScore: number | null;
   bansEach: number | null;
+  /** Номер мультиплеерного лобби osu!. `null` — матч ведётся только судьёй,
+   *  и цифр по картам у эфира не будет. */
+  lobbyId: number | null;
   /** Счёт по картам. Считается из журнала действий, а не хранится. */
   scoreA: number;
   scoreB: number;

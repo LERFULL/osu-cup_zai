@@ -1,0 +1,402 @@
+/* Общие части кадра. Всё крупно и с воздухом: читать надо с трёх метров,
+   а не работать. Плотность вдвое ниже, чем в приложении. */
+
+/* Движения, общие для сцен.
+ *
+ * Объявлены здесь, а не в `air.css`, потому что CSS-модули переименовывают
+ * `animation-name`: ссылка из модуля на общий `@keyframes` превращается в его
+ * собственный хеш, которого нет, и анимация молча не идёт.
+ *
+ * Задержку строка ставит себе сама через `--i`: список, который встаёт
+ * целиком, читается как картинка, а не как список.
+ */
+@keyframes rowIn {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+}
+
+/* Число изменилось. Короткий толчок вместо мгновенной подмены: иначе счёт
+   меняется незаметно, а это главное событие в кадре. */
+@keyframes pop {
+  40% {
+    transform: scale(1.22);
+  }
+}
+
+/* Медленное приближение фона: обложка не стоит мёртвой картинкой. */
+@keyframes drift {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.07);
+  }
+}
+
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: 72px 96px;
+  gap: 44px;
+}
+
+.head {
+  flex: none;
+}
+
+.title {
+  margin: 0;
+  font-size: 62px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  animation: rowIn var(--move) var(--ease) both;
+}
+
+.note {
+  margin: 14px 0 0;
+  font-size: 28px;
+  color: var(--txt2);
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: 70ms;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.bodyWide {
+  flex: 1;
+  min-height: 0;
+  margin: 0 -96px -72px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ───────────────────────────────────────────────────────────── игрок */
+
+.face,
+.letter {
+  flex: none;
+  border-radius: 50%;
+  border: 3px solid;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+}
+
+.letter {
+  color: #0c0e13;
+  font-weight: 800;
+}
+
+.head2 {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  min-width: 0;
+}
+
+.head2Right {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+/* Светится живое и результат — здесь это тот, чей сейчас ход. */
+.head2Glow .face,
+.head2Glow .letter {
+  box-shadow: 0 0 34px color-mix(in srgb, var(--who) 55%, transparent);
+}
+
+.head2Text {
+  min-width: 0;
+}
+
+.nick {
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--who, var(--txt));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.head2Note {
+  margin-top: 6px;
+  font-size: 24px;
+  color: var(--txt2);
+}
+
+/* ────────────────────────────────────────────────── шестиугольник мода */
+
+.hexWrap {
+  flex: none;
+  width: 78px;
+  height: 88px;
+  display: grid;
+  place-items: center;
+}
+
+.hexSm {
+  width: 56px;
+  height: 64px;
+}
+
+.hex {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: color-mix(in srgb, var(--mod) 16%, transparent);
+  border: 0;
+  color: var(--mod);
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.hexSm .hex {
+  font-size: 17px;
+}
+
+/* ─────────────────────────────────────────────────────── строка карты */
+
+.line {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  min-height: 104px;
+  padding: 0 22px 0 30px;
+  border-radius: 16px;
+  background: var(--card);
+  overflow: hidden;
+  transition: opacity var(--move) var(--ease), filter var(--move) var(--ease),
+    box-shadow var(--move) var(--ease);
+}
+
+/* Строки маппула встают по очереди сверху вниз. */
+.lineIn {
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 45ms + 90ms);
+}
+
+.lineCover {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.3;
+}
+
+.lineShade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgb(12 14 19 / 0.94) 30%, rgb(12 14 19 / 0.55));
+}
+
+/* Забаненное и закрытое не светится и уходит в чёрно-белое. */
+.lineDim {
+  opacity: 0.42;
+}
+
+.lineDim .lineCover {
+  filter: grayscale(1);
+  opacity: 0.16;
+}
+
+.lineGlow {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mod) 60%, transparent),
+    0 0 30px color-mix(in srgb, var(--mod) 26%, transparent);
+}
+
+/* Играется прямо сейчас — строка дышит вместе с точкой справа. */
+.lineGlow .lineCover {
+  animation: drift 14s var(--ease) infinite alternate;
+}
+
+.lineStripe::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  background: var(--who);
+}
+
+.lineText {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.lineTitle {
+  font-size: 32px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Плотная строка: одна строка текста вместо двух, и шрифт мельче. */
+.lineCompact {
+  min-height: 0;
+  gap: 20px;
+  padding: 0 18px 0 26px;
+}
+
+.lineCompact .lineTitle {
+  font-size: 27px;
+}
+
+.lineVersion {
+  margin-left: 14px;
+  font-size: 21px;
+  font-weight: 500;
+  color: var(--txt2);
+}
+
+.lineSub {
+  margin-top: 4px;
+  font-size: 22px;
+  color: var(--txt2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lineEnd {
+  position: relative;
+  flex: none;
+  font-size: 26px;
+}
+
+.lineNums {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.sr {
+  color: var(--gold);
+  font-weight: 500;
+}
+
+.dim {
+  color: var(--txt2);
+}
+
+/* ────────────────────────────────────────────────────────────── счёт */
+
+.score {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 34px;
+  padding: 8px 0;
+}
+
+.scoreSide {
+  font-size: 40px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scoreRight {
+  text-align: right;
+}
+
+.scoreNums {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 84px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.scoreNums i {
+  color: var(--txt3);
+  font-style: normal;
+}
+
+.lead {
+  color: var(--accent);
+}
+
+.scoreTarget {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 22px;
+  color: var(--txt3);
+}
+
+/* ──────────────────────────────────────────────────────────── плашки */
+
+.stat {
+  padding: 22px 26px;
+  border-radius: 14px
+;
+  background: var(--card);
+}
+
+.statIn {
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 120ms);
+}
+
+.statName {
+  font-size: 20px;
+  color: var(--txt3);
+  text-transform: lowercase;
+}
+
+.statValue {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 40px;
+  font-weight: 500;
+}
+
+.statNote {
+  margin-top: 6px;
+  font-size: 20px;
+  color: var(--txt2);
+}
+
+.huge {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 220px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  text-align: center;
+}
+
+/* Число толкнулось: значит оно изменилось. */
+.rollPop {
+  display: inline-block;
+  animation: pop 480ms var(--ease);
+}

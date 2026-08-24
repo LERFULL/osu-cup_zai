@@ -15,6 +15,7 @@ use crate::model::{ApiCredentials, Beatmap, BeatmapAttributes};
 use super::auth::Auth;
 use super::dto::{
     to_attributes, to_beatmap, AttributesEnvelope, BeatmapDto, BeatmapsResponse, BeatmapsetDto,
+    MatchDto, UserDto,
 };
 use super::{API_BASE, API_VERSION, ASSETS_BASE, USER_AGENT};
 
@@ -128,9 +129,34 @@ impl OsuClient {
         Ok(to_attributes(id, mods, &envelope.attributes))
     }
 
+    /// Мультиплеерное лобби. `after` — курсор по событиям.
+    ///
+    /// Курсор сдвигать самому нельзя как попало: событие игры создаётся при
+    /// старте карты, а результаты дописываются в него же. Правило вызова
+    /// живёт в [`crate::air::lobby`], здесь только запрос.
+    pub async fn match_state(
+        &self,
+        creds: &ApiCredentials,
+        room_id: i64,
+        after: Option<i64>,
+    ) -> Result<MatchDto> {
+        let url = format!("{API_BASE}/matches/{room_id}");
+        let query: Vec<(&str, String)> = match after {
+            Some(cursor) => vec![("after", cursor.to_string())],
+            None => Vec::new(),
+        };
+        self.get_json(creds, &url, &query, Some(room_id)).await
+    }
+
+    /// Профиль игрока: pp, ранги, точность, аватар. Тянется по одному разу
+    /// на игрока за эфир и кешируется.
+    pub async fn user(&self, creds: &ApiCredentials, user_id: i64) -> Result<UserDto> {
+        let url = format!("{API_BASE}/users/{user_id}/osu");
+        self.get_json(creds, &url, &[], Some(user_id)).await
+    }
+
     /// Обложка набора. Лежит на assets.ppy.sh и авторизации не требует.
-    pub async fn download_cover(&self, set_id: i64) -> Result<Vec<u8>> {
-        let url = format!("{ASSETS_BASE}/beatmaps/{set_id}/covers/list@2x.jpg");
+    pub async fn download_cover(&self, set_id: i64) -> Result<Vec<u8>> {        let url = format!("{ASSETS_BASE}/beatmaps/{set_id}/covers/list@2x.jpg");
 
         let resp = send_retrying(|| self.http.get(&url)).await?;
         let resp = self.check_status(resp, Some(set_id)).await?;

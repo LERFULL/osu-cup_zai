@@ -379,6 +379,153 @@ pub fn to_attributes(beatmap_id: i64, mods: u32, dto: &DifficultyAttributesDto) 
     }
 }
 
+// ─────────────────────────────────────────────── матчи мультиплеера
+
+/// Ответ `GET /matches/{id}`.
+///
+/// Ключевое поле — `current_game_id`: это единственный мгновенный признак
+/// «какая карта идёт сейчас». Появляется через пару секунд после старта карты
+/// и обнуляется, когда карта кончилась.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MatchDto {
+    #[serde(default)]
+    pub events: Vec<MatchEventDto>,
+    #[serde(default)]
+    pub users: Vec<MatchUserDto>,
+    #[serde(default)]
+    pub first_event_id: Option<i64>,
+    #[serde(default)]
+    pub latest_event_id: Option<i64>,
+    /// Карта, которая играется прямо сейчас. `None` — между картами.
+    #[serde(default)]
+    pub current_game_id: Option<i64>,
+    #[serde(rename = "match", default)]
+    pub info: Option<MatchInfoDto>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MatchInfoDto {
+    pub id: i64,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub start_time: Option<String>,
+    #[serde(default)]
+    pub end_time: Option<String>,
+}
+
+/// Событие лобби. Нас интересуют только те, у которых есть `game`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MatchEventDto {
+    pub id: i64,
+    #[serde(default)]
+    pub timestamp: Option<String>,
+    #[serde(default)]
+    pub user_id: Option<i64>,
+    #[serde(default)]
+    pub game: Option<MatchGameDto>,
+}
+
+/// Одна карта в лобби. Событие создаётся при **старте**, а `end_time` и `scores`
+/// дописываются в него же — на этом и держится ловушка курсора (см. `air::lobby`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MatchGameDto {
+    pub id: i64,
+    #[serde(default)]
+    pub beatmap_id: Option<i64>,
+    #[serde(default)]
+    pub start_time: Option<String>,
+    /// Пока `None`, карта играется и массив `scores` пуст.
+    #[serde(default)]
+    pub end_time: Option<String>,
+    #[serde(default)]
+    pub mods: Vec<String>,
+    #[serde(default)]
+    pub beatmap: Option<BeatmapDto>,
+    #[serde(default)]
+    pub scores: Vec<MatchScoreDto>,
+}
+
+/// Скор одного игрока на карте лобби. Реплеев здесь не бывает: `has_replay`
+/// у мультиплеерных скоров всегда `false`, файл остаётся только у игрока.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MatchScoreDto {
+    #[serde(default)]
+    pub user_id: Option<i64>,
+    /// Новое имя поля; у старой версии API то же число лежит в `score`.
+    #[serde(default, alias = "score")]
+    pub total_score: Option<i64>,
+    #[serde(default)]
+    pub accuracy: Option<f64>,
+    #[serde(default)]
+    pub max_combo: Option<i64>,
+    #[serde(default)]
+    pub passed: Option<bool>,
+    #[serde(default)]
+    pub rank: Option<String>,
+    #[serde(default)]
+    pub mods: Vec<String>,
+    #[serde(default)]
+    pub statistics: Option<ScoreStatsDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ScoreStatsDto {
+    #[serde(default, alias = "count_300")]
+    pub great: Option<i64>,
+    #[serde(default, alias = "count_100")]
+    pub ok: Option<i64>,
+    #[serde(default, alias = "count_50")]
+    pub meh: Option<i64>,
+    #[serde(default, alias = "count_miss")]
+    pub miss: Option<i64>,
+}
+
+/// Участник лобби. Ник и аватар приходят бесплатно вместе с матчем — ранги
+/// и pp только отдельным запросом профиля.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MatchUserDto {
+    pub id: i64,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub country_code: Option<String>,
+}
+
+// ────────────────────────────────────────────────────────── профиль игрока
+
+/// Ответ `GET /users/{id}` в той части, что нужна сценам с цифрами.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserDto {
+    pub id: i64,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub country_code: Option<String>,
+    #[serde(default)]
+    pub statistics: Option<UserStatsDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UserStatsDto {
+    #[serde(default)]
+    pub pp: Option<f64>,
+    #[serde(default)]
+    pub global_rank: Option<i64>,
+    #[serde(default)]
+    pub country_rank: Option<i64>,
+    #[serde(default)]
+    pub hit_accuracy: Option<f64>,
+    #[serde(default)]
+    pub play_count: Option<i64>,
+    #[serde(default)]
+    pub max_combo: Option<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -94,6 +94,10 @@ pub fn set_first_ban(conn: &Connection, match_id: i64, player_id: i64) -> Result
         status != "seeded",
         "сетка ещё не запущена — подтверди её на экране турнира"
     );
+    anyhow::ensure!(
+        status != "stopped",
+        "турнир остановлен — продолжи его на экране турнира"
+    );
 
     // Правило матча запоминаем здесь: с этого момента оно его собственное.
     let (target, bans) = rule_of(conn, &m)?;
@@ -723,11 +727,13 @@ fn wipe(conn: &Connection, match_id: i64) -> Result<()> {
         params![match_id],
     )?;
     // Маппул остаётся: снос результата — это «переиграть», а не «выбрать заново».
+    // Лобби, наоборот, снимаем: переигрывать будут в новом, а старое отдало бы
+    // эфиру результаты матча, которого больше нет.
     conn.execute(
         "UPDATE matches
             SET status = 'pending', winner_id = NULL, is_walkover = 0, is_manual_edit = 0,
                 first_ban_by = NULL, started_at = NULL, finished_at = NULL,
-                target_score = NULL, bans_each = NULL
+                target_score = NULL, bans_each = NULL, lobby_id = NULL
           WHERE id = ?1",
         params![match_id],
     )?;

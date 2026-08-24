@@ -1,0 +1,855 @@
+/* Сцены паузы. В кадре не больше одной таблицы, и воздуха вдвое больше, чем
+   в приложении. */
+
+/* Движения, общие для сцен.
+ *
+ * Объявлены здесь, а не в `air.css`, потому что CSS-модули переименовывают
+ * `animation-name`: ссылка из модуля на общий `@keyframes` превращается в его
+ * собственный хеш, которого нет, и анимация молча не идёт.
+ *
+ * Задержку строка ставит себе сама через `--i`: список, который встаёт
+ * целиком, читается как картинка, а не как список.
+ */
+@keyframes rowIn {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+}
+
+
+/* ─────────────────────────────────────────────────────────────── сетка */
+
+/* Окно, в которое смотрит камера. Полотно внутри больше окна и едет под ним:
+   вписать крупную сетку целиком нельзя — ники станут нечитаемыми, а сетка без
+   читаемых ников это картинка, а не сетка. */
+.bracketView {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bracketCanvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  /* Движение камеры длиннее общего перехода: рывок по сетке читается плохо. */
+  transition: transform 1400ms cubic-bezier(0.32, 0.72, 0.24, 1);
+}
+
+.bracketLinks {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+.bracketLink {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 3;
+}
+
+/* Падение в нижнюю сетку — тоже путь, но не победный: пунктиром, иначе он
+   спорит со сплошной линией победителя за то же место. */
+.bracketDrop {
+  stroke-dasharray: 7 9;
+  opacity: 0.55;
+}
+
+/* Подпись колонки стоит над ней, как на сетке приложения. */
+.bracketHead {
+  position: absolute;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--txt3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bracketCard {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: var(--card);
+  overflow: hidden;
+  animation: cardUp var(--move) var(--ease) both;
+  animation-delay: calc(var(--i) * 45ms);
+}
+
+/* Карточки встают по очереди слева направо — сетка собирается на глазах,
+   а не появляется готовой. */
+@keyframes cardUp {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+}
+
+.bracketDone {
+  opacity: 0.66;
+}
+
+.bracketLive {
+  box-shadow: 0 0 0 3px var(--accent), 0 0 34px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* Камера доехала до живого матча — он и есть причина, по которой она приехала. */
+.bracketFocus {
+  animation: cardUp var(--move) var(--ease) both, focusPulse 2.2s var(--ease) infinite;
+}
+
+@keyframes focusPulse {
+  50% {
+    box-shadow: 0 0 0 3px var(--accent), 0 0 60px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+}
+
+.bracketNow {
+  position: absolute;
+  right: 10px;
+  top: -12px;
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #0c0e13;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.bracketSide {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px 0 20px;
+  min-width: 0;
+}
+
+.bracketSide + .bracketSide {
+  border-top: 1px solid var(--line);
+}
+
+.bracketStripe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--who);
+}
+
+/* Путь игрока по сетке: взятая половина карточки светится его цветом. */
+.bracketWon {
+  background: color-mix(in srgb, var(--who) 14%, transparent);
+}
+
+.bracketWon .bracketNick {
+  color: var(--who);
+  font-weight: 800;
+}
+
+.bracketNick {
+  flex: 1;
+  min-width: 0;
+  font-size: 25px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bracketScore {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 25px;
+  color: var(--txt2);
+}
+
+.bracketTbd {
+  font-size: 19px;
+  color: var(--txt3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ────────────────────────────────────────────────────────────── маппул */
+
+.pool {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.poolGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.poolLine {
+  min-height: 92px;
+}
+
+/* ────────────────────────────────────────────────────────── кто в игре */
+
+.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  flex: 1;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.person {
+  /* Игроки встают по очереди — список, а не картинка */
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 45ms + 110ms);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 26px 20px 30px;
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.personOut {
+  opacity: 0.44;
+}
+
+.personStripe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--who);
+}
+
+.personNick {
+  flex: 1;
+  min-width: 0;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--who);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.personNote {
+  font-size: 22px;
+  color: var(--txt2);
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  font-size: 38px;
+  color: var(--txt2);
+}
+
+/* ────────────────────────────────────────────────────────── что дальше */
+
+.nextMain {
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  padding: 30px 0 10px;
+}
+
+.nextRound {
+  font-size: 26px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt3);
+}
+
+.nextPair {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 44px;
+}
+
+.nextVs {
+  font-size: 26px;
+  color: var(--txt3);
+}
+
+.nextTbd {
+  font-size: 30px;
+  color: var(--txt3);
+}
+
+.thenList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 30px;
+  border-top: 1px solid var(--line);
+}
+
+.then {
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms + 260ms);
+  display: flex;
+  align-items: baseline;
+  gap: 26px;
+  font-size: 26px;
+}
+
+.thenRound {
+  min-width: 340px;
+  color: var(--txt3);
+}
+
+.thenPair {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-weight: 700;
+}
+
+.thenPair i {
+  color: var(--txt3);
+  font-style: normal;
+}
+
+/* ────────────────────────────────────────────────────────────── отсчёт */
+
+.countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 30px;
+}
+
+.countdownLabel {
+  font-size: 36px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--txt2);
+}
+
+.countdownNums {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 300px;
+  font-weight: 500;
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  color: var(--accent);
+  text-shadow: 0 0 90px color-mix(in srgb, var(--accent) 34%, transparent);
+  animation: tick 400ms var(--ease);
+}
+
+/* Тик секунды. Мелкий нарочно: крупный на таком кегле выглядит поломкой. */
+@keyframes tick {
+  from {
+    transform: scale(1.035);
+    opacity: 0.82;
+  }
+}
+
+/* Последние десять секунд. */
+.countdownSoon {
+  color: var(--red);
+  text-shadow: 0 0 90px color-mix(in srgb, var(--red) 40%, transparent);
+  animation: tickHard 500ms var(--ease);
+}
+
+@keyframes tickHard {
+  from {
+    transform: scale(1.1);
+  }
+}
+
+/* ─────────────────────────────────────────────────── карточка игрока */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  flex: 1;
+  min-height: 0;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+}
+
+.cardNick {
+  font-size: 66px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--who);
+}
+
+.cardRanks {
+  display: flex;
+  gap: 30px;
+  margin-top: 12px;
+  font-size: 26px;
+  color: var(--txt2);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+/* ────────────────────────────────────────────────────── личная встреча */
+
+.h2h {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 44px;
+  padding-bottom: 14px;
+}
+
+.h2hScore {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 92px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.h2hScore i {
+  color: var(--txt3);
+  font-style: normal;
+}
+
+.h2hList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.h2hRow {
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 55ms + 200ms);
+  display: grid;
+  grid-template-columns: 1fr 140px 1fr;
+  align-items: baseline;
+  gap: 24px;
+  padding: 16px 26px;
+  border-radius: 12px;
+  background: var(--card);
+  font-size: 26px;
+}
+
+.h2hRound {
+  color: var(--txt2);
+}
+
+.h2hRowScore {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.h2hWinner {
+  text-align: right;
+  font-weight: 700;
+}
+
+.h2hFav {
+  margin-top: auto;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 24px;
+  color: var(--txt2);
+}
+
+.h2hFavWho {
+  color: var(--txt);
+  font-weight: 700;
+}
+
+.h2hFavMap {
+  color: var(--txt);
+}
+
+/* ─────────────────────────────────────────────────────── путь по сетке */
+
+.path {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step {
+  /* Путь по сетке читается шагами, поэтому и появляется шагами */
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 140ms);
+  display: grid;
+  grid-template-columns: 1fr 1fr 130px 160px;
+  align-items: baseline;
+  gap: 24px;
+  padding: 22px 28px;
+  border-radius: 12px;
+  background: var(--card);
+  border-left: 6px solid var(--who);
+  font-size: 28px;
+}
+
+.stepLost {
+  opacity: 0.5;
+  border-left-color: var(--txt3);
+}
+
+.stepWon .stepMark {
+  color: var(--green);
+}
+
+.stepRound {
+  color: var(--txt2);
+}
+
+.stepAgainst {
+  font-weight: 700;
+}
+
+.stepScore {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stepMark {
+  text-align: right;
+  font-size: 22px;
+  color: var(--txt3);
+}
+
+/* ──────────────────────────────────────────────────── рекорды и моды */
+
+.records {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.mods {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.modRow {
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 140ms);
+  display: flex;
+  align-items: center;
+  gap: 26px;
+}
+
+.modBars {
+  flex: 1;
+  min-width: 0;
+}
+
+.modBar {
+  display: flex;
+  height: 20px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.07);
+  overflow: hidden;
+}
+
+.modPlayed,
+.modBanned {
+  /* Полосы вырастают из нуля: столбик, который просто есть, ничего не
+     сообщает, а растущий читается как «столько-то». */
+  transform-origin: 0 50%;
+  animation: growX 700ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 260ms);
+}
+
+@keyframes growX {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.modPlayed {
+  background: var(--mod);
+}
+
+.modBanned {
+  background: color-mix(in srgb, var(--red) 60%, transparent);
+}
+
+.modNums {
+  display: flex;
+  gap: 26px;
+  margin-top: 10px;
+  font-size: 22px;
+  color: var(--txt2);
+}
+
+.modBannedText {
+  color: color-mix(in srgb, var(--red) 80%, var(--txt2));
+}
+
+.recap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recapLine {
+  min-height: 88px;
+}
+
+.recapNums {
+  display: flex;
+  gap: 24px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+}
+
+.recapBanned {
+  color: var(--red);
+}
+
+/* ─────────────────────────────────────────────────── пьедестал и титры */
+
+.podium {
+  display: grid;
+  grid-template-columns: 1fr 1.25fr 1fr;
+  align-items: end;
+  justify-items: center;
+  height: 100%;
+  padding: 90px 120px;
+  gap: 40px;
+}
+
+/* Победитель стоит в середине и он единственный, кто светится. */
+.podiumStep:nth-child(1) {
+  order: 2;
+}
+.podiumStep:nth-child(2) {
+  order: 1;
+}
+.podiumStep:nth-child(3) {
+  order: 3;
+}
+
+.podiumStep {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  padding: 40px 30px;
+  border-radius: 22px;
+  background: var(--card);
+  border-bottom: 5px solid var(--who);
+  /* Места поднимаются снизу вверх: бронза, серебро, победитель. Кто победил,
+     видно последним — и это единственный правильный порядок. */
+  animation: podiumUp 620ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 420ms + 200ms);
+}
+
+@keyframes podiumUp {
+  from {
+    transform: translateY(90px);
+    opacity: 0;
+  }
+}
+
+.podiumFirst {
+  padding: 56px 34px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--who) 55%, transparent),
+    0 0 70px color-mix(in srgb, var(--who) 26%, transparent);
+}
+
+.podiumPlace {
+  font-size: 24px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt3);
+}
+
+.podiumFirst .podiumPlace {
+  color: var(--gold);
+}
+
+.podiumNick {
+  font-size: 46px;
+  font-weight: 800;
+  color: var(--who);
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.podiumFirst .podiumNick {
+  font-size: 58px;
+}
+
+.podiumScore {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  color: var(--txt2);
+}
+
+.credits {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 44px;
+  align-content: start;
+}
+
+.creditsRow {
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 35ms + 150ms);
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  padding: 14px 22px;
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.creditsPlace {
+  min-width: 52px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  color: var(--txt3);
+}
+
+.creditsNick {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+/* ─────────────────────────────────────────────── заставка и надпись */
+
+.idle {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 26px;
+}
+
+/* Фоновые пятна — те же, что в приложении, только крупнее. */
+.idleGlow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(900px 560px at 78% -6%, rgb(255 111 177 / 0.16), transparent 65%),
+    radial-gradient(820px 520px at 8% 106%, rgb(91 200 245 / 0.12), transparent 65%);
+  animation: idleDrift 18s ease-in-out infinite alternate;
+}
+
+@keyframes idleDrift {
+  to {
+    transform: translate3d(-2%, 1%, 0) scale(1.06);
+  }
+}
+
+.idleName {
+  position: relative;
+  font-size: 96px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-align: center;
+  padding: 0 120px;
+}
+
+.idleNote {
+  position: relative;
+  font-size: 34px;
+  color: var(--txt2);
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 24px;
+  padding: 0 140px;
+}
+
+.messageText {
+  font-size: 86px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.messageNote {
+  font-size: 32px;
+  color: var(--txt2);
+  text-align: center;
+}
+
+.clip {
+  position: relative;
+  height: 100%;
+  background: #000;
+}
+
+.clipVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.clipTitle {
+  position: absolute;
+  left: 72px;
+  bottom: 64px;
+  padding: 16px 26px;
+  border-radius: 12px;
+  background: rgb(12 14 19 / 0.82);
+  font-size: 30px;
+  font-weight: 700;
+}

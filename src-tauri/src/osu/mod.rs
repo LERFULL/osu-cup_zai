@@ -28,5 +28,6 @@ pub use client::OsuClient;
 pub use derive::{derive, Derived};
 pub use dto::{
     mods_bits, mods_label, to_attributes, to_beatmap, AttributesEnvelope, BeatmapDto,
-    BeatmapsResponse, BeatmapsetDto, DifficultyAttributesDto, TokenResponse,
+    BeatmapsResponse, BeatmapsetDto, DifficultyAttributesDto, MatchDto, MatchGameDto,
+    TokenResponse,
 };

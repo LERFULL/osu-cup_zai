@@ -1,0 +1,98 @@
+/* Стили эфира. Токены и палитра те же, что в приложении: эфир — не другой
+   продукт, а его же экран, снятый крупно.
+
+   Кадр строится под 1920×1080 и масштабируется целиком, а не переверстывается:
+   зритель смотрит с дивана и в окне произвольного размера, а OBS ждёт ровно
+   этот размер. Поэтому внутри сцены размеры в пикселях этого кадра — они
+   ведут себя как доли экрана, потому что сам кадр отмасштабирован. */
+
+@import '@fontsource-variable/manrope';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+:root {
+  --bg: #0c0e13;
+  --card: #161922;
+  --card2: #1c2029;
+  --line: #232838;
+
+  --txt: #f4f5f8;
+  --txt2: #8a91a3;
+  --txt3: #7f8799;
+
+  --pink: #ff6fb1;
+  --cyan: #5bc8f5;
+  --green: #7ed957;
+  --gold: #ffd03b;
+  --red: #ff6b6b;
+
+  --nm: #e9ecf2;
+  --hd: #ffd03b;
+  --hr: #ff6b6b;
+  --dt: #5bc8f5;
+  --fm: #c77dff;
+  --ez: #7ed957;
+  --tb: #7ed957;
+
+  --f: 'Manrope Variable', system-ui, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Акцент турнира приходит в состоянии — страница подставляет его сюда. */
+  --accent: var(--pink);
+
+  /* Один переход на весь эфир, а не зоопарк. */
+  --move: 420ms;
+  --ease: cubic-bezier(0.16, 0.84, 0.28, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#air {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--f);
+  overflow: hidden;
+  /* Ничего интерактивного: ни выделения текста, ни перетаскивания. */
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Курсор уходит через три секунды без движения: в кадре его быть не должно. */
+body.idle {
+  cursor: none;
+}
+
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Общих движений здесь нет нарочно.
+ *
+ * CSS-модули переименовывают не только классы, но и `animation-name`: ссылка
+ * на общий `@keyframes` из модуля превращается в его собственный хеш, которого
+ * не существует, и анимация молча не идёт. Поэтому одинаковые движения
+ * (`rowIn`, `pop`, `drift`) объявлены в каждом модуле, который их использует.
+ * Дублирование здесь честнее общего кода, который не работает.
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  /* От таких анимаций укачивает — правило приложения эфир не обходит. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

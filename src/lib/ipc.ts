@@ -45,6 +45,17 @@ import type {
   TemplateSlotInput,
   Tournament,
 } from './types';
+import type {
+  AirLayer,
+  AirProbe,
+  AirStatus,
+  AirTheme,
+  LobbyUpdate,
+  OsuProfile,
+  SceneId,
+  ScenePayload,
+  SceneShow,
+} from './air/types';
 
 // ─────────────────────────────────────────────────── состояние приложения
 
@@ -497,6 +508,12 @@ export const confirmTournament = (id: number) => invoke<Bracket>('confirm_tourna
 /** Возвращает турнир в черновик и стирает несыгранную сетку. */
 export const reopenTournament = (id: number) => invoke<Bracket>('reopen_tournament', { id });
 
+/** Останавливает идущий турнир, не теряя результатов. */
+export const stopTournament = (id: number) => invoke<Bracket>('stop_tournament', { id });
+
+/** Возвращает остановленный турнир в игру. */
+export const resumeTournament = (id: number) => invoke<Bracket>('resume_tournament', { id });
+
 export const tournamentBracket = (id: number) => invoke<Bracket>('tournament_bracket', { id });
 
 /** Карты, попавшие сразу в несколько маппулов турнира. */
@@ -554,3 +571,94 @@ export const replaceMatchPlayer = (
   playerId: number,
   emergency = false,
 ) => invoke<MatchState>('replace_match_player', { id, slot, playerId, emergency });
+
+// ─────────────────────────────────────────────────────────────── эфир
+
+// Rust здесь только транспорт: сцены, переходы и подбор под бюджет считает
+// пульт. Поэтому команд мало, и ни одна из них не знает, что такое сцена.
+
+/**
+ * Проверка связи до эфира, а не посреди турнира. Быстрый туннель ходит по порту
+ * 7844, и он проходит далеко не всегда — на машине со своим VPN обычно нет.
+ */
+export const airProbe = () => invoke<AirProbe>('air_probe');
+
+/** Скачивает cloudflared в папку данных. Только по явному нажатию. */
+export const airDownloadTunnel = () => invoke<string>('air_download_tunnel');
+
+export const airStatus = () => invoke<AirStatus>('air_status');
+
+export const airStart = (
+  tournamentId: number,
+  tournament: string,
+  publicLink: boolean,
+  delay: number,
+  showViewers: boolean,
+) =>
+  invoke<AirStatus>('air_start', {
+    tournamentId,
+    tournament,
+    public: publicLink,
+    delay,
+    showViewers,
+  });
+
+export const airStop = () => invoke<AirStatus>('air_stop');
+
+/** Новый кадр: стек слоёв целиком. Обычно один слой, при врезке два. */
+export const airScene = (layers: AirLayer[], theme: AirTheme | null = null) =>
+  invoke<void>('air_scene', { layers, theme });
+
+/** Точечное обновление внутри слоя: счёт, новый бан, таймер. */
+export const airPatch = (layer: SceneId, payload: ScenePayload) =>
+  invoke<void>('air_patch', { layer, payload });
+
+/** Снимает кадр, пока его держит задержка: его ещё никто не видел. */
+export const airRevert = () => invoke<boolean>('air_revert');
+
+export const airSetDelay = (seconds: number) => invoke<void>('air_set_delay', { seconds });
+
+export const airSetShowViewers = (value: boolean) =>
+  invoke<void>('air_set_show_viewers', { value });
+
+/** Меняет код доступа. Все текущие зрители отключаются. */
+export const airNewCode = () => invoke<AirStatus>('air_new_code');
+
+/** Опрос лобби. Идёт, только пока матч идёт. */
+export const airLobbyStart = (matchId: number, roomId: number) =>
+  invoke<void>('air_lobby_start', { matchId, roomId });
+
+export const airLobbyStop = () => invoke<void>('air_lobby_stop');
+
+/** Номер лобби матча. `null` — матч ведётся только судьёй. */
+export const setMatchLobby = (id: number, roomId: number | null) =>
+  invoke<void>('set_match_lobby', { id, roomId });
+
+/** Настройки эфира турнира. Форму знает пульт, Rust её не разбирает. */
+export const airConfig = (tournamentId: number) =>
+  invoke<string | null>('air_config', { tournamentId });
+
+export const airSetConfig = (tournamentId: number, json: string) =>
+  invoke<void>('air_set_config', { tournamentId, json });
+
+/** Показы сцен. Живут с турниром, а не с сессией эфира. */
+export const airShows = (tournamentId: number) =>
+  invoke<SceneShow[]>('air_shows', { tournamentId });
+
+export const airNoteShow = (tournamentId: number, sceneId: SceneId, objectKey: string) =>
+  invoke<SceneShow[]>('air_note_show', { tournamentId, sceneId, objectKey });
+
+export const airClearShows = (tournamentId: number) =>
+  invoke<SceneShow[]>('air_clear_shows', { tournamentId });
+
+/** Профили osu! для сцен с цифрами. Тянутся раз в сутки на игрока. */
+export const airProfiles = (osuUserIds: number[]) =>
+  invoke<OsuProfile[]>('air_profiles', { osuUserIds });
+
+/** Сколько зрителей смотрит. Прилетает при каждом подключении и отключении. */
+export const onAirViewers = (fn: (n: number) => void): Promise<UnlistenFn> =>
+  listen<number>('air:viewers', (e) => fn(e.payload));
+
+/** Что показал опрос лобби. */
+export const onAirLobby = (fn: (u: LobbyUpdate) => void): Promise<UnlistenFn> =>
+  listen<LobbyUpdate>('air:lobby', (e) => fn(e.payload));

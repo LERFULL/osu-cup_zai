@@ -30,6 +30,7 @@ pub fn row_to_match(row: &rusqlite::Row) -> rusqlite::Result<Match> {
         finished_at: row.get("finished_at")?,
         target_score: row.get("target_score")?,
         bans_each: row.get("bans_each")?,
+        lobby_id: row.get("lobby_id")?,
         score_a: 0,
         score_b: 0,
         bonus_a: 0,
@@ -358,7 +359,9 @@ pub fn status_of(conn: &Connection, id: i64) -> Result<String> {
 /// Возвращает, идёт ли турнир: правка живого попадёт в журнал как аварийная.
 pub fn structural(conn: &Connection, id: i64, emergency: bool) -> Result<bool> {
     let status = status_of(conn, id)?;
-    let live = status == "running" || status == "finished";
+    // Остановленный считается начатым: в нём уже играли, и пересобирать его
+    // состав так же опасно, как у идущего.
+    let live = status == "running" || status == "finished" || status == "stopped";
     anyhow::ensure!(
         !live || emergency,
         "турнир уже идёт — включи аварийную правку, чтобы менять состав и сетку"
@@ -1024,6 +1027,39 @@ pub fn confirm(conn: &Connection, id: i64) -> Result<()> {
         "UPDATE tournaments SET status = 'running' WHERE id = ?1",
         params![id],
     )?;
+    Ok(())
+}
+
+/// Останавливает идущий турнир.
+///
+/// Нужно затем, что турнир не всегда доигрывается: тусовка разошлась, состав
+/// поменялся, вечер кончился. До этого выйти из «идёт» было нельзя вовсе —
+/// закрыть турнир умел только последний сыгранный матч, и незаконченный висел
+/// идущим навсегда. Результаты остаются на месте: остановка — это не отмена.
+pub fn stop(conn: &Connection, id: i64) -> Result<()> {
+    let status = status_of(conn, id)?;
+    anyhow::ensure!(
+        status == "running",
+        "останавливать можно только идущий турнир"
+    );
+    conn.execute(
+        "UPDATE tournaments SET status = 'stopped' WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}
+
+/// Возвращает остановленный турнир в игру.
+pub fn resume(conn: &Connection, id: i64) -> Result<()> {
+    let status = status_of(conn, id)?;
+    anyhow::ensure!(status == "stopped", "продолжать можно только остановленный");
+    conn.execute(
+        "UPDATE tournaments SET status = 'running' WHERE id = ?1",
+        params![id],
+    )?;
+    // Пока турнир стоял, последний матч могли досудить: тогда продолжать нечего
+    // и он закрывается сразу.
+    finish_if_done(conn, id)?;
     Ok(())
 }
 
@@ -1715,7 +1751,8 @@ pub fn snapshot(conn: &Connection, id: i64) -> Result<String> {
                    'walkover', m.is_walkover, 'manual', m.is_manual_edit,
                    'firstBanBy', m.first_ban_by, 'nextWin', m.next_win_slot,
                    'nextLose', m.next_lose_slot, 'startedAt', m.started_at,
-                   'finishedAt', m.finished_at, 'target', m.target_score, 'bans', m.bans_each))
+                   'finishedAt', m.finished_at, 'target', m.target_score, 'bans', m.bans_each,
+                   'lobbyId', m.lobby_id))
                  FROM matches m WHERE m.tournament_id = t.id),
              'actions', (SELECT json_group_array(json_object(
                    'matchId', a.match_id, 'n', a.n, 'type', a.type, 'actorId', a.actor_id,
@@ -1784,7 +1821,7 @@ fn restore(conn: &Connection, id: i64, snap: &str) -> Result<()> {
         "INSERT INTO matches
            (id, tournament_id, bracket, round, slot_in_bracket, player_a, player_b, pool_id,
             status, winner_id, is_walkover, is_manual_edit, first_ban_by,
-            started_at, finished_at, target_score, bans_each)
+            started_at, finished_at, target_score, bans_each, lobby_id)
          SELECT json_extract(v.value, '$.id'), ?1,
                 json_extract(v.value, '$.bracket'), json_extract(v.value, '$.round'),
                 json_extract(v.value, '$.slot'), json_extract(v.value, '$.playerA'),
@@ -1793,7 +1830,7 @@ fn restore(conn: &Connection, id: i64, snap: &str) -> Result<()> {
                 json_extract(v.value, '$.walkover'), json_extract(v.value, '$.manual'),
                 json_extract(v.value, '$.firstBanBy'), json_extract(v.value, '$.startedAt'),
                 json_extract(v.value, '$.finishedAt'), json_extract(v.value, '$.target'),
-                json_extract(v.value, '$.bans')
+                json_extract(v.value, '$.bans'), json_extract(v.value, '$.lobbyId')
            FROM json_each(json_extract(?2, '$.matches')) v",
         params![id, snap],
     )?;
@@ -2256,6 +2293,8 @@ pub fn editor(conn: &Connection, id: i64) -> Result<EditorState> {
         matches_started,
         matches_played,
         projected_matches,
-        emergency_available: t.status == "running" || t.status == "finished",
+        emergency_available: t.status == "running"
+            || t.status == "finished"
+            || t.status == "stopped",
     })
 }

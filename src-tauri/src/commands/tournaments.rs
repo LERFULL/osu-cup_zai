@@ -262,6 +262,24 @@ pub async fn reopen_tournament(state: State<'_, Arc<AppState>>, id: i64) -> Resu
     })
 }
 
+/// Останавливает идущий турнир, не теряя результатов.
+#[tauri::command]
+pub async fn stop_tournament(state: State<'_, Arc<AppState>>, id: i64) -> Result<Bracket> {
+    state.db.with_tx(|tx| {
+        db::stop(tx, id)?;
+        Ok(db::bracket_of(tx, id)?)
+    })
+}
+
+/// Возвращает остановленный турнир в игру.
+#[tauri::command]
+pub async fn resume_tournament(state: State<'_, Arc<AppState>>, id: i64) -> Result<Bracket> {
+    state.db.with_tx(|tx| {
+        db::resume(tx, id)?;
+        Ok(db::bracket_of(tx, id)?)
+    })
+}
+
 #[tauri::command]
 pub async fn tournament_bracket(state: State<'_, Arc<AppState>>, id: i64) -> Result<Bracket> {
     state.db.with(|conn| Ok(db::bracket_of(conn, id)?))

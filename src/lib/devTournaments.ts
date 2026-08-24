@@ -610,6 +610,7 @@ function buildBracket(t: Tournament) {
       finishedAt: null,
       targetScore: null,
       bansEach: null,
+      lobbyId: null,
       scoreA: 0,
       scoreB: 0,
       bonusA: 0,
@@ -1148,7 +1149,8 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
       matchesPlayed: mine.filter((m) => m.status === 'finished').length,
       projectedMatches:
         t.players.length < 2 ? 0 : buildSeats(t.players.length, seatOrder(t)).length,
-      emergencyAvailable: t.status === 'running' || t.status === 'finished',
+      emergencyAvailable:
+        t.status === 'running' || t.status === 'finished' || t.status === 'stopped',
     };
   };
 
@@ -1719,6 +1721,20 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
       if (t.status !== 'seeded') {
         throw new Error('Запускать можно только построенную, но ещё не начатую сетку');
       }
+      t.status = 'running';
+      return bracketOf(t);
+    },
+
+    stop_tournament: (a) => {
+      const t = findT(a['id']);
+      if (t.status !== 'running') throw new Error('Останавливать можно только идущий турнир');
+      t.status = 'stopped';
+      return bracketOf(t);
+    },
+
+    resume_tournament: (a) => {
+      const t = findT(a['id']);
+      if (t.status !== 'stopped') throw new Error('Продолжать можно только остановленный');
       t.status = 'running';
       return bracketOf(t);
     },

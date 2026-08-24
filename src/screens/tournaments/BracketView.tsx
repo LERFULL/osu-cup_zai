@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Avatar } from '@/components';
 import { coverUrl, plural } from '@/lib/format';
 import type { Bracket, BracketSide, Match, Standing, TournamentPlayer } from '@/lib/types';
-import { COL_W, layoutBracket } from './bracketLayout';
+import { COL_W, layoutBracket } from '@/lib/bracketLayout';
 import s from './BracketView.module.css';
 
 /** Что можно тащить в сетку: игрока из состава или из другого места сетки. */

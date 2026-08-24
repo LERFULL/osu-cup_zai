@@ -15,6 +15,13 @@ use crate::state::AppState;
 /// Сколько id влезает в один запрос `/beatmaps?ids[]=`.
 const BATCH: usize = 50;
 
+/// Сколько мест в минутном окне импорт оставляет опросу лобби.
+///
+/// Опрос идущего матча ходит раз в 5 секунд — это 12 запросов в минуту. Если
+/// очередь загружена импортом карт, результат матча нужен сейчас, а обложки
+/// могут подождать, поэтому импорт до последних мест не дотягивается.
+const LOBBY_RESERVE: usize = 12;
+
 pub fn new_batch_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -106,7 +113,7 @@ async fn run_import(app: AppHandle, batch_id: String, parsed: ParsedLinks) -> Re
             return Ok(());
         }
 
-        state.limiter.acquire().await;
+        state.limiter.acquire_reserving(LOBBY_RESERVE).await;
         match state.osu.beatmapset(&creds, *set_id).await {
             Ok(maps) => {
                 p.inner.total += maps.len() as i64 - 1;
@@ -125,7 +132,7 @@ async fn run_import(app: AppHandle, batch_id: String, parsed: ParsedLinks) -> Re
             return Ok(());
         }
 
-        state.limiter.acquire().await;
+        state.limiter.acquire_reserving(LOBBY_RESERVE).await;
         match state.osu.beatmaps(&creds, chunk).await {
             Ok(maps) => {
                 // То, что osu! не вернул, — удалённые или закрытые карты.
@@ -182,7 +189,7 @@ async fn run_import(app: AppHandle, batch_id: String, parsed: ParsedLinks) -> Re
             break;
         }
 
-        state.limiter.acquire().await;
+        state.limiter.acquire_reserving(LOBBY_RESERVE).await;
         // Атрибуты без модов: скилсет — свойство самой карты, а не сочетания.
         let attr = match state.osu.attributes(&creds, map.beatmap_id, 0).await {
             Ok(a) => a,

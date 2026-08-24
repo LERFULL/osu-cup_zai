@@ -253,3 +253,38 @@
   font-size: 11px;
   text-align: center;
 }
+
+/* Строка привязки лобби. Матчу оно не нужно — это данные для эфира, поэтому
+   строка тихая и стоит под настройкой, а не над счётом. */
+.lobby {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px;
+  font-size: 12px;
+  color: var(--txt3);
+}
+
+.lobbyLabel {
+  color: var(--txt3);
+}
+
+.lobbyId {
+  font-family: var(--mono);
+  color: var(--txt2);
+}
+
+.lobbyLink {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--cyan);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.lobbyLink:hover {
+  color: var(--txt);
+}

@@ -1,3 +1,4 @@
+mod air;
 mod cache;
 mod commands;
 mod config;
@@ -174,6 +175,8 @@ pub fn run() {
             commands::tournaments::start_tournament,
             commands::tournaments::confirm_tournament,
             commands::tournaments::reopen_tournament,
+            commands::tournaments::stop_tournament,
+            commands::tournaments::resume_tournament,
             commands::tournaments::tournament_bracket,
             commands::tournaments::tournament_pool_overlaps,
             commands::tournaments::finish_tournament,
@@ -190,6 +193,27 @@ pub fn run() {
             commands::matches::match_impact,
             commands::matches::reset_match,
             commands::matches::replace_match_player,
+            // эфир
+            commands::air::air_probe,
+            commands::air::air_download_tunnel,
+            commands::air::air_status,
+            commands::air::air_start,
+            commands::air::air_stop,
+            commands::air::air_scene,
+            commands::air::air_patch,
+            commands::air::air_revert,
+            commands::air::air_set_delay,
+            commands::air::air_set_show_viewers,
+            commands::air::air_new_code,
+            commands::air::air_lobby_start,
+            commands::air::air_lobby_stop,
+            commands::air::set_match_lobby,
+            commands::air::air_config,
+            commands::air::air_set_config,
+            commands::air::air_shows,
+            commands::air::air_note_show,
+            commands::air::air_clear_shows,
+            commands::air::air_profiles,
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить приложение");

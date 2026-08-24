@@ -11,7 +11,15 @@ import type {
 import { EMPTY_FILTER } from '@/lib/types';
 import * as ipc from '@/lib/ipc';
 
-export type Route = 'home' | 'tournaments' | 'pools' | 'library' | 'players' | 'history' | 'settings';
+export type Route =
+  | 'home'
+  | 'tournaments'
+  | 'air'
+  | 'pools'
+  | 'library'
+  | 'players'
+  | 'history'
+  | 'settings';
 
 interface AppState {
   status: AppStatus | null;

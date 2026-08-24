@@ -10,6 +10,7 @@ import type {
   TournamentPlayer,
 } from '@/lib/types';
 import * as ipc from '@/lib/ipc';
+import { useAir } from '@/lib/air/store';
 import { BracketView } from './BracketView';
 import { MatchView } from './MatchView';
 import { Editor } from './editor/Editor';
@@ -33,6 +34,7 @@ const STATUS: Record<Bracket['status'], string> = {
   draft: 'черновик',
   seeded: 'сетка готова',
   running: 'идёт',
+  stopped: 'остановлен',
   finished: 'сыгран',
 };
 
@@ -53,6 +55,16 @@ export function TournamentView({ id, onClose }: Props) {
   const [editing, setEditing] = useState(false);
   const [emergency, setEmergency] = useState(false);
   const [pick, setPick] = useState<Pick | null>(null);
+
+  /**
+   * Аварийная правка при живом эфире. Показывать зрителям, как пересобирается
+   * сетка, незачем: эфир уходит в заставку, а после «Готово» возвращается
+   * сеткой — уже с новым состоянием.
+   */
+  const emergencyEdit = useCallback((value: boolean) => {
+    setEmergency(value);
+    void useAir.getState().setEditing(value);
+  }, []);
 
   const reload = useCallback(async () => {
     // Сетку читаем и показываем отдельно от остального: если запнётся
@@ -78,7 +90,12 @@ export function TournamentView({ id, onClose }: Props) {
       setPools(pl);
       setSeries(sr);
       // Аварийная правка держится только пока турнир идёт.
-      if (!ed.emergencyAvailable) setEmergency(false);
+      // Аварийная правка держится только пока турнир идёт. Зовём напрямую,
+      // а не через обёртку: чтение турнира не должно зависеть от неё.
+      if (!ed.emergencyAvailable) {
+        setEmergency(false);
+        void useAir.getState().setEditing(false);
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -164,7 +181,8 @@ export function TournamentView({ id, onClose }: Props) {
   // пересобрать с другим сеянием или вернуть состав в черновик.
   const seeded = t.status === 'seeded';
   const done = t.status === 'finished';
-  const live = t.status === 'running' || done;
+  const stopped = t.status === 'stopped';
+  const live = t.status === 'running' || done || stopped;
   const champion = t.players.find((p) => p.placement === 1) ?? null;
   const blocking = editor.checks.filter((c) => c.blocking);
 
@@ -259,6 +277,30 @@ export function TournamentView({ id, onClose }: Props) {
             </>
           ) : null}
 
+          {/* Турнир не всегда доигрывается в тот же вечер. Остановка ничего не
+              теряет: результаты на месте, продолжить можно когда угодно. */}
+          {t.status === 'running' ? (
+            <Button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    'Остановить турнир? Матчи по нему играть будет нельзя, пока не продолжишь. Результаты останутся.',
+                  )
+                ) {
+                  run(() => ipc.stopTournament(id));
+                }
+              }}
+            >
+              Остановить
+            </Button>
+          ) : null}
+
+          {stopped ? (
+            <Button variant="primary" onClick={() => run(() => ipc.resumeTournament(id))}>
+              Продолжить турнир
+            </Button>
+          ) : null}
+
           <Button
             {...(editing ? ({ variant: 'primary' } as const) : {})}
             onClick={() => setEditing(!editing)}
@@ -274,6 +316,13 @@ export function TournamentView({ id, onClose }: Props) {
         <div className={s.pending}>
           Сетка построена. Посмотри, всё ли устраивает: пока турнир не запущен, её можно
           пересобрать или поменять состав.
+        </div>
+      ) : null}
+
+      {stopped ? (
+        <div className={s.pending}>
+          Турнир остановлен. Результаты на месте, но матчи по нему не идут — нажми «Продолжить
+          турнир», когда соберётесь дальше.
         </div>
       ) : null}
 
@@ -301,7 +350,7 @@ export function TournamentView({ id, onClose }: Props) {
               t={t}
               state={editor}
               emergency={emergency}
-              onEmergency={setEmergency}
+              onEmergency={emergencyEdit}
               run={run}
               players={players}
               pools={pools}
