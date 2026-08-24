@@ -9,6 +9,7 @@
 import type {
   Beatmap,
   Blocker,
+  Bracket,
   Collection,
   Exclusion,
   ExclusionOwner,
@@ -1769,5 +1770,70 @@ export function installMockIpc(): void {
     convertFileSrc: (p: string) => p,
   };
 
+  seedDemoTournament();
+
   console.info('osu!cup: вёрстка в браузере, данные подставлены для примера');
+}
+
+/**
+ * Идущий турнир с первого открытия.
+ *
+ * Без него в браузере не посмотреть ни матч, ни эфир: оба живут внутри
+ * турнира со сеткой, а собирать её руками через восемь экранов ради того,
+ * чтобы взглянуть на одну сцену, — это ровно та работа, которой заглушка
+ * и должна избавлять. Собирается теми же обработчиками, что зовёт интерфейс,
+ * а не записью в массивы: расходись они — заглушка врала бы про свои же
+ * правила.
+ */
+function seedDemoTournament(): void {
+  const call = <T,>(cmd: string, args: Args = {}): T => {
+    const handler = HANDLERS[cmd];
+    if (handler === undefined) throw new Error(`Команда ${cmd} не заглушена`);
+    return handler(args) as T;
+  };
+
+  const NICKS = ['NAGISA', 'KIRA', 'YUKI', 'REI', 'AKARI', 'SORA', 'MIKU', 'HANA'];
+
+  try {
+    // Маппул: без него матч не начать — первым же действием идёт бан.
+    const pool = call<GenReport>('generate_pool', {
+      name: 'Маппул вечера',
+      templateId: 1,
+      seriesId: null,
+    }).pool;
+
+    const t = call<{ id: number }>('create_tournament', {
+      name: 'osu!cup — вечер вторника',
+      targetScore: 4,
+      bansPerRound: 1,
+    });
+
+    for (const nickname of NICKS) {
+      const made = call<{ id: number }>('create_player', { nickname });
+      call('add_tournament_player', { id: t.id, playerId: made.id });
+    }
+
+    call('set_tournament_pools', { id: t.id, poolIds: [pool.id] });
+    call('shuffle_tournament_seeds', { id: t.id });
+
+    // Сетка и запуск: турнир должен быть «идёт», иначе эфир справедливо
+    // отвечает, что показывать нечего.
+    call('start_tournament', { id: t.id });
+    call('confirm_tournament', { id: t.id });
+
+    // Первый матч открыт и ждёт первого бана — то самое состояние, в котором
+    // эфир показывает «Представление», а дальше идут баны и пики.
+    const bracket = call<Bracket>('tournament_bracket', { id: t.id });
+    const first = bracket.matches.find(
+      (m) => m.playerA !== null && m.playerB !== null && m.status === 'pending',
+    );
+    if (first !== undefined) {
+      call('set_match_pool', { id: first.id, poolId: pool.id });
+      call('set_match_first_ban', { id: first.id, playerId: first.playerA });
+    }
+  } catch (e) {
+    // Заглушка не должна ронять показ вёрстки: без демо-турнира экраны
+    // откроются пустыми, и это лучше белого экрана.
+    console.warn('osu!cup: демо-турнир не собрался', e);
+  }
 }
