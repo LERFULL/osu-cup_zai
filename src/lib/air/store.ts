@@ -134,8 +134,6 @@ interface AirStore {
   skip: () => void;
   /** Замереть на текущем кадре или отпустить автоматику. */
   freeze: (value: boolean) => void;
-  /** Снимает кадр, пока его держит задержка. */
-  revert: () => Promise<void>;
   /** Своя надпись в эфир. */
   say: (text: string) => Promise<void>;
   /** Отсчёт до следующего матча. Минуты. `null` — снять отсчёт. */
@@ -228,11 +226,6 @@ export const useAir = create<AirStore>((set, get) => ({
     if (id === null) return;
     try {
       await ipc.airSetConfig(id, JSON.stringify(config));
-      // Задержку эфир применяет на ходу.
-      if (get().status?.live === true) {
-        if (patch.delay !== undefined) await ipc.airSetDelay(patch.delay);
-        await get().refreshStatus();
-      }
     } catch (e) {
       set({ error: String(e) });
     }
@@ -241,15 +234,11 @@ export const useAir = create<AirStore>((set, get) => ({
   // ───────────────────────────────────────────────────────────── эфир
 
   async start() {
-    const { tournamentId, config, ctx } = get();
+    const { tournamentId, ctx } = get();
     if (tournamentId === null) return;
 
     try {
-      const status = await ipc.airStart(
-        tournamentId,
-        ctx?.bracket.name ?? 'Турнир',
-        config.delay,
-      );
+      const status = await ipc.airStart(tournamentId, ctx?.bracket.name ?? 'Турнир');
       set({ status, error: null, proposals: [], overflow: 0, frozen: false });
 
       // Эфир мог запуститься посреди турнира — это нормальный ход: заставка
@@ -321,15 +310,6 @@ export const useAir = create<AirStore>((set, get) => ({
 
   freeze(value) {
     set({ frozen: value });
-  },
-
-  async revert() {
-    try {
-      await ipc.airRevert();
-      await get().refreshStatus();
-    } catch (e) {
-      set({ error: String(e) });
-    }
   },
 
   async say(text) {

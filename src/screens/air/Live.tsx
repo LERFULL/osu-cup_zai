@@ -2,8 +2,8 @@
 //
 // Порядок здесь — порядок вопросов, которые задаёт себе хост: что в эфире,
 // что будет дальше, чем это заменить. Всё, что нужно один раз за вечер —
-// ссылки, код, задержка, бюджет паузы, — убрано под «Настройки эфира»: во
-// время игры это шум, из-за которого не видно главного.
+// адрес для OBS и бюджет паузы, — убрано под «Настройки эфира»: во время
+// игры это шум, из-за которого не видно главного.
 //
 // Миниатюра — та же страница в маленьком размере, а не картинка: рисовать
 // превью отдельно значит иметь два кадра, которые однажды разойдутся.
@@ -50,11 +50,6 @@ export function Live() {
           <div className={s.nowHead}>
             <span className={s.tag}>Сейчас в эфире</span>
             <span className={s.nowTime}>{leftLabel(frame.left)}</span>
-            {status.pending > 0 ? (
-              <Button size="sm" variant="danger" onClick={() => void air.revert()}>
-                Вернуть
-              </Button>
-            ) : null}
           </div>
 
           <div className={s.nowWhat}>
@@ -68,14 +63,6 @@ export function Live() {
             <iframe className={s.frame} src={previewSrc} title="Кадр эфира" />
           </div>
 
-          <div className={s.nowFoot}>
-            {status.delay > 0 ? (
-              <span className={s.delay}>
-                задержка {status.delay} с
-                {status.pending > 0 ? ` · ${status.pending} кадр ждёт` : ' · всё ушло'}
-              </span>
-            ) : null}
-          </div>
         </section>
 
         <section className={s.next}>
@@ -306,7 +293,6 @@ export function Live() {
       <div className={s.foot}>
         <span className={s.keys}>
           Пробел — дальше · Esc — пропустить · P — замереть
-          {status.delay > 0 ? ' · «Вернуть» снимает кадр, пока держится задержка' : ''}
         </span>
         <Button
           variant="danger"

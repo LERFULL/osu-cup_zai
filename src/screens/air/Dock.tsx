@@ -90,11 +90,6 @@ export function Dock() {
           >
             {air.frozen ? 'Отпустить' : 'Замереть'}
           </button>
-          {status.pending > 0 ? (
-            <button className={s.btnDanger} type="button" onClick={() => void air.revert()}>
-              Вернуть
-            </button>
-          ) : null}
         </div>
       </div>
 

@@ -30,9 +30,6 @@ pub struct Layer {
 pub struct AirMeta {
     pub tournament: String,
     pub started_at: String,
-    /// Задержка, с которой состояние уходит зрителям. Секунды.
-    #[serde(default)]
-    pub delay: i64,
 }
 
 /// Всё, что нужно кадру. Больше в состоянии ничего нет: ни списка сцен,
@@ -50,12 +47,11 @@ pub struct AirState {
 
 impl AirState {
     /// Пустой эфир: заставка до первого события.
-    pub fn initial(tournament: String, started_at: String, delay: i64) -> Self {
+    pub fn initial(tournament: String, started_at: String) -> Self {
         Self {
             air: AirMeta {
                 tournament,
                 started_at: started_at.clone(),
-                delay,
             },
             layers: vec![Layer {
                 id: "idle".to_string(),
@@ -112,9 +108,6 @@ pub struct AirStatus {
     /// слушает только петлю, а страницу открывает только OBS на этой машине.
     pub local_url: String,
     pub started_at: Option<String>,
-    pub delay: i64,
-    /// Кадров, ждущих задержки: пока их больше нуля, вывод можно вернуть.
-    pub pending: i64,
     /// Что сейчас в эфире у зрителей — по нему пульт рисует «Сейчас в эфире».
     pub aired: Option<AirState>,
     /// Состояние опроса лобби у идущего матча.

@@ -21,12 +21,8 @@ pub async fn air_start(
     state: State<'_, Arc<AppState>>,
     tournament_id: i64,
     tournament: String,
-    delay: i64,
 ) -> Result<AirStatus> {
-    state
-        .air
-        .start(&app, tournament_id, tournament, delay)
-        .await
+    state.air.start(&app, tournament_id, tournament).await
 }
 
 #[tauri::command]
@@ -53,18 +49,6 @@ pub async fn air_patch(
     payload: serde_json::Value,
 ) -> Result<()> {
     state.air.patch(layer, payload).await
-}
-
-/// Снимает кадр, пока его держит задержка. Пока он не ушёл, его никто не видел —
-/// это и есть настоящая отмена вывода.
-#[tauri::command]
-pub async fn air_revert(state: State<'_, Arc<AppState>>) -> Result<bool> {
-    state.air.revert().await
-}
-
-#[tauri::command]
-pub async fn air_set_delay(state: State<'_, Arc<AppState>>, seconds: i64) -> Result<()> {
-    state.air.set_delay(seconds).await
 }
 
 // ─────────────────────────────────────────────────────────────────── лобби

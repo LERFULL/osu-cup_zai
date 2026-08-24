@@ -105,30 +105,17 @@ export function Setup() {
       <RoundPlans />
 
       <Card title="Сколько это длится">
-        <div className={s.row}>
-          <Field
-            label="Ожидаемая пауза, минуты"
-            type="number"
-            min={1}
-            max={30}
-            value={Math.round(config.pauseBudget / 60)}
-            hint="Сцены подбираются под это время, а не крутятся до упора"
-            onChange={(e) =>
-              void patchConfig({ pauseBudget: Math.max(1, Number(e.target.value)) * 60 })
-            }
-          />
-          <Field
-            label="Задержка, секунды"
-            type="number"
-            min={0}
-            max={30}
-            value={config.delay}
-            hint="Пока кадр не ушёл, его можно вернуть. Заодно сводит ссылку со стримом"
-            onChange={(e) =>
-              void patchConfig({ delay: Math.min(30, Math.max(0, Number(e.target.value))) })
-            }
-          />
-        </div>
+        <Field
+          label="Ожидаемая пауза, минуты"
+          type="number"
+          min={1}
+          max={30}
+          value={Math.round(config.pauseBudget / 60)}
+          hint="Сцены подбираются под это время, а не крутятся до упора"
+          onChange={(e) =>
+            void patchConfig({ pauseBudget: Math.max(1, Number(e.target.value)) * 60 })
+          }
+        />
 
         <Switch
           checked={config.pauseAuto}

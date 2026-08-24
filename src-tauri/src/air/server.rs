@@ -31,9 +31,6 @@ use crate::error::{AppError, Result};
 /// у Rust от конфига сборки нет, а расхождение видно сразу — страница не откроется.
 const DEV_ORIGIN: &str = "http://localhost:5180";
 
-/// Как часто отдаём накопившиеся кадры и пингуем соединения.
-const TICK: Duration = Duration::from_millis(100);
-
 /// Пинг раз в 20 секунд: сокет, умерший без кадра закрытия, иначе висел бы
 /// до таймаута TCP.
 const PING_EVERY: Duration = Duration::from_secs(20);
@@ -93,18 +90,12 @@ pub async fn start(app: &AppHandle, hub: Arc<AirHub>) -> Result<Running> {
 
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
 
-    // Одна задача на два дела: раздать кадры, которым пришло время уйти,
-    // и не дать туннелю закрыть соединения по простою.
+    // Пинг: сокет, умерший без кадра закрытия, иначе висел бы до таймаута TCP.
     let ticker = hub.clone();
     tokio::spawn(async move {
-        let mut last_ping = tokio::time::Instant::now();
         loop {
-            tokio::time::sleep(TICK).await;
-            ticker.tick().await;
-            if last_ping.elapsed() >= PING_EVERY {
-                ticker.ping();
-                last_ping = tokio::time::Instant::now();
-            }
+            tokio::time::sleep(PING_EVERY).await;
+            ticker.ping();
         }
     });
 

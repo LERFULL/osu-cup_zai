@@ -22,7 +22,6 @@ export interface AirLayer {
 export interface AirMeta {
   tournament: string;
   startedAt: string;
-  delay: number;
 }
 
 export interface AirTheme {
@@ -483,8 +482,6 @@ export interface AirConfig {
    * может хотеть выпускать руками.
    */
   pauseAuto: boolean;
-  /** Задержка, с которой состояние уходит зрителям. */
-  delay: number;
   /** Своя надпись для сцены `message`. */
   message: string;
   /** Файл для сцены `clip`. */
@@ -502,7 +499,6 @@ export const DEFAULT_CONFIG: AirConfig = {
   roundPlans: {},
   pauseBudget: 240,
   pauseAuto: true,
-  delay: 0,
   message: '',
   clip: '',
 };
@@ -515,9 +511,6 @@ export interface AirStatus {
   /** Адрес для OBS. Единственный: сервер слушает только петлю. */
   localUrl: string;
   startedAt: string | null;
-  delay: number;
-  /** Кадров, ждущих задержки: пока их больше нуля, вывод можно вернуть. */
-  pending: number;
   aired: AirState | null;
   lobby: { matchId: number; roomId: number; polling: boolean } | null;
 }

@@ -64,8 +64,6 @@ impl AirSlot {
             port: session.server.port,
             local_url: session.local_url(),
             started_at: Some(session.started_at.clone()),
-            delay: session.hub.delay_secs(),
-            pending: session.hub.pending().await,
             aired: Some(session.hub.aired().await),
             lobby: session.lobby.as_ref().map(|l| LobbyStatus {
                 match_id: l.match_id,
@@ -81,7 +79,6 @@ impl AirSlot {
         app: &AppHandle,
         tournament_id: i64,
         tournament: String,
-        delay: i64,
     ) -> Result<AirStatus> {
         let mut guard = self.0.lock().await;
         if guard.is_some() {
@@ -91,8 +88,8 @@ impl AirSlot {
         }
 
         let started_at = crate::db::now_iso();
-        let air = AirState::initial(tournament, started_at.clone(), delay);
-        let hub = AirHub::new(air, delay);
+        let air = AirState::initial(tournament, started_at.clone());
+        let hub = AirHub::new(air);
         let server = server::start(app, hub.clone()).await?;
 
         *guard = Some(Session {
@@ -141,22 +138,6 @@ impl AirSlot {
         self.with(|s| {
             let hub = s.hub.clone();
             async move { hub.push_patch(layer, payload).await }
-        })
-        .await
-    }
-
-    pub async fn revert(&self) -> Result<bool> {
-        let guard = self.0.lock().await;
-        let Some(session) = guard.as_ref() else {
-            return Ok(false);
-        };
-        Ok(session.hub.revert().await)
-    }
-
-    pub async fn set_delay(&self, secs: i64) -> Result<()> {
-        self.with(|s| {
-            let hub = s.hub.clone();
-            async move { hub.set_delay(secs).await }
         })
         .await
     }
@@ -227,8 +208,6 @@ fn offline() -> AirStatus {
         port: 0,
         local_url: String::new(),
         started_at: None,
-        delay: 0,
-        pending: 0,
         aired: None,
         lobby: None,
     }

@@ -199,8 +199,6 @@ pub fn run() {
             commands::air::air_stop,
             commands::air::air_scene,
             commands::air::air_patch,
-            commands::air::air_revert,
-            commands::air::air_set_delay,
             commands::air::air_lobby_start,
             commands::air::air_lobby_stop,
             commands::air::set_match_lobby,

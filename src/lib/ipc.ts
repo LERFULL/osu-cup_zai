@@ -578,8 +578,8 @@ export const replaceMatchPlayer = (
 
 export const airStatus = () => invoke<AirStatus>('air_status');
 
-export const airStart = (tournamentId: number, tournament: string, delay: number) =>
-  invoke<AirStatus>('air_start', { tournamentId, tournament, delay });
+export const airStart = (tournamentId: number, tournament: string) =>
+  invoke<AirStatus>('air_start', { tournamentId, tournament });
 
 export const airStop = () => invoke<AirStatus>('air_stop');
 
@@ -591,10 +591,6 @@ export const airScene = (layers: AirLayer[], theme: AirTheme | null = null) =>
 export const airPatch = (layer: SceneId, payload: ScenePayload) =>
   invoke<void>('air_patch', { layer, payload });
 
-/** Снимает кадр, пока его держит задержка: его ещё никто не видел. */
-export const airRevert = () => invoke<boolean>('air_revert');
-
-export const airSetDelay = (seconds: number) => invoke<void>('air_set_delay', { seconds });
 
 /** Опрос лобби. Идёт, только пока матч идёт. */
 export const airLobbyStart = (matchId: number, roomId: number) =>

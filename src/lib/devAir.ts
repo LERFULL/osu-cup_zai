@@ -44,7 +44,6 @@ let state: AirState = {
   air: {
     tournament: 'Показ вёрстки',
     startedAt: started,
-    delay: 0,
   },
   layers: [{ id: 'idle', since: started, until: null, payload: {} }],
   theme: { accent: '#ff6fb1' },
@@ -56,8 +55,6 @@ let status: AirStatus = {
   port: 0,
   localUrl: '',
   startedAt: null,
-  delay: 0,
-  pending: 0,
   aired: null,
   lobby: null,
 };
@@ -90,7 +87,6 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
           ...state.air,
           tournament: str(a, 'tournament'),
           startedAt: new Date().toISOString(),
-          delay: num(a, 'delay'),
         },
       };
       status = {
@@ -101,7 +97,6 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
         // Адреса ненастоящие: в браузере кадр идёт каналом, а не по сети.
         localUrl: `${window.location.origin}/air.html?transport=channel`,
         startedAt: state.air.startedAt,
-        delay: num(a, 'delay'),
       };
       send({ kind: 'snapshot', state });
       return { ...status, aired: state };
@@ -128,16 +123,6 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
         layers: state.layers.map((l) => (l.id === layer ? { ...l, payload } : l)),
       };
       send({ kind: 'patch', layer, payload });
-      return undefined;
-    },
-
-    // Задержки в браузере нет: возвращать нечего, кадр ушёл сразу.
-    air_revert: () => false,
-
-    air_set_delay: (a) => {
-      state = { ...state, air: { ...state.air, delay: num(a, 'seconds') } };
-      status = { ...status, delay: num(a, 'seconds') };
-      send({ kind: 'snapshot', state });
       return undefined;
     },
 
