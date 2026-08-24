@@ -32,7 +32,7 @@ const MODES: { id: AirMode; title: string; about: string }[] = [
 ];
 
 export function Setup() {
-  const { config, patchConfig, probe, runProbe, downloadTunnel, start, ctx, error } = useAir();
+  const { config, patchConfig, start, ctx, error } = useAir();
 
   const toggle = (id: SceneId) => {
     const has = config.enabled.includes(id);
@@ -138,82 +138,16 @@ export function Setup() {
           Пауза идёт сама
         </Switch>
 
-        <Switch
-          checked={config.showViewers}
-          onChange={(v) => void patchConfig({ showViewers: v })}
-          note="Число в углу кадра"
-        >
-          Показывать число зрителей
-        </Switch>
       </Card>
 
-      <Card title="Как зрители это получат">
-        <Switch
-          checked={config.publicLink}
-          onChange={(v) => void patchConfig({ publicLink: v })}
-          note="Без неё останется локальный адрес — для OBS этого достаточно"
-        >
-          Публичная ссылка
-        </Switch>
-
-        {config.publicLink ? (
-          <>
-            <Field
-              label="Сколько зрителей ожидается"
-              type="number"
-              min={1}
-              max={2000}
-              value={config.expectedViewers}
-              hint={
-                config.expectedViewers > 200
-                  ? 'Больше 200 быстрый туннель не держит: дальше отдаётся отказ. Нужен именованный туннель с аккаунтом Cloudflare или свой сервер'
-                  : 'Быстрый туннель держит примерно 200 одновременных зрителей'
-              }
-              {...(config.expectedViewers > 200
-                ? { error: 'больше 200 быстрый туннель не отдаст' }
-                : {})}
-              onChange={(e) =>
-                void patchConfig({ expectedViewers: Math.max(1, Number(e.target.value)) })
-              }
-            />
-
-            <div className={s.probe}>
-              <div className={s.probeHead}>
-                <span className={s.probeTitle}>Проверка связи</span>
-                <Button size="sm" onClick={() => void runProbe()}>
-                  Проверить
-                </Button>
-              </div>
-
-              {probe === null ? (
-                <p className={s.probeNote}>
-                  Публичная ссылка живёт, пока открыто приложение. Проверь связь заранее — узнать
-                  о проблеме посреди турнира поздно.
-                </p>
-              ) : (
-                <>
-                  <div className={s.checks}>
-                    <Check ok={probe.dataChannel} label="канал данных туннеля" />
-                    <Check ok={probe.binary} label="cloudflared на месте" />
-                  </div>
-
-                  {probe.hint !== '' ? <p className={s.probeHint}>{probe.hint}</p> : null}
-
-                  {!probe.binary ? (
-                    <div className={s.install}>
-                      <div className={s.installPath}>{probe.installPath}</div>
-                      <Button size="sm" onClick={() => void downloadTunnel()}>
-                        Скачать cloudflared
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className={s.installPath}>{probe.binaryPath}</div>
-                  )}
-                </>
-              )}
-            </div>
-          </>
-        ) : null}
+      <Card title="Куда идёт кадр">
+        <div className={s.obs}>
+          <div className={s.obsWhat}>Браузерный источник в OBS</div>
+          <div className={s.obsHow}>
+            Адрес появится после запуска. Размер источника и канвы — 1920×1080: на других
+            размерах кадр масштабируется, и текст плывёт.
+          </div>
+        </div>
       </Card>
 
       <div className={s.go}>
@@ -225,21 +159,9 @@ export function Setup() {
           Запустить эфир
         </Button>
         <span className={s.goNote}>
-          {ctx === null
-            ? 'Сначала выбери турнир'
-            : config.publicLink
-              ? 'Ссылка живёт, пока открыто приложение'
-              : 'Локальный эфир: адрес для OBS и для машин в этой сети'}
+          {ctx === null ? 'Сначала выбери турнир' : 'Адрес для браузерного источника в OBS'}
         </span>
       </div>
     </div>
-  );
-}
-
-function Check({ ok, label }: { ok: boolean; label: string }) {
-  return (
-    <span className={[s.check, ok ? s.checkOk : s.checkBad].join(' ')}>
-      <span aria-hidden>{ok ? '✓' : '✕'}</span> {label}
-    </span>
   );
 }

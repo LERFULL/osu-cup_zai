@@ -69,9 +69,6 @@ export function Live() {
           </div>
 
           <div className={s.nowFoot}>
-            <span className={s.viewers}>
-              <i aria-hidden /> смотрят {status.viewers}
-            </span>
             {status.delay > 0 ? (
               <span className={s.delay}>
                 задержка {status.delay} с
@@ -240,41 +237,11 @@ export function Live() {
         {settings ? (
           <div className={s.restBody}>
             <Card title="Куда смотреть">
-              {status.publicUrl !== null ? (
-                <Link label="Публичная ссылка" value={status.publicUrl} onCopy={copy} />
-              ) : null}
-              {status.publicError !== null ? (
-                <div className={s.warn}>{status.publicError}</div>
-              ) : null}
-
               <Link label="Источник для OBS" value={status.localUrl} onCopy={copy} />
-              {status.lanUrl !== null ? (
-                <Link label="В этой сети" value={status.lanUrl} onCopy={copy} />
-              ) : null}
-
-              <div className={s.codeRow}>
-                <span className={s.codeLabel}>код доступа</span>
-                <span className={s.code}>{status.code}</span>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        'Сменить код? Все, кто смотрит сейчас, отключатся и получат «эфир закрыт». Новую ссылку придётся разослать заново.',
-                      )
-                    ) {
-                      void air.newCode();
-                    }
-                  }}
-                >
-                  Сменить
-                </Button>
-              </div>
 
               <div className={s.hintRow}>
-                {config.publicLink
-                  ? 'Ссылка живёт, пока открыто приложение. Одной аудитории давай что-то одно: у ссылки своя задержка, у стрима своя.'
-                  : 'Эфир локальный. Свой видеофайл можно показывать только в этом режиме.'}
+                Поставь в свойствах браузерного источника размер 1920×1080 — ровно такой же, как
+                у канвы. На других размерах кадр масштабируется, и текст плывёт.
               </div>
             </Card>
 
@@ -313,13 +280,6 @@ export function Live() {
                   })
                 }
               />
-
-              <Switch
-                checked={config.showViewers}
-                onChange={(value) => void air.patchConfig({ showViewers: value })}
-              >
-                Показывать зрителям счётчик зрителей
-              </Switch>
 
               <Button size="sm" onClick={() => void air.clearShows()}>
                 Сбросить счётчики показов

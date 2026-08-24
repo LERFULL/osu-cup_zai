@@ -52,8 +52,6 @@ export function Viewer() {
           );
           return { ...prev, layers };
         }
-        case 'viewers':
-          return prev === null ? prev : { ...prev, air: { ...prev.air, viewers: m.viewers } };
         default:
           return prev;
       }
@@ -115,7 +113,7 @@ export function Viewer() {
         className={s.stage}
         style={{ width: STAGE_W, height: STAGE_H, transform: `translate(-50%, -50%) scale(${scale})` }}
       >
-        <EnvProvider value={{ sound, localOnly: state?.air.localOnly ?? true }}>
+        <EnvProvider value={{ sound }}>
           {/* Уходящий кадр висит под новым, пока не отыграет свой уход: без
               этого смена читается как рез, а эфир — как листалка картинок. */}
           {leaving.map((l) => (
@@ -126,25 +124,17 @@ export function Viewer() {
           ))}
         </EnvProvider>
 
-        {state !== null && state.air.showViewers ? (
-          <div className={s.viewers}>
-            <i aria-hidden />
-            {state.air.viewers}
-          </div>
-        ) : null}
-
-        {/* Связь потеряна — кадр не подменяем: лучше замерший счёт, чем чёрный
+        {/* Связи нет — кадр не подменяем: лучше замерший счёт, чем чёрный
             экран. Надпись висит поверх последнего, что успело прийти. */}
         {link.kind === 'lost' && state !== null ? (
           <div className={s.badge}>связь потеряна</div>
         ) : null}
       </div>
 
-      {state === null && link.kind !== 'denied' && link.kind !== 'closed' ? (
+      {state === null && link.kind !== 'closed' ? (
         <div className={s.plain}>Подключаюсь к эфиру…</div>
       ) : null}
 
-      {link.kind === 'denied' ? <div className={s.plain}>Эфир закрыт</div> : null}
       {link.kind === 'closed' ? <div className={s.over}>{link.reason}</div> : null}
 
       {/* Браузеры не дают проигрывать аудио до действия пользователя, поэтому

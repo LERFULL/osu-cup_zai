@@ -1,19 +1,17 @@
 // Что сцена знает про сам эфир, а не про кадр.
 //
-// Два поля, и оба про ограничения снаружи: браузер не даёт играть звук до
-// действия пользователя, а через Cloudflare нельзя раздавать видео. Тащить их
-// в каждый `payload` значит повторять одно и то же двадцать шесть раз.
+// Одно поле, и оно про ограничение снаружи: браузер не даёт играть звук до
+// действия пользователя. Тащить это в каждый `payload` значит повторять одно
+// и то же в каждой сцене.
 
 import { createContext, useContext } from 'react';
 
 export interface AirEnv {
   /** Зритель разрешил звук. До этого превью-аудио молчит. */
   sound: boolean;
-  /** Эфир только локальный — свой видеофайл играть можно. */
-  localOnly: boolean;
 }
 
-const Ctx = createContext<AirEnv>({ sound: false, localOnly: true });
+const Ctx = createContext<AirEnv>({ sound: false });
 
 export const EnvProvider = Ctx.Provider;
 

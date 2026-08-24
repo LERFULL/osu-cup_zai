@@ -1,12 +1,9 @@
 // Транспорт страницы зрителя.
 //
-// Страница не знает, где заканчивается её соединение: сегодня это локальный
-// сервер, за ним может стоять туннель, а когда-нибудь — свой релей. Ровно
-// поэтому здесь одна абстракция, а не «подключиться к cloudflared».
-//
-// Второй вариант — канал внутри браузера. Он нужен, чтобы смотреть эфир, не
-// собирая приложение: пульт в браузере пишет состояние туда же, откуда его
-// читает эта страница.
+// Соединений два, и страница не знает, какое из них у неё: WebSocket локального
+// сервера — так её открывает OBS, — и канал внутри браузера, чтобы смотреть
+// сцены не собирая приложение. Ровно поэтому здесь одна абстракция: пульт в
+// браузере пишет состояние туда же, откуда его читает эта страница.
 
 import type { AirMessage } from '@/lib/air/types';
 
@@ -21,12 +18,11 @@ export interface HelloMessage {
 export type Link =
   /** Состояние идёт, кадр живой. */
   | { kind: 'open' }
-  /** Связь потеряна. Кадр не подменяем: лучше замерший счёт, чем чёрный экран. */
+  /** Связи нет: эфир ещё не поднялся или уже оборвался. Кадр не подменяем —
+   *  лучше замерший счёт, чем чёрный экран. */
   | { kind: 'lost' }
   /** Эфир остановлен хостом. */
-  | { kind: 'closed'; reason: string }
-  /** Кода нет или он больше не действует. */
-  | { kind: 'denied' };
+  | { kind: 'closed'; reason: string };
 
 export interface Transport {
   stop: () => void;
@@ -38,10 +34,9 @@ interface Handlers {
 }
 
 /** Что вообще открыли: адрес эфира или показ в браузере. */
-export function readParams(): { code: string; channel: boolean; ws: string | null } {
+export function readParams(): { channel: boolean; ws: string | null } {
   const q = new URLSearchParams(window.location.search);
   return {
-    code: q.get('code') ?? '',
     channel: q.get('transport') === 'channel',
     ws: q.get('ws'),
   };
@@ -67,10 +62,6 @@ export function connect(handlers: Handlers): Transport {
 function route(message: AirMessage, handlers: Handlers): boolean {
   if (message.kind === 'closed') {
     handlers.link({ kind: 'closed', reason: message.reason });
-    return true;
-  }
-  if (message.kind === 'kicked') {
-    handlers.link({ kind: 'denied' });
     return true;
   }
   handlers.message(message);
@@ -99,24 +90,18 @@ function viaChannel(handlers: Handlers): Transport {
 /** Через сколько пробуем переподключиться. Растёт до десяти секунд. */
 const RETRY = [400, 900, 2000, 4000, 10_000];
 
-function viaSocket(
-  params: { code: string; ws: string | null },
-  handlers: Handlers,
-): Transport {
+function viaSocket(params: { ws: string | null }, handlers: Handlers): Transport {
   let socket: WebSocket | null = null;
   let attempt = 0;
   let timer: number | null = null;
   let stopped = false;
   /** Хост сказал, что эфира больше нет: переподключаться незачем. */
   let finished = false;
-  /** Открывалось ли соединение хоть раз. Этим и отличаем «код не подошёл»
-   *  от «связь оборвалась»: причину закрытия браузер не сообщает. */
-  let everOpened = false;
 
   const address = () => {
     if (params.ws !== null && params.ws !== '') return params.ws;
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${scheme}//${window.location.host}/air?code=${encodeURIComponent(params.code)}`;
+    return `${scheme}//${window.location.host}/air`;
   };
 
   const retry = () => {
@@ -134,7 +119,6 @@ function viaSocket(
 
     ws.onopen = () => {
       attempt = 0;
-      everOpened = true;
       handlers.link({ kind: 'open' });
     };
 
@@ -153,8 +137,9 @@ function viaSocket(
     ws.onclose = () => {
       socket = null;
       if (stopped || finished) return;
-      // Ни разу не открылось — значит сервер отказал: кода нет или он не тот.
-      handlers.link(everOpened ? { kind: 'lost' } : { kind: 'denied' });
+      // Причину браузер не сообщает, и разбирать её незачем: эфир либо ещё не
+      // поднялся, либо оборвался — в обоих случаях надо просто переподключаться.
+      handlers.link({ kind: 'lost' });
       retry();
     };
   }

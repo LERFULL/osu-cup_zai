@@ -1,26 +1,26 @@
 //! Локальный сервер эфира: HTTP отдаёт страницу зрителя, WebSocket — состояние.
 //!
-//! Порт свободный, выбирается при старте. Слушаем `0.0.0.0`, а не только
-//! петлю: страницу открывают и с другой машины в доме, и туннелем наружу.
+//! Порт свободный, выбирается при старте. Слушаем только петлю: страницу
+//! открывает OBS на этой же машине, и больше никто. Ни кода доступа, ни счёта
+//! зрителей поэтому нет — считать некого, закрывать не от кого.
 //!
 //! Откуда берётся сама страница, зависит от того, как запущено приложение:
 //! в сборке она лежит в ресурсах, после `pnpm build` — в `dist`, а в режиме
 //! разработки её отдаёт Vite, и тогда сервер просто пропускает запросы к нему.
 //! Без последнего эфир нельзя было бы посмотреть, не собрав приложение.
 
-use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::{header, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::sync::{broadcast, oneshot};
 
 use super::hub::AirHub;
@@ -34,8 +34,8 @@ const DEV_ORIGIN: &str = "http://localhost:5180";
 /// Как часто отдаём накопившиеся кадры и пингуем соединения.
 const TICK: Duration = Duration::from_millis(100);
 
-/// Пинг раз в 20 секунд: Cloudflare закрывает WebSocket по простою и своего
-/// значения таймаута не публикует, поэтому берём с запасом под любое.
+/// Пинг раз в 20 секунд: сокет, умерший без кадра закрытия, иначе висел бы
+/// до таймаута TCP.
 const PING_EVERY: Duration = Duration::from_secs(20);
 
 /// Откуда брать файлы страницы зрителя.
@@ -51,7 +51,6 @@ enum WebRoot {
 struct Ctx {
     hub: Arc<AirHub>,
     root: WebRoot,
-    app: AppHandle,
 }
 
 /// Поднятый сервер: порт и способ его погасить.
@@ -74,7 +73,7 @@ impl Running {
 pub async fn start(app: &AppHandle, hub: Arc<AirHub>) -> Result<Running> {
     let root = resolve_root(app);
 
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", 0))
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .map_err(|e| AppError::Other(format!("Порт для эфира не занялся: {e}")))?;
     let port = listener
@@ -85,7 +84,6 @@ pub async fn start(app: &AppHandle, hub: Arc<AirHub>) -> Result<Running> {
     let ctx = Ctx {
         hub: hub.clone(),
         root,
-        app: app.clone(),
     };
 
     let router = Router::new()
@@ -130,33 +128,12 @@ pub async fn start(app: &AppHandle, hub: Arc<AirHub>) -> Result<Running> {
 
 // ────────────────────────────────────────────────────────────── WebSocket
 
-#[derive(serde::Deserialize)]
-struct CodeQuery {
-    code: Option<String>,
-}
-
-async fn ws_handler(
-    State(ctx): State<Ctx>,
-    Query(q): Query<CodeQuery>,
-    ws: WebSocketUpgrade,
-) -> Response {
-    // Без кода соединение не открывается. Подробностей не даём: страница
-    // покажет «эфир закрыт», и это всё, что зрителю нужно знать.
-    if !ctx.hub.code_matches(q.code.as_deref()).await {
-        return (StatusCode::FORBIDDEN, "эфир закрыт").into_response();
-    }
+async fn ws_handler(State(ctx): State<Ctx>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| serve_viewer(socket, ctx))
 }
 
 async fn serve_viewer(socket: WebSocket, ctx: Ctx) {
-    // Поколение запоминаем до подписки: если код сменят, этот сокет по нему
-    // поймёт, что его ссылка больше не действует.
-    let generation = ctx.hub.generation();
     let mut rx = ctx.hub.subscribe();
-
-    let count = ctx.hub.add_viewer().await;
-    emit_viewers(&ctx.app, count);
-
     let (mut sink, mut stream) = socket.split();
 
     // Снимок — первое, что видит подключившийся: он попадает ровно туда,
@@ -173,9 +150,6 @@ async fn serve_viewer(socket: WebSocket, ctx: Ctx) {
         tokio::select! {
             outgoing = rx.recv() => match outgoing {
                 Ok(text) => {
-                    if ctx.hub.generation() != generation {
-                        break;
-                    }
                     alive = sink.send(Message::Text(text.into())).await.is_ok();
                 }
                 // Зритель отстал от рассылки. Догонять нечем и незачем:
@@ -194,15 +168,6 @@ async fn serve_viewer(socket: WebSocket, ctx: Ctx) {
             },
         }
     }
-
-    let count = ctx.hub.drop_viewer().await;
-    emit_viewers(&ctx.app, count);
-}
-
-/// Число зрителей — единственное, что приложение знает про них. Ни имён,
-/// ни адресов, ни истории подключений.
-fn emit_viewers(app: &AppHandle, count: i64) {
-    let _ = app.emit("air:viewers", count);
 }
 
 // ─────────────────────────────────────────────────────────── страница
@@ -331,21 +296,4 @@ fn resolve_root(app: &AppHandle) -> WebRoot {
     }
 
     WebRoot::Dev(Arc::new(reqwest::Client::new()))
-}
-
-// ───────────────────────────────────────────────────────────────── адреса
-
-/// Адрес машины в локальной сети. Соединение к внешнему адресу здесь ничего
-/// не отправляет — это единственный способ спросить у системы, какой из
-/// интерфейсов она считает исходящим.
-pub fn lan_ip() -> Option<String> {
-    let socket = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
-    socket.connect(("8.8.8.8", 80)).ok()?;
-    match socket.local_addr().ok()? {
-        SocketAddr::V4(v4) => Some(v4.ip().to_string()),
-        SocketAddr::V6(v6) => match IpAddr::V6(*v6.ip()) {
-            IpAddr::V6(ip) => Some(ip.to_string()),
-            IpAddr::V4(ip) => Some(ip.to_string()),
-        },
-    }
 }

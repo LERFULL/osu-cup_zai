@@ -47,7 +47,6 @@ import type {
 } from './types';
 import type {
   AirLayer,
-  AirProbe,
   AirStatus,
   AirTheme,
   LobbyUpdate,
@@ -577,31 +576,10 @@ export const replaceMatchPlayer = (
 // Rust здесь только транспорт: сцены, переходы и подбор под бюджет считает
 // пульт. Поэтому команд мало, и ни одна из них не знает, что такое сцена.
 
-/**
- * Проверка связи до эфира, а не посреди турнира. Быстрый туннель ходит по порту
- * 7844, и он проходит далеко не всегда — на машине со своим VPN обычно нет.
- */
-export const airProbe = () => invoke<AirProbe>('air_probe');
-
-/** Скачивает cloudflared в папку данных. Только по явному нажатию. */
-export const airDownloadTunnel = () => invoke<string>('air_download_tunnel');
-
 export const airStatus = () => invoke<AirStatus>('air_status');
 
-export const airStart = (
-  tournamentId: number,
-  tournament: string,
-  publicLink: boolean,
-  delay: number,
-  showViewers: boolean,
-) =>
-  invoke<AirStatus>('air_start', {
-    tournamentId,
-    tournament,
-    public: publicLink,
-    delay,
-    showViewers,
-  });
+export const airStart = (tournamentId: number, tournament: string, delay: number) =>
+  invoke<AirStatus>('air_start', { tournamentId, tournament, delay });
 
 export const airStop = () => invoke<AirStatus>('air_stop');
 
@@ -617,12 +595,6 @@ export const airPatch = (layer: SceneId, payload: ScenePayload) =>
 export const airRevert = () => invoke<boolean>('air_revert');
 
 export const airSetDelay = (seconds: number) => invoke<void>('air_set_delay', { seconds });
-
-export const airSetShowViewers = (value: boolean) =>
-  invoke<void>('air_set_show_viewers', { value });
-
-/** Меняет код доступа. Все текущие зрители отключаются. */
-export const airNewCode = () => invoke<AirStatus>('air_new_code');
 
 /** Опрос лобби. Идёт, только пока матч идёт. */
 export const airLobbyStart = (matchId: number, roomId: number) =>

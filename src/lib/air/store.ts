@@ -18,7 +18,6 @@ import {
   DEFAULT_CONFIG,
   type AirConfig,
   type AirLayer,
-  type AirProbe,
   type AirStatus,
   type LobbyGame,
   type LobbyUpdate,
@@ -84,7 +83,6 @@ interface AirStore {
   config: AirConfig;
   status: AirStatus | null;
   shows: SceneShow[];
-  probe: AirProbe | null;
   error: string | null;
 
   /** Доменные данные, из которых собираются кадры. */
@@ -121,8 +119,6 @@ interface AirStore {
   // ── настройка
   load: (tournamentId: number) => Promise<void>;
   patchConfig: (patch: Partial<AirConfig>) => Promise<void>;
-  runProbe: () => Promise<void>;
-  downloadTunnel: () => Promise<void>;
 
   // ── эфир
   start: () => Promise<void>;
@@ -153,7 +149,6 @@ interface AirStore {
   /** Что выйдет следующим. */
   plan: () => Plan;
 
-  newCode: () => Promise<void>;
   clearShows: () => Promise<void>;
   /**
    * Турнир правят аварийно. Эфир на это время уходит в заставку: зрителю не
@@ -180,7 +175,6 @@ export const useAir = create<AirStore>((set, get) => ({
   config: DEFAULT_CONFIG,
   status: null,
   shows: [],
-  probe: null,
   error: null,
 
   ctx: null,
@@ -234,29 +228,11 @@ export const useAir = create<AirStore>((set, get) => ({
     if (id === null) return;
     try {
       await ipc.airSetConfig(id, JSON.stringify(config));
-      // Задержку и счётчик зрителей эфир применяет на ходу.
+      // Задержку эфир применяет на ходу.
       if (get().status?.live === true) {
         if (patch.delay !== undefined) await ipc.airSetDelay(patch.delay);
-        if (patch.showViewers !== undefined) await ipc.airSetShowViewers(patch.showViewers);
         await get().refreshStatus();
       }
-    } catch (e) {
-      set({ error: String(e) });
-    }
-  },
-
-  async runProbe() {
-    try {
-      set({ probe: await ipc.airProbe(), error: null });
-    } catch (e) {
-      set({ error: String(e) });
-    }
-  },
-
-  async downloadTunnel() {
-    try {
-      await ipc.airDownloadTunnel();
-      await get().runProbe();
     } catch (e) {
       set({ error: String(e) });
     }
@@ -272,9 +248,7 @@ export const useAir = create<AirStore>((set, get) => ({
       const status = await ipc.airStart(
         tournamentId,
         ctx?.bracket.name ?? 'Турнир',
-        config.publicLink,
         config.delay,
-        config.showViewers,
       );
       set({ status, error: null, proposals: [], overflow: 0, frozen: false });
 
@@ -469,14 +443,6 @@ export const useAir = create<AirStore>((set, get) => ({
         : 'плейлист паузы соберётся, когда матч закроется',
       automatic: false,
     };
-  },
-
-  async newCode() {
-    try {
-      set({ status: await ipc.airNewCode() });
-    } catch (e) {
-      set({ error: String(e) });
-    }
   },
 
   async clearShows() {

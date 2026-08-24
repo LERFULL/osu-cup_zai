@@ -33,7 +33,6 @@ export function Dock() {
         <i aria-hidden />
         <span className={s.pillNow}>{now}</span>
         <span className={s.pillNext}>дальше: {plan.label}</span>
-        <span className={s.pillViewers}>{status.viewers}</span>
       </button>
     );
   }
@@ -43,9 +42,6 @@ export function Dock() {
       <header className={s.head}>
         <span className={s.live}>
           <i aria-hidden /> Эфир
-        </span>
-        <span className={s.viewers} title="Смотрят сейчас">
-          {status.viewers}
         </span>
         <button className={s.link} type="button" onClick={() => go('air')}>
           Пульт

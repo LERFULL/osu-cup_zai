@@ -6,28 +6,9 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 
 use crate::air::state::{AirStatus, Layer};
-use crate::air::tunnel::{self, Probe, Transport};
 use crate::db::air as db;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
-
-/// Проверка связи до эфира, а не посреди турнира.
-///
-/// Быстрый туннель Cloudflare ходит по порту 7844, и он проходит далеко не
-/// всегда: на машине со своим VPN весь трафик уходит в TUN, а 7844 прокси не
-/// прокидывает. Ссылка при этом выдаётся, а зритель не получает ничего — узнать
-/// об этом надо до того, как ссылку разошлют.
-#[tauri::command]
-pub async fn air_probe(state: State<'_, Arc<AppState>>) -> Result<Probe> {
-    Ok(tunnel::probe(&state.data_dir).await)
-}
-
-/// Скачивает cloudflared в папку данных. Только по явному нажатию: сама тянуть
-/// десятки мегабайт программа не должна, и в установщик их тоже не кладём.
-#[tauri::command]
-pub async fn air_download_tunnel(state: State<'_, Arc<AppState>>) -> Result<String> {
-    tunnel::download(&state.osu.http, &state.data_dir).await
-}
 
 #[tauri::command]
 pub async fn air_status(state: State<'_, Arc<AppState>>) -> Result<AirStatus> {
@@ -40,27 +21,11 @@ pub async fn air_start(
     state: State<'_, Arc<AppState>>,
     tournament_id: i64,
     tournament: String,
-    public: bool,
     delay: i64,
-    show_viewers: bool,
 ) -> Result<AirStatus> {
-    let transport = if public {
-        Transport::Cloudflared
-    } else {
-        Transport::Local
-    };
-    let inner = Arc::clone(&state);
     state
         .air
-        .start(
-            &app,
-            inner,
-            tournament_id,
-            tournament,
-            transport,
-            delay,
-            show_viewers,
-        )
+        .start(&app, tournament_id, tournament, delay)
         .await
 }
 
@@ -100,18 +65,6 @@ pub async fn air_revert(state: State<'_, Arc<AppState>>) -> Result<bool> {
 #[tauri::command]
 pub async fn air_set_delay(state: State<'_, Arc<AppState>>, seconds: i64) -> Result<()> {
     state.air.set_delay(seconds).await
-}
-
-#[tauri::command]
-pub async fn air_set_show_viewers(state: State<'_, Arc<AppState>>, value: bool) -> Result<()> {
-    state.air.set_show_viewers(value).await
-}
-
-/// Меняет код доступа. Все текущие зрители отключаются: их ссылка больше не
-/// действует, и делать вид, что это не так, значит оставить утёкшую ссылку живой.
-#[tauri::command]
-pub async fn air_new_code(state: State<'_, Arc<AppState>>) -> Result<AirStatus> {
-    state.air.set_code().await
 }
 
 // ─────────────────────────────────────────────────────────────────── лобби

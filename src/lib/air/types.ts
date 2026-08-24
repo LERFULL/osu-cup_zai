@@ -22,11 +22,7 @@ export interface AirLayer {
 export interface AirMeta {
   tournament: string;
   startedAt: string;
-  viewers: number;
-  showViewers: boolean;
   delay: number;
-  /** Публичной ссылки нет. Свой видеофайл играется только в этом режиме. */
-  localOnly: boolean;
 }
 
 export interface AirTheme {
@@ -47,9 +43,7 @@ export type AirMessage =
   | { kind: 'snapshot'; state: AirState }
   | { kind: 'scene'; layers: AirLayer[] }
   | { kind: 'patch'; layer: SceneId; payload: ScenePayload }
-  | { kind: 'viewers'; viewers: number }
   | { kind: 'closed'; reason: string }
-  | { kind: 'kicked' }
   | { kind: 'ping' };
 
 // ─────────────────────────────────────────────────────────── общие части
@@ -491,11 +485,6 @@ export interface AirConfig {
   pauseAuto: boolean;
   /** Задержка, с которой состояние уходит зрителям. */
   delay: number;
-  showViewers: boolean;
-  /** Поднимать публичную ссылку. `false` — только локальная для OBS. */
-  publicLink: boolean;
-  /** Сколько зрителей ожидается. От этого зависит, годится ли быстрый туннель. */
-  expectedViewers: number;
   /** Своя надпись для сцены `message`. */
   message: string;
   /** Файл для сцены `clip`. */
@@ -514,9 +503,6 @@ export const DEFAULT_CONFIG: AirConfig = {
   pauseBudget: 240,
   pauseAuto: true,
   delay: 0,
-  showViewers: false,
-  publicLink: false,
-  expectedViewers: 20,
   message: '',
   clip: '',
 };
@@ -526,28 +512,14 @@ export interface AirStatus {
   live: boolean;
   tournamentId: number | null;
   port: number;
+  /** Адрес для OBS. Единственный: сервер слушает только петлю. */
   localUrl: string;
-  lanUrl: string | null;
-  publicUrl: string | null;
-  publicError: string | null;
-  code: string;
-  viewers: number;
   startedAt: string | null;
   delay: number;
   /** Кадров, ждущих задержки: пока их больше нуля, вывод можно вернуть. */
   pending: number;
   aired: AirState | null;
   lobby: { matchId: number; roomId: number; polling: boolean } | null;
-}
-
-/** Что показала проверка связи. */
-export interface AirProbe {
-  binary: boolean;
-  binaryPath: string | null;
-  dataChannel: boolean;
-  hint: string;
-  downloadUrl: string;
-  installPath: string;
 }
 
 /** Сколько раз сцена выходила в эфир в этом турнире. */

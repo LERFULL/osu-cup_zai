@@ -630,14 +630,10 @@ export function Message({ p }: { p: MessagePayload }) {
 }
 
 /**
- * Свой видеофайл.
- *
- * Раздаётся только локальным сервером: раздача видео через быстрый туннель
- * Cloudflare прямо запрещена его условиями, а тихо нарушать их эфиром за чужой
- * счёт нельзя. Поэтому в публичном режиме сцена показывает повод, а не видео.
+ * Свой видеофайл. Раздаётся локальным сервером — единственным, который есть:
+ * наружу интернета эфир не выходит.
  */
 export function Clip({ p }: { p: ClipPayload }) {
-  const { localOnly } = useEnv();
   const ref = useRef<HTMLVideoElement | null>(null);
   const [broken, setBroken] = useState(false);
 
@@ -646,14 +642,6 @@ export function Clip({ p }: { p: ClipPayload }) {
     if (el === null) return;
     void el.play().catch(() => setBroken(true));
   }, [p.src]);
-
-  if (!localOnly) {
-    return (
-      <div className={s.message}>
-        <div className={s.messageNote}>видео идёт только в локальном эфире</div>
-      </div>
-    );
-  }
 
   if (broken) {
     return (

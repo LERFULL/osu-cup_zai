@@ -1,4 +1,4 @@
-//! Хаб зрителей: держит состояние, рассылает изменения, считает подключённых.
+//! Хаб зрителей: держит состояние и рассылает изменения.
 //!
 //! Два состояния вместо одного — из-за задержки. `live` — правда хоста, она
 //! меняется в момент нажатия. `aired` — то, что уже видят зрители. Подключившийся
@@ -6,7 +6,7 @@
 //! бы кадр, которого пока ни у кого нет.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,82 +33,23 @@ pub struct AirHub {
     live: Mutex<AirState>,
     aired: Mutex<AirState>,
     queue: Mutex<VecDeque<Pending>>,
-    code: Mutex<String>,
-    viewers: AtomicI64,
     delay_ms: AtomicU64,
-    /// Растёт при смене кода: открытые сокеты по нему понимают, что их ссылка
-    /// больше не действует.
-    generation: AtomicU64,
 }
 
 impl AirHub {
-    pub fn new(state: AirState, code: String, delay_secs: i64) -> Arc<Self> {
+    pub fn new(state: AirState, delay_secs: i64) -> Arc<Self> {
         let (tx, _) = broadcast::channel(256);
         Arc::new(Self {
             tx,
             live: Mutex::new(state.clone()),
             aired: Mutex::new(state),
             queue: Mutex::new(VecDeque::new()),
-            code: Mutex::new(code),
-            viewers: AtomicI64::new(0),
             delay_ms: AtomicU64::new(delay_secs.clamp(0, 30) as u64 * 1000),
-            generation: AtomicU64::new(0),
         })
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<String> {
         self.tx.subscribe()
-    }
-
-    pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::SeqCst)
-    }
-
-    // ──────────────────────────────────────────────────────── код доступа
-
-    pub async fn code(&self) -> String {
-        self.code.lock().await.clone()
-    }
-
-    /// Ссылку могли переслать дальше — код меняется кнопкой. Все текущие
-    /// зрители при этом отключаются: их ссылка стала недействительной,
-    /// и делать вид, что это не так, значит оставить утёкшую ссылку живой.
-    pub async fn set_code(&self, code: String) {
-        *self.code.lock().await = code;
-        self.generation.fetch_add(1, Ordering::SeqCst);
-        let _ = self.tx.send(Wire::Kicked.encode());
-    }
-
-    pub async fn code_matches(&self, given: Option<&str>) -> bool {
-        let code = self.code.lock().await;
-        given.is_some_and(|g| g.eq_ignore_ascii_case(code.as_str()))
-    }
-
-    // ──────────────────────────────────────────────────────────── зрители
-
-    pub fn viewers(&self) -> i64 {
-        self.viewers.load(Ordering::SeqCst)
-    }
-
-    /// Число зрителей идёт мимо очереди задержки: это не кадр, и держать его
-    /// десять секунд незачем.
-    pub async fn set_viewers(&self, n: i64) {
-        self.viewers.store(n, Ordering::SeqCst);
-        self.live.lock().await.air.viewers = n;
-        self.aired.lock().await.air.viewers = n;
-        let _ = self.tx.send(Wire::Viewers { viewers: n }.encode());
-    }
-
-    pub async fn add_viewer(&self) -> i64 {
-        let n = self.viewers.fetch_add(1, Ordering::SeqCst) + 1;
-        self.set_viewers(n).await;
-        n
-    }
-
-    pub async fn drop_viewer(&self) -> i64 {
-        let n = (self.viewers.fetch_sub(1, Ordering::SeqCst) - 1).max(0);
-        self.set_viewers(n).await;
-        n
     }
 
     // ─────────────────────────────────────────────────────────── задержка
@@ -134,15 +75,6 @@ impl AirHub {
         self.aired.lock().await.clone()
     }
 
-    /// Настройки, которые задаёт пульт и знает страница.
-    pub async fn set_shown_fields(&self, show_viewers: bool, local_only: bool) {
-        for state in [&self.live, &self.aired] {
-            let mut s = state.lock().await;
-            s.air.show_viewers = show_viewers;
-            s.air.local_only = local_only;
-        }
-    }
-
     /// Новый кадр. Смена стека слоёв — это всегда переход с анимацией.
     pub async fn push_scene(&self, layers: Vec<Layer>, theme: Option<Value>) {
         let mut next = self.live.lock().await.clone();
@@ -150,7 +82,6 @@ impl AirHub {
         if let Some(theme) = theme {
             next.theme = theme;
         }
-        next.air.viewers = self.viewers();
         self.enqueue(next, Wire::Scene { layers }).await;
     }
 
@@ -164,7 +95,6 @@ impl AirHub {
             return;
         };
         slot.payload = payload.clone();
-        next.air.viewers = self.viewers();
         self.enqueue(
             next,
             Wire::Patch {
@@ -249,7 +179,7 @@ impl AirHub {
         );
     }
 
-    /// Пинг, чтобы туннель не закрыл соединение по простою.
+    /// Пинг: сокет, умерший без кадра закрытия, иначе висел бы до таймаута TCP.
     pub fn ping(&self) {
         let _ = self.tx.send(Wire::Ping.encode());
     }

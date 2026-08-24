@@ -53,9 +53,7 @@ export default function App() {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const w = getCurrentWindow();
       unlisten = await w.onCloseRequested((e) => {
-        const viewers = useAir.getState().status?.viewers ?? 0;
-        const who = viewers > 0 ? `Смотрят ${viewers}. ` : '';
-        if (!window.confirm(`${who}Закрыть приложение? Эфир на этом закончится.`)) {
+        if (!window.confirm('Закрыть приложение? Эфир на этом закончится.')) {
           e.preventDefault();
         }
       });

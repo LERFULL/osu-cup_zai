@@ -30,21 +30,9 @@ pub struct Layer {
 pub struct AirMeta {
     pub tournament: String,
     pub started_at: String,
-    /// Считает Rust: хост этого числа не знает, а страница его показывает.
-    /// Что бы ни прислал фронт, поле перезаписывается здесь.
-    #[serde(default)]
-    pub viewers: i64,
-    /// Показывать число зрителей в кадре.
-    #[serde(default)]
-    pub show_viewers: bool,
     /// Задержка, с которой состояние уходит зрителям. Секунды.
     #[serde(default)]
     pub delay: i64,
-    /// Публичной ссылки нет — эфир только локальный. Страница по этому полю
-    /// решает, можно ли играть свой видеофайл: через Cloudflare раздавать
-    /// видео нельзя, а локально и в OBS — можно.
-    #[serde(default)]
-    pub local_only: bool,
 }
 
 /// Всё, что нужно кадру. Больше в состоянии ничего нет: ни списка сцен,
@@ -62,15 +50,12 @@ pub struct AirState {
 
 impl AirState {
     /// Пустой эфир: заставка до первого события.
-    pub fn initial(tournament: String, started_at: String, delay: i64, local_only: bool) -> Self {
+    pub fn initial(tournament: String, started_at: String, delay: i64) -> Self {
         Self {
             air: AirMeta {
                 tournament,
                 started_at: started_at.clone(),
-                viewers: 0,
-                show_viewers: false,
                 delay,
-                local_only,
             },
             layers: vec![Layer {
                 id: "idle".to_string(),
@@ -98,14 +83,10 @@ pub enum Wire {
     Scene { layers: Vec<Layer> },
     /// Изменение внутри слоя: счёт, новый бан, таймер.
     Patch { layer: String, payload: Value },
-    /// Зрителей стало больше или меньше. Кадр от этого не перерисовывается.
-    Viewers { viewers: i64 },
     /// Эфир остановлен. Страница показывает надпись поверх последнего кадра,
     /// а не чёрный экран.
     Closed { reason: String },
-    /// Хост сменил код доступа — эта ссылка больше не действует.
-    Kicked,
-    /// Чтобы туннель не закрыл соединение по простою.
+    /// Чтобы соединение не закрылось по простою.
     Ping,
 }
 
@@ -127,17 +108,9 @@ pub struct AirStatus {
     /// понимает, что кадры сейчас не его, и не перебивает чужой эфир.
     pub tournament_id: Option<i64>,
     pub port: u16,
-    /// `http://127.0.0.1:PORT?code=XXXX` — источник для OBS, всегда есть.
+    /// `http://127.0.0.1:PORT` — источник для OBS. Других адресов нет: сервер
+    /// слушает только петлю, а страницу открывает только OBS на этой машине.
     pub local_url: String,
-    /// Та же страница по адресу в локальной сети: смотреть с другой машины
-    /// дома публичная ссылка не нужна.
-    pub lan_url: Option<String>,
-    /// Публичная ссылка. `None` — эфир локальный, туннеля нет.
-    pub public_url: Option<String>,
-    /// Почему публичной ссылки нет, если её просили.
-    pub public_error: Option<String>,
-    pub code: String,
-    pub viewers: i64,
     pub started_at: Option<String>,
     pub delay: i64,
     /// Кадров, ждущих задержки: пока их больше нуля, вывод можно вернуть.

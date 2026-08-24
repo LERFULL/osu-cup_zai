@@ -44,10 +44,7 @@ let state: AirState = {
   air: {
     tournament: 'Показ вёрстки',
     startedAt: started,
-    viewers: 0,
-    showViewers: false,
     delay: 0,
-    localOnly: true,
   },
   layers: [{ id: 'idle', since: started, until: null, payload: {} }],
   theme: { accent: '#ff6fb1' },
@@ -58,11 +55,6 @@ let status: AirStatus = {
   tournamentId: null,
   port: 0,
   localUrl: '',
-  lanUrl: null,
-  publicUrl: null,
-  publicError: null,
-  code: '',
-  viewers: 0,
   startedAt: null,
   delay: 0,
   pending: 0,
@@ -92,7 +84,6 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
     air_status: () => ({ ...status, aired: status.live ? state : null }),
 
     air_start: (a) => {
-      const code = 'DEMO';
       state = {
         ...state,
         air: {
@@ -100,8 +91,6 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
           tournament: str(a, 'tournament'),
           startedAt: new Date().toISOString(),
           delay: num(a, 'delay'),
-          showViewers: a['showViewers'] === true,
-          localOnly: a['public'] !== true,
         },
       };
       status = {
@@ -111,10 +100,6 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
         port: 7777,
         // Адреса ненастоящие: в браузере кадр идёт каналом, а не по сети.
         localUrl: `${window.location.origin}/air.html?transport=channel`,
-        lanUrl: null,
-        publicUrl: a['public'] === true ? 'https://demo.trycloudflare.com/?code=DEMO' : null,
-        publicError: null,
-        code,
         startedAt: state.air.startedAt,
         delay: num(a, 'delay'),
       };
@@ -124,7 +109,7 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
 
     air_stop: () => {
       send({ kind: 'closed', reason: 'Эфир окончен' });
-      status = { ...status, live: false, publicUrl: null, code: '', startedAt: null };
+      status = { ...status, live: false, startedAt: null };
       return { ...status, aired: null };
     },
 
@@ -156,32 +141,10 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
       return undefined;
     },
 
-    air_set_show_viewers: (a) => {
-      state = { ...state, air: { ...state.air, showViewers: a['value'] === true } };
-      send({ kind: 'snapshot', state });
-      return undefined;
-    },
-
-    air_new_code: () => {
-      send({ kind: 'kicked' });
-      status = { ...status, code: 'DEM2', viewers: 0 };
-      return { ...status, aired: state };
-    },
-
     // Опроса лобби в браузере нет: обращаться к osu! отсюда всё равно нельзя.
     air_lobby_start: () => undefined,
     air_lobby_stop: () => undefined,
     set_match_lobby: () => undefined,
-
-    air_probe: () => ({
-      binary: false,
-      binaryPath: null,
-      dataChannel: false,
-      hint: 'Показ в браузере: туннель здесь не поднимается. Кадр идёт каналом внутри окна.',
-      downloadUrl: 'https://github.com/cloudflare/cloudflared/releases/latest',
-      installPath: 'нет папки данных в браузере',
-    }),
-    air_download_tunnel: () => 'в браузере скачивать некуда',
 
     air_config: (a) => configs.get(num(a, 'tournamentId')) ?? null,
     air_set_config: (a) => {

@@ -194,8 +194,6 @@ pub fn run() {
             commands::matches::reset_match,
             commands::matches::replace_match_player,
             // эфир
-            commands::air::air_probe,
-            commands::air::air_download_tunnel,
             commands::air::air_status,
             commands::air::air_start,
             commands::air::air_stop,
@@ -203,8 +201,6 @@ pub fn run() {
             commands::air::air_patch,
             commands::air::air_revert,
             commands::air::air_set_delay,
-            commands::air::air_set_show_viewers,
-            commands::air::air_new_code,
             commands::air::air_lobby_start,
             commands::air::air_lobby_stop,
             commands::air::set_match_lobby,

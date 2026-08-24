@@ -125,78 +125,23 @@
   gap: 14px;
 }
 
-.probe {
+.obs {
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--card2);
 }
 
-.probeHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.probeTitle {
+.obsWhat {
   font-size: 13px;
   font-weight: 700;
 }
 
-.probeNote,
-.probeHint {
-  margin: 10px 0 0;
+.obsHow {
+  margin-top: 6px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--txt3);
-}
-
-.probeHint {
-  color: var(--gold);
-}
-
-.checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.checkOk {
-  background: rgb(126 217 87 / 0.12);
-  color: var(--green);
-}
-
-.checkBad {
-  background: rgb(255 107 107 / 0.12);
-  color: var(--red);
-}
-
-.install {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 10px;
-}
-
-.installPath {
-  margin-top: 8px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--txt3);
-  overflow-wrap: anywhere;
 }
 
 .go {
