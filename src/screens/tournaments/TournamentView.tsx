@@ -11,6 +11,8 @@ import type {
 } from '@/lib/types';
 import * as ipc from '@/lib/ipc';
 import { useAir } from '@/lib/air/store';
+import { Panel } from '@/screens/air/Panel';
+import { Setup } from '@/screens/air/Setup';
 import { BracketView } from './BracketView';
 import { MatchView } from './MatchView';
 import { Editor } from './editor/Editor';
@@ -50,7 +52,19 @@ export function TournamentView({ id, onClose }: Props) {
   const [pools, setPools] = useState<Pool[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
   const [match, setMatch] = useState<number | null>(null);
+  /** Открыта подготовка эфира: стиль, наполнение паузы, адрес для OBS. */
+  const [airSetup, setAirSetup] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Эфир идёт по этому турниру.
+   *
+   * Именно по этому: эфир один на приложение, и панель чужого турнира не должна
+   * предлагать управлять кадрами, которые ему не принадлежат.
+   */
+  const airLive = useAir(
+    (st) => st.status?.live === true && st.status.tournamentId === id,
+  );
 
   const [editing, setEditing] = useState(false);
   const [emergency, setEmergency] = useState(false);
@@ -105,6 +119,12 @@ export function TournamentView({ id, onClose }: Props) {
     void reload();
   }, [reload]);
 
+  // Эфир привязан к турниру, внутри которого открыт: своего выбора турнира у
+  // него больше нет, и знать про него он должен с первого открытия экрана.
+  useEffect(() => {
+    void useAir.getState().load(id);
+  }, [id]);
+
   // Черновик — это ещё не турнир, а сборка: настройку открываем сразу.
   // Отдельно от чтения: иначе она открывалась бы заново после каждой правки.
   const [seen, setSeen] = useState(false);
@@ -158,6 +178,27 @@ export function TournamentView({ id, onClose }: Props) {
           void reload();
         }}
       />
+    );
+  }
+
+  // Подготовка эфира — подэкран турнира, а не раздел приложения: без турнира
+  // эфира не бывает, и выбирать его там было нечем.
+  if (airSetup) {
+    return (
+      <div className={s.screen}>
+        <header className={s.bar}>
+          <button className={s.back} onClick={() => setAirSetup(false)} type="button">
+            ← {bracket?.name ?? 'Турнир'}
+          </button>
+          <h1 className={s.h1}>Эфир</h1>
+          <span className={s.sub}>что и как показывать зрителям</span>
+        </header>
+        <div className={s.body}>
+          <div className={s.col}>
+            <Setup onStarted={() => setAirSetup(false)} />
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -301,6 +342,11 @@ export function TournamentView({ id, onClose }: Props) {
             </Button>
           ) : null}
 
+          {/* Эфир — событие вечера, а не матча: начинают его отсюда. */}
+          <Button onClick={() => setAirSetup(true)}>
+            {airLive ? 'Эфир идёт' : 'Эфир'}
+          </Button>
+
           <Button
             {...(editing ? ({ variant: 'primary' } as const) : {})}
             onClick={() => setEditing(!editing)}
@@ -343,24 +389,29 @@ export function TournamentView({ id, onClose }: Props) {
       ) : null}
 
       <div className={s.body}>
-        {editing ? (
-          <div className={s.split}>
-            <Editor
-              id={id}
-              t={t}
-              state={editor}
-              emergency={emergency}
-              onEmergency={emergencyEdit}
-              run={run}
-              players={players}
-              pools={pools}
-              series={series}
-            />
+        <div className={airLive ? s.withAir : undefined}>
+          {editing ? (
+            <div className={s.split}>
+              <Editor
+                id={id}
+                t={t}
+                state={editor}
+                emergency={emergency}
+                onEmergency={emergencyEdit}
+                run={run}
+                players={players}
+                pools={pools}
+                series={series}
+              />
+              <div className={s.pane}>{canvas}</div>
+            </div>
+          ) : (
             <div className={s.pane}>{canvas}</div>
-          </div>
-        ) : (
-          canvas
-        )}
+          )}
+
+          {/* В паузе между матчами хост стоит здесь, и решения эфира — здесь же. */}
+          {airLive ? <Panel /> : null}
+        </div>
       </div>
 
       {/* Меню правки матча встаёт там, где по нему щёлкнули. */}

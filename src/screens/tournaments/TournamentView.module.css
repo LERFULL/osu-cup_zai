@@ -103,6 +103,15 @@
   overflow: auto;
 }
 
+/* Панель эфира стоит колонкой справа, а не поверх содержимого: ею пользуются
+   весь вечер, и накрывать сетку она не должна. */
+.withAir {
+  display: flex;
+  align-items: start;
+  gap: 16px;
+  min-height: 0;
+}
+
 /* Меню правки матча встаёт там, где щёлкнули по карточке. */
 .floating {
   position: fixed;
@@ -363,4 +372,11 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+/* Мало места — панель эфира встаёт под содержимое, а не рядом с ним. */
+@media (width < 1200px) {
+  .withAir {
+    flex-direction: column;
+  }
 }

@@ -9,8 +9,6 @@ import Players from '@/screens/Players';
 import Pools from '@/screens/Pools';
 import Settings from '@/screens/Settings';
 import Tournaments from '@/screens/Tournaments';
-import Air from '@/screens/Air';
-import { Dock } from '@/screens/air/Dock';
 import { useAirKeys } from '@/screens/air/shared';
 import Stub from '@/screens/Stub';
 import s from './App.module.css';
@@ -18,7 +16,6 @@ import s from './App.module.css';
 const NAV = [
   { id: 'home', icon: '◆', label: 'Главная' },
   { id: 'tournaments', icon: '⛁', label: 'Турниры' },
-  { id: 'air', icon: '◉', label: 'Эфир' },
   { id: 'pools', icon: '☰', label: 'Маппулы' },
   { id: 'library', icon: '♪', label: 'Библиотека' },
   { id: 'players', icon: '⚉', label: 'Игроки' },
@@ -113,17 +110,11 @@ export default function App() {
         {route === 'settings' && <Settings />}
         {route === 'home' && <Stub title="Главная" />}
         {route === 'tournaments' && <Tournaments />}
-        {route === 'air' && <Air />}
         {route === 'pools' && <Pools />}
         {route === 'players' && <Players />}
         {route === 'history' && <Stub title="История" />}
       </main>
 
-      {/* Мини-пульт: пока эфир идёт, он висит на любом экране. Хост судит матч
-          на экране матча, и уходить в раздел «Эфир» за каждым кадром — это и
-          есть то время, которое эфир должен экономить. В самом разделе его нет:
-          там стоит полный пульт, и второй был бы двумя пультами. */}
-      {live && route !== 'air' ? <Dock /> : null}
     </div>
   );
 }

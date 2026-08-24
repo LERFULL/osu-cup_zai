@@ -12,8 +12,17 @@ import { useAir } from '@/lib/air/store';
 import type { SceneId } from '@/lib/air/types';
 import s from './Setup.module.css';
 
-export function Setup() {
-  const { config, patchConfig, start, ctx, error } = useAir();
+interface Props {
+  /** Эфир поднялся: подготовка кончилась, дальше место хоста — у турнира. */
+  onStarted?: () => void;
+}
+
+export function Setup({ onStarted }: Props) {
+  const { config, patchConfig, start, ctx, error, status } = useAir();
+  const live = status?.live === true;
+
+  const copy = (value: string) =>
+    void navigator.clipboard.writeText(value).catch(() => undefined);
 
   const toggle = (id: SceneId) => {
     const has = config.enabled.includes(id);
@@ -103,9 +112,18 @@ export function Setup() {
       <Card title="Куда идёт кадр">
         <div className={s.obs}>
           <div className={s.obsWhat}>Браузерный источник в OBS</div>
+          {live ? (
+            <>
+              <div className={s.obsAddr}>{status?.localUrl}</div>
+              <Button size="sm" onClick={() => void copy(status?.localUrl ?? '')}>
+                Скопировать адрес
+              </Button>
+            </>
+          ) : null}
           <div className={s.obsHow}>
-            Адрес появится после запуска. Размер источника и канвы — 1920×1080: на других
-            размерах кадр масштабируется, и текст плывёт.
+            {live ? '' : 'Адрес появится после запуска. '}
+            Размер источника и канвы — 1920×1080: на других размерах кадр масштабируется,
+            и текст плывёт.
           </div>
         </div>
       </Card>
@@ -113,13 +131,24 @@ export function Setup() {
       <div className={s.go}>
         <Button
           variant="primary"
-          disabled={ctx === null}
-          onClick={() => void start()}
+          disabled={ctx === null || live}
+          onClick={() =>
+            void (async () => {
+              await start();
+              // Ушёл — значит подготовка кончилась. Не ушёл — повод виден строкой
+              // ошибки, и уводить хоста с экрана, где он её прочтёт, нельзя.
+              if (useAir.getState().status?.live === true) onStarted?.();
+            })()
+          }
         >
           Запустить эфир
         </Button>
         <span className={s.goNote}>
-          {ctx === null ? 'Сначала выбери турнир' : 'Адрес для браузерного источника в OBS'}
+          {ctx === null
+            ? 'Сначала собери сетку'
+            : live
+              ? 'Эфир уже идёт — управление на экране турнира'
+              : 'Дальше эфир идёт сам: кадр следует за матчем'}
         </span>
       </div>
     </div>

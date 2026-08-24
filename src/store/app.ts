@@ -14,7 +14,6 @@ import * as ipc from '@/lib/ipc';
 export type Route =
   | 'home'
   | 'tournaments'
-  | 'air'
   | 'pools'
   | 'library'
   | 'players'

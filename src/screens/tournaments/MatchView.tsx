@@ -11,6 +11,8 @@ import type {
 } from '@/lib/types';
 import { coverUrl } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
+import { useAir } from '@/lib/air/store';
+import { Panel } from '@/screens/air/Panel';
 import s from './MatchView.module.css';
 
 interface Props {
@@ -41,6 +43,13 @@ export function MatchView({ id, onClose }: Props) {
   const [pools, setPools] = useState<Pool[]>([]);
   const [menu, setMenu] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Эфир идёт. Панель встаёт рядом с судейством, потому что хост судит здесь,
+   * а уходить за кадрами на другой экран — это ровно то время, которое эфир
+   * должен экономить.
+   */
+  const airLive = useAir((st) => st.status?.live === true);
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
@@ -258,6 +267,7 @@ export function MatchView({ id, onClose }: Props) {
       {error !== null ? <div className={s.error}>{error}</div> : null}
 
       <div className={s.body}>
+        <div className={airLive ? s.withAir : undefined}>
         <div className={s.col}>
           <div className={s.score}>
             <div className={s.side}>
@@ -468,6 +478,9 @@ export function MatchView({ id, onClose }: Props) {
           <div className={s.keys}>
             1–9 выбрать строку · B бан · P пик · ← → победитель · Ctrl+Z отменить · Esc к сетке
           </div>
+        </div>
+
+        {airLive ? <Panel /> : null}
         </div>
       </div>
     </div>

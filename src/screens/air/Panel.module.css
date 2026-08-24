@@ -1,0 +1,267 @@
+/* Панель эфира. Стоит колонкой в разметке, а не поверх содержимого: то, чем
+   пользуются весь вечер, не должно накрывать работу и не должно сворачиваться
+   в ноль ровно тогда, когда понадобится. */
+
+/* Липнет к верху: хост смотрит в панель, не прокручивая содержимое обратно. */
+.panel {
+  width: 320px;
+  flex: 0 0 320px;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--red) 26%, var(--line));
+  border-radius: 14px;
+  background: var(--card);
+}
+
+/* ── шапка */
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 10px var(--red);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.time {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--txt3);
+}
+
+.error {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgb(255 107 107 / 0.12);
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ── блоки */
+
+.block {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card2);
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--txt3);
+}
+
+.what {
+  margin-top: 5px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.note,
+.quiet {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--txt3);
+}
+
+.quiet {
+  margin-top: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+/* Выйдет само или ждёт кнопки — это первое, что надо знать про следующий кадр. */
+.auto,
+.manual {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.auto {
+  background: rgb(126 217 87 / 0.14);
+  color: var(--green);
+}
+
+.manual {
+  background: rgb(255 208 59 / 0.14);
+  color: var(--gold);
+}
+
+/* ── полоса времени кадра */
+
+.bar {
+  margin-top: 7px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent, var(--pink));
+  transition: width 200ms linear;
+}
+
+/* ── миниатюра: та же страница зрителя, а не отдельный рисунок */
+
+.preview {
+  position: relative;
+  margin-top: 8px;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+
+.frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  pointer-events: none;
+}
+
+/* ── кнопки */
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.chip {
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--txt2);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--accent, var(--pink));
+  color: var(--txt);
+}
+
+.countdown {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.countdown > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── своя надпись */
+
+.say {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sayInput {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--txt);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.sayInput:focus {
+  outline: none;
+  border-color: var(--accent, var(--pink));
+}
+
+/* ── подвал */
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.keys {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--txt3);
+}
+
+/* Узкое окно: панель уходит под содержимое, а не сжимает его до нечитаемого.
+   Правило нужно не для телефонов — их здесь нет, — а для маленького окна на
+   рабочем столе: сетку в 265 пикселей рассмотреть нельзя. */
+@media (width < 1200px) {
+  .panel {
+    width: 100%;
+    flex: 1 1 auto;
+    position: static;
+  }
+}

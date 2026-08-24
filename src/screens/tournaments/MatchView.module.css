@@ -68,6 +68,19 @@
   margin: 0 auto;
 }
 
+/* Панель эфира — второй колонкой справа. Центральная колонка при этом остаётся
+   центрированной в остатке места, а не прыгает влево от появления панели. */
+.withAir {
+  display: flex;
+  align-items: start;
+  gap: 16px;
+}
+
+.withAir > .col {
+  flex: 1;
+  min-width: 0;
+}
+
 .score {
   display: flex;
   align-items: center;
@@ -287,4 +300,11 @@
 
 .lobbyLink:hover {
   color: var(--txt);
+}
+
+/* Мало места — панель эфира встаёт под содержимое, а не рядом с ним. */
+@media (width < 1200px) {
+  .withAir {
+    flex-direction: column;
+  }
 }
