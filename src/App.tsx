@@ -9,6 +9,8 @@ import Players from '@/screens/Players';
 import Pools from '@/screens/Pools';
 import Settings from '@/screens/Settings';
 import Tournaments from '@/screens/Tournaments';
+import Home from '@/screens/Home';
+import History from '@/screens/History';
 import { useAirKeys } from '@/screens/air/shared';
 import Stub from '@/screens/Stub';
 import s from './App.module.css';
@@ -108,11 +110,11 @@ export default function App() {
       <main className={s.main}>
         {route === 'library' && <Library />}
         {route === 'settings' && <Settings />}
-        {route === 'home' && <Stub title="Главная" />}
+        {route === 'home' && <Home />}
         {route === 'tournaments' && <Tournaments />}
         {route === 'pools' && <Pools />}
         {route === 'players' && <Players />}
-        {route === 'history' && <Stub title="История" />}
+        {route === 'history' && <History />}
       </main>
 
     </div>
