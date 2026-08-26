@@ -67,6 +67,18 @@ pub async fn delete_player(state: State<'_, Arc<AppState>>, id: i64) -> Result<(
     state.db.with(|conn| Ok(db::delete(conn, id)?))
 }
 
+/// Объединение дубля: все матчи, действия и участия `mergeId` переходят на
+/// `keepId`, дубль уходит в архив. Возвращает обновлённого keep-игрока —
+/// статистика у него уже пересчиталась, она вся живёт запросами.
+#[tauri::command]
+pub async fn merge_players(
+    state: State<'_, Arc<AppState>>,
+    keep_id: i64,
+    merge_id: i64,
+) -> Result<Player> {
+    state.db.with_tx(|tx| Ok(db::merge(tx, keep_id, merge_id)?))
+}
+
 #[tauri::command]
 pub async fn player_stats(state: State<'_, Arc<AppState>>, id: i64) -> Result<PlayerStats> {
     state.db.with(|conn| Ok(db::stats(conn, id)?))

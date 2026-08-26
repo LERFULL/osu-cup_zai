@@ -35,6 +35,62 @@
   }
 }
 
+/* ────────────────────────────────────────────────────── стили анимации
+ *
+ * Стиль приходит атрибутом `data-anim` на контейнере слоя (см. `air.css`).
+ * «Сдержанно» — поведение по умолчанию выше, отдельных правил не требует. */
+
+/* Собирается: элементы приезжают по очереди. Заголовок — первым и целиком,
+   строки маппула и плашки — за ним, каскадом по `--i`. */
+@keyframes comeIn {
+  from {
+    transform: translateX(-64px);
+    opacity: 0;
+  }
+}
+
+[data-anim='assembled'] .title,
+[data-anim='assembled'] .note {
+  /* Заголовок едет как одно целое — свои появления строкам не нужны. */
+  animation: none;
+}
+
+[data-anim='assembled'] .head {
+  animation: comeIn 520ms var(--ease) both;
+}
+
+[data-anim='assembled'] .lineIn {
+  animation: comeIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 55ms + 130ms);
+}
+
+[data-anim='assembled'] .statIn {
+  animation: comeIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 75ms + 160ms);
+}
+
+/* Кинематограф: ключевой заголовок проявляется вместе со свечением в акцент.
+   Сам наезд с масштаба и размытия делает слой (см. `air.css`), здесь — свет. */
+@keyframes cineTitle {
+  from {
+    opacity: 0;
+    text-shadow: none;
+  }
+
+  45% {
+    opacity: 1;
+    text-shadow: 0 0 90px color-mix(in srgb, var(--accent) 65%, transparent);
+  }
+
+  to {
+    text-shadow: 0 0 34px color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+}
+
+[data-anim='cinematic'] .title {
+  animation: cineTitle 1200ms var(--ease) both;
+}
+
 
 .frame {
   display: flex;

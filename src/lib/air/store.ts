@@ -24,6 +24,7 @@ import {
   type AirConfig,
   type AirLayer,
   type AirStatus,
+  type AirTheme,
   type LobbyGame,
   type LobbyUpdate,
   type SceneId,
@@ -275,7 +276,7 @@ export const useAir = create<AirStore>((set, get) => ({
   async air(p) {
     const { tournamentId } = get();
     try {
-      await ipc.airScene(p.layers, null);
+      await ipc.airScene(p.layers, themeOf(get()));
       set({ airing: { id: p.id, objectKey: p.objectKey, layers: p.layers, after: p.after } });
 
       // Показ отмечаем на выводе, а не на подборе: предложение могли пропустить.
@@ -467,6 +468,29 @@ export const useAir = create<AirStore>((set, get) => ({
 }));
 
 // ──────────────────────────────────────────────────── доменные данные
+
+/**
+ * Тема, уходящая на страницу вместе с кадром: акцент и стиль анимации.
+ *
+ * Стиль лежит в теме, а не в каждом слое, потому что тема уже доходит до
+ * страницы как есть — Rust её не разбирает и не должен. Ключ `style` — стиль
+ * на весь эфир, `style:<sceneId>` — переопределение для одной сцены.
+ */
+function themeOf(state: AirStore): AirTheme {
+  const theme: AirTheme = { accent: '#ff6fb1', style: state.config.style };
+  for (const [id, style] of Object.entries(state.config.sceneStyle)) {
+    if (style !== undefined) theme[`style:${id}`] = style;
+  }
+  return theme;
+}
+
+/** Свободный текст в строки: пустые и пробельные убираются. */
+function linesOf(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+}
 
 /**
  * Собирает всё, из чего строятся кадры.
@@ -679,7 +703,7 @@ function enqueue(get: Get, set: Set, fresh: Proposal[]) {
       const cut = [...airing.layers.slice(0, -1), director.cutShort(top)];
       set({ airing: { ...airing, layers: cut }, playlist: null, playlistAt: 0, hold: false });
       // Слой тот же, поменялся только срок: анимация входа не перезапустится.
-      void ipc.airScene(cut, null);
+      void ipc.airScene(cut, themeOf(get()));
       return;
     }
   }
@@ -759,7 +783,7 @@ async function runTimers(get: Get, set: Set) {
     return;
   }
 
-  await ipc.airScene(after, null);
+  await ipc.airScene(after, themeOf(state));
   const id = after[after.length - 1]?.id ?? airing.id;
   set({ airing: { id, objectKey: '', layers: after, after: { kind: 'live' } } });
 }
@@ -1006,8 +1030,20 @@ function buildScene(
     }
     case 'champion':
       return done(build.champion(ctx));
-    case 'credits':
-      return ctx.bracket.status === 'finished' ? done(build.credits(ctx)) : null;
+    case 'credits': {
+      // Титры знают то, чего нет в модели турнира: организаторов, судей, ссылки
+      // и соцсети. Их знает только эфир — поэтому достраиваются здесь, где виден
+      // конфиг, а не в payload, где виден только контекст.
+      if (ctx.bracket.status !== 'finished') return null;
+      const texts = state.config.finalTexts;
+      return done({
+        ...build.credits(ctx),
+        organizers: linesOf(texts.organizers),
+        judges: linesOf(texts.judges),
+        links: linesOf(texts.links),
+        socials: linesOf(texts.socials),
+      });
+    }
     case 'fundBoard':
       return done(build.fundBoard(ctx));
     case 'rookieRace':

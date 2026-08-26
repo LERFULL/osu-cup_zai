@@ -34,6 +34,10 @@ impl AppState {
         let db = Db::open(&db_path)?;
         db.migrate()?;
 
+        // Счётчик запусков и автобэкап — до первого обращения экранов:
+        // копия должна успеть случиться, даже если дальше что-то сломается.
+        autobackup(&db, &data_dir, &db_path);
+
         Ok(Self {
             db,
             cfg: ConfigStore::load(&data_dir.join("config.json")),
@@ -52,4 +56,19 @@ impl AppState {
     pub fn credentials(&self) -> Result<ApiCredentials> {
         self.cfg.credentials().ok_or(AppError::NoCredentials)
     }
+}
+
+/// Автобэкап раз в N запусков: счётчик живёт в самой базе (app_kv), копия —
+/// в папке backups рядом с ней. Ошибка копии не должна мешать запуску
+/// приложения, поэтому результат здесь глотается.
+fn autobackup(db: &Db, data_dir: &std::path::Path, db_path: &std::path::Path) {
+    let _ = db.with(|conn| {
+        let every = crate::db::prize::kv_get_i64(conn, "backupEvery", 0);
+        let runs = crate::db::prize::kv_get_i64(conn, "runCount", 0) + 1;
+        crate::db::prize::kv_set_i64(conn, "runCount", runs)?;
+        if every > 0 && runs % every == 0 {
+            crate::db::history::backup_database(conn, data_dir, db_path)?;
+        }
+        Ok(())
+    });
 }

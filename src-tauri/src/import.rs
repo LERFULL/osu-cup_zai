@@ -13,14 +13,14 @@ use crate::queue::{emit_cover, emit_progress};
 use crate::state::AppState;
 
 /// Сколько id влезает в один запрос `/beatmaps?ids[]=`.
-const BATCH: usize = 50;
+pub(crate) const BATCH: usize = 50;
 
 /// Сколько мест в минутном окне импорт оставляет опросу лобби.
 ///
 /// Опрос идущего матча ходит раз в 5 секунд — это 12 запросов в минуту. Если
 /// очередь загружена импортом карт, результат матча нужен сейчас, а обложки
 /// могут подождать, поэтому импорт до последних мест не дотягивается.
-const LOBBY_RESERVE: usize = 12;
+pub(crate) const LOBBY_RESERVE: usize = 12;
 
 pub fn new_batch_id() -> String {
     uuid::Uuid::new_v4().to_string()

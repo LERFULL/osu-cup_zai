@@ -20,6 +20,10 @@ import type {
   LibraryFilter,
   ModTag,
   Pool,
+  PoolField,
+  PoolImportPreview,
+  PoolJson,
+  PoolJsonSlot,
   PoolSlot,
   PoolTemplate,
   Series,
@@ -32,9 +36,10 @@ import type {
   TemplateSlot,
 } from './types';
 import { COLLECTIONS, LABELS, MAPS } from './mock';
+import { colorAt } from './colors';
 import { tournamentHandlers } from './devTournaments';
 import { airHandlers } from './devAir';
-import { EMPTY_FILTER, EMPTY_RULES, MOD_TAGS } from './types';
+import { EMPTY_FILTER, EMPTY_RULES, MOD_TAGS, POOL_FIELDS } from './types';
 
 type Args = Record<string, unknown>;
 
@@ -48,6 +53,24 @@ const members = new Map<number, number[]>([
 ]);
 
 let nextId = 100;
+
+// ───────────────────────────────────────────────── настройки приложения
+
+/** Дефолтные поля строки карты: `null` — встроенный «звёзды, длина, BPM».
+ *  Хранится как есть, чтобы экран настроек честно отличал «не задано». */
+let defaultFields: PoolField[] | null = null;
+
+/** Палитра игроков: восемь цветов, как free_color на Rust. */
+let palette: string[] = Array.from({ length: 8 }, (_, n) => colorAt(n));
+
+/** Автобэкап раз в N запусков, 0 — выкл. Счётчик запусков браузер не
+ *  переживает — считаем от нуля на каждой перезагрузке. */
+let backupEvery = 0;
+
+/** Имена бэкапов, новые сверху. Один стоит с самого начала — как если бы
+ *  приложение уже делал копию раньше. */
+const backups: string[] = ['osucup-2026-02-10-180000.db'];
+let backupSeq = 0;
 
 function num(v: unknown): number | null {
   return typeof v === 'number' ? v : null;
@@ -316,6 +339,41 @@ function blankSlot(mod: ModTag, position: number): PoolSlot {
     beatmap: null,
     warnings: [],
   };
+}
+
+// ─────────────────────────────────────────── импорт и экспорт JSON
+
+/** Разбор файла маппула с проверками — теми же словами, что на Rust. */
+function parsePoolJson(raw: string): PoolJson {
+  let file: PoolJson;
+  try {
+    file = JSON.parse(raw) as PoolJson;
+  } catch {
+    throw new Error('Файл не похож на маппул: это не JSON');
+  }
+  if (typeof file !== 'object' || file === null || !Array.isArray(file.slots)) {
+    throw new Error('Файл не похож на маппул: нет слотов');
+  }
+  if (typeof file.name !== 'string' || file.name.trim() === '') {
+    throw new Error('У маппула в файле нет названия — импортировать нечего');
+  }
+  for (const slot of file.slots) {
+    if (!MOD_TAGS.includes(slot.mod)) {
+      throw new Error(`Неизвестный мод «${slot.mod}» в слоте ${slot.slotLabel}`);
+    }
+  }
+  return file;
+}
+
+/** Уникальные id карт из файла, в порядке появления. */
+function poolJsonIds(file: PoolJson): number[] {
+  const out: number[] = [];
+  for (const slot of file.slots) {
+    if (typeof slot.beatmapId === 'number' && !out.includes(slot.beatmapId)) {
+      out.push(slot.beatmapId);
+    }
+  }
+  return out;
 }
 
 /** TB всегда последний, номера идут подряд — как в relabel на Rust. */
@@ -755,7 +813,8 @@ function newPool(name: string, t: PoolTemplate | null, seriesId: number | null):
     status: 'draft',
     version: 1,
     parentPoolId: null,
-    displayFields: ['stars', 'length', 'bpm'],
+    // Поля строки — глобальный дефолт из настроек, как create на Rust.
+    displayFields: defaultFields ?? ['stars', 'length', 'bpm'],
     sources: null,
     isLocked: false,
     createdAt: '2026-08-09T00:00:00Z',
@@ -1216,6 +1275,94 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     if (i >= 0) pools.splice(i, 1);
     exclusions.delete(ownerKey('pool', a['id'] as number));
     return undefined;
+  },
+
+  // Импорт и экспорт JSON: файл собирается и разбирается теми же формами,
+  // что на Rust, — раунд-трип в моке работает по-настоящему.
+  export_pool_json: (a) => {
+    const p = pool(a['poolId']);
+    return JSON.stringify(
+      {
+        name: p.name,
+        status: p.status,
+        slots: p.slots.map((x) => ({
+          slotLabel: x.slotLabel,
+          mod: x.mod,
+          beatmapId: x.beatmapId,
+          pinned: x.pinned,
+          fmMods: x.fmMods,
+        })),
+      },
+      null,
+      2,
+    );
+  },
+  import_pool_preview: (a): PoolImportPreview => {
+    const file = parsePoolJson(text(a, 'json'));
+    const total = poolJsonIds(file).length;
+
+    // Мок всегда показывает двух новых: иначе ветку «сохранить в библиотеку?»
+    // в браузере не посмотреть — раунд-трип по своим же данным новых не даёт.
+    const newMaps = Math.min(2, total);
+
+    return {
+      poolName: file.name.trim(),
+      slots: file.slots,
+      knownMaps: total - newMaps,
+      newMaps,
+    };
+  },
+  import_pool: (a) => {
+    const file = parsePoolJson(text(a, 'json'));
+    const saveMaps = a['saveMaps'] === true;
+    const made = newPool(file.name.trim(), null, null);
+
+    // Известные библиотеке карты встают в свои слоты; неизвестные оставляют
+    // слот пустым — как на Rust: строка честно говорит «карта не подобрана».
+    const known = (id: number) => maps.some((m) => m.beatmapId === id);
+    made.slots = file.slots.map((slot: PoolJsonSlot, i) => ({
+      ...blankSlot(slot.mod, i),
+      slotLabel: slot.slotLabel.trim() === '' ? slot.mod : slot.slotLabel.trim(),
+      beatmapId:
+        typeof slot.beatmapId === 'number' && known(slot.beatmapId) ? slot.beatmapId : null,
+      pinned: slot.pinned === true,
+      fmMods: Array.isArray(slot.fmMods) ? slot.fmMods.filter((m) => typeof m === 'string') : [],
+    }));
+
+    const missing = poolJsonIds(file).filter((id) => !known(id));
+
+    // «С картами»: недостающие появляются в библиотеке — примитивными
+    // строками, зато результат кнопки видно сразу, — и встают в свои слоты.
+    if (saveMaps) {
+      for (const id of missing) {
+        const seed = maps[0];
+        if (seed === undefined) break;
+        maps.push({
+          ...seed,
+          beatmapId: id,
+          artist: 'Импорт',
+          title: `Карта ${id}`,
+          creator: 'из JSON',
+          beatmapsetId: null,
+          coverPath: null,
+        });
+        file.slots.forEach((slot, i) => {
+          if (slot.beatmapId === id && made.slots[i] !== undefined) {
+            made.slots[i].beatmapId = id;
+          }
+        });
+      }
+    }
+
+    // Счётчики — те же, что обещал предпросмотр: две «новые» карты либо
+    // скачались, либо пропущены. Раунд-трип по своим данным новых не даёт,
+    // и без этого диалог в браузере не посмотреть.
+    const demoNew = Math.min(2, poolJsonIds(file).length);
+    return {
+      pool: withMaps(made),
+      savedMaps: saveMaps ? demoNew : 0,
+      skippedMaps: saveMaps ? 0 : demoNew,
+    };
   },
 
   set_slot_beatmap: (a) => {
@@ -1744,6 +1891,64 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
   // Эфир: сцены уходят в канал внутри браузера, а не по сети. Так пульт и
   // `air.html` в двух вкладках дают посмотреть все сцены живьём.
   ...airHandlers(),
+
+  // ───────────────────────────────────────────── настройки приложения
+  //
+  // Идут после спредов турнирного модуля неспроста: бэкапы там лежат
+  // статичной заглушкой, а здесь список живёт в памяти — кнопки экрана
+  // настроек честно добавляют и показывают копии.
+
+  default_fields: () => defaultFields,
+  set_default_fields: (a) => {
+    const list = strings(a, 'fields') as PoolField[];
+    for (const f of list) {
+      if (!POOL_FIELDS.includes(f)) throw new Error(`неизвестное поле строки: ${f}`);
+    }
+    defaultFields = list;
+    return undefined;
+  },
+  player_palette: () => palette,
+  set_player_palette: (a) => {
+    const list = strings(a, 'colors');
+    if (list.length !== 8) throw new Error('в палитре должно быть восемь цветов');
+    for (const c of list) {
+      if (!/^#[0-9a-fA-F]{6}$/.test(c)) throw new Error(`цвет ${c} — не #rrggbb`);
+    }
+    palette = list.map((c) => c.toLowerCase());
+    return undefined;
+  },
+  language: () => 'ru',
+  set_language: (a) => {
+    if (text(a, 'lang') !== 'ru') throw new Error('русский — единственный язык приложения');
+    return undefined;
+  },
+  backup_every: () => backupEvery,
+  set_backup_every: (a) => {
+    const n = num(a['every']);
+    if (n === null || !Number.isInteger(n) || n < 0 || n > 1000) {
+      throw new Error('автобэкап: 0 — выключить, иначе раз в N запусков (до 1000)');
+    }
+    backupEvery = n;
+    return undefined;
+  },
+
+  // Бэкапы: имени как у настоящего — по штампу секунды и порядковому
+  // номеру, чтобы две копии подряд не склеились в одну.
+  backup_database: () => {
+    const now = new Date();
+    const p = (n: number) => String(n).padStart(2, '0');
+    const stamp = [
+      now.getFullYear(),
+      p(now.getMonth() + 1),
+      p(now.getDate()),
+      `${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`,
+    ].join('-');
+    const name = `osucup-${stamp}-${backupSeq++}.db`;
+    backups.unshift(name);
+    return name;
+  },
+  list_backups: () => backups,
+  restore_backup: () => undefined,
 };
 
 /**

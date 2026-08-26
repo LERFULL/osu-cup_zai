@@ -10,6 +10,12 @@
     "opener:allow-reveal-item-in-dir",
     {
       "identifier": "core:window:allow-start-dragging"
+    },
+    {
+      "identifier": "core:webview:allow-create-webview-window"
+    },
+    {
+      "identifier": "core:window:allow-set-focus"
     }
   ]
 }

@@ -27,6 +27,38 @@
   }
 }
 
+/* ────────────────────────────────────────────────────── стили анимации
+ *
+ * Стиль приходит атрибутом `data-anim` на контейнере слоя (см. `air.css`).
+ * «Сдержанно» — поведение по умолчанию выше, отдельных правил не требует;
+ * «Кинематограф» входит наездом целиком на уровне слоя и тут ничего не ждёт. */
+
+/* Собирается: верх «Хода матча» приезжает первым, очки — за ним по очереди.
+   Соперники в представлении и так въезжают навстречу друг другу — им хватит. */
+@keyframes comeIn {
+  from {
+    transform: translateX(-64px);
+    opacity: 0;
+  }
+}
+
+[data-anim='assembled'] .liveTop {
+  animation: comeIn 520ms var(--ease) both;
+}
+
+[data-anim='assembled'] .scoreRow {
+  animation: comeIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 80ms + 180ms);
+}
+
+[data-anim='assembled'] .resultHead {
+  animation: comeIn 520ms var(--ease) both;
+}
+
+[data-anim='assembled'] .banHead {
+  animation: comeIn 520ms var(--ease) both;
+}
+
 
 /* ─────────────────────────────────────────────────────── представление */
 

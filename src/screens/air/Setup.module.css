@@ -59,12 +59,154 @@
   color: var(--txt3);
 }
 
+/* ────────────────────────────────────────────────────── стиль анимации */
+
+.styles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.style {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.style:hover {
+  border-color: var(--txt3);
+}
+
+.styleOn {
+  border-color: var(--pink);
+  background: rgb(255 111 177 / 0.08);
+}
+
+.styleTitle {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.styleOn .styleTitle {
+  color: var(--pink);
+}
+
+.styleAbout {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--txt3);
+}
+
+/* Мини-кадр в кнопке: «заголовок» и три «строки» играют выбранный стиль.
+   Демо живёт только внутри кнопки — это подсказка, а не сам эфир. */
+.demo {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.demoHead {
+  width: 46%;
+  height: 7px;
+  border-radius: 3px;
+  background: var(--txt2);
+  margin-bottom: 3px;
+}
+
+.demoBar {
+  height: 7px;
+  border-radius: 3px;
+  background: var(--line);
+}
+
+/* Сдержанно: всё проявляется сразу, с лёгким подъёмом. */
+@keyframes demoRise {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+[data-demo='calm'] .demoHead,
+[data-demo='calm'] .demoBar {
+  animation: demoRise 420ms ease both;
+  animation-delay: calc(var(--i, -1) * 40ms);
+}
+
+/* Собирается: заголовок первым, строки — за ним по очереди слева. */
+@keyframes demoLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-26px);
+  }
+}
+
+[data-demo='assembled'] .demoHead {
+  animation: demoLeft 480ms ease both;
+}
+
+[data-demo='assembled'] .demoBar {
+  animation: demoLeft 480ms ease both;
+  animation-delay: calc(var(--i, -1) * 90ms + 160ms);
+}
+
+/* Кинематограф: кадр въезжает с масштаба и размытия, «заголовок» светится. */
+@keyframes demoCine {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+    filter: blur(4px);
+  }
+}
+
+@keyframes demoGlow {
+  from {
+    opacity: 0;
+    box-shadow: none;
+  }
+
+  55% {
+    box-shadow: 0 0 14px rgb(255 111 177 / 0.9);
+  }
+
+  to {
+    box-shadow: 0 0 5px rgb(255 111 177 / 0.4);
+  }
+}
+
+[data-demo='cinematic'] {
+  animation: demoCine 700ms ease both;
+}
+
+[data-demo='cinematic'] .demoHead {
+  animation: demoGlow 800ms ease both;
+  background: var(--pink);
+}
+
 /* ──────────────────────────────────────────────────────────── сцены */
 
 .scenes {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 4px 14px;
+}
+
+.sceneWrap {
+  display: flex;
+  flex-direction: column;
 }
 
 .scene {
@@ -117,6 +259,86 @@
   white-space: nowrap;
 }
 
+/* Стиль входа конкретной сцены: маленький, ровно под включённой сценой. */
+.sceneStyle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 6px 28px;
+  font-size: 11px;
+  color: var(--txt3);
+}
+
+.sceneStyle select {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--txt2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sceneStyle select:hover {
+  border-color: var(--txt3);
+}
+
+.sceneStyle select:focus {
+  outline: none;
+  border-color: var(--pink);
+}
+
+/* ─────────────────────────────────────────────── тексты финала */
+
+.texts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.textLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--txt2);
+}
+
+.text textarea {
+  resize: vertical;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--txt);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.text textarea::placeholder {
+  color: var(--txt3);
+}
+
+.text textarea:focus {
+  outline: none;
+  border-color: var(--pink);
+}
+
+.textsNote {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--txt3);
+}
+
 /* ──────────────────────────────────────────────── время и транспорт */
 
 .row {
@@ -135,6 +357,13 @@
 .obsWhat {
   font-size: 13px;
   font-weight: 700;
+}
+
+.demoWhat {
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--txt2);
 }
 
 .obsAddr {

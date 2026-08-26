@@ -398,6 +398,8 @@ export function Champion({ p }: { p: ChampionPayload }) {
             <span>{row.matches} по матчам</span>
             <span>{row.maps} по картам</span>
           </div>
+          {/* Кто сколько унёс: фонда нет — строки не будет вовсе. */}
+          {row.earned !== null ? <div className={s.podiumMoney}>{RUB(row.earned)}</div> : null}
         </div>
       ))}
     </div>
@@ -405,6 +407,15 @@ export function Champion({ p }: { p: ChampionPayload }) {
 }
 
 export function Credits({ p }: { p: CreditsPayload }) {
+  // Секции после игроков: заполняются в подготовке и все необязательные —
+  // пустую секцию не показываем вовсе, чтобы титры не собирали пустые блоки.
+  const extra: { title: string; lines: string[] }[] = [
+    { title: 'Организаторы', lines: p.organizers },
+    { title: 'Судьи', lines: p.judges },
+    { title: 'Ссылки', lines: p.links },
+    { title: 'Соцсети', lines: p.socials },
+  ].filter((x) => x.lines.length > 0);
+
   return (
     <Frame title={p.tournament} note={`турнир длился ${p.duration}`}>
       <div className={s.credits}>
@@ -418,6 +429,17 @@ export function Credits({ p }: { p: CreditsPayload }) {
             <span className={s.creditsNick} style={{ color: row.color }}>
               {row.nick}
             </span>
+          </div>
+        ))}
+
+        {extra.map((section) => (
+          <div key={section.title} className={s.creditsExtra}>
+            <div className={s.creditsExtraTitle}>{section.title}</div>
+            <div className={s.creditsExtraList}>
+              {section.lines.map((line) => (
+                <span key={line}>{line}</span>
+              ))}
+            </div>
           </div>
         ))}
       </div>

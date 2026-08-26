@@ -11,6 +11,7 @@ import type {
   TournamentPlayer,
 } from '@/lib/types';
 import * as ipc from '@/lib/ipc';
+import { copyImage, renderBracketImage } from '@/lib/exportImage';
 import { useAir } from '@/lib/air/store';
 import { Panel } from '@/screens/air/Panel';
 import { Setup } from '@/screens/air/Setup';
@@ -238,6 +239,18 @@ export function TournamentView({ id, onClose }: Props) {
       ? []
       : t.players.filter((p) => p.playerId === m.playerA || p.playerId === m.playerB);
 
+  /** Сетка картинкой в буфер; без буфера — файлом. */
+  function bracketPicture() {
+    void (async () => {
+      try {
+        const blob = await renderBracketImage(t);
+        await copyImage(blob, `${t.name} — сетка.png`);
+      } catch (e) {
+        setError(String(e));
+      }
+    })();
+  }
+
   /** Сетка целиком — она же предпросмотр правок. */
   const canvas =
     t.matches.length === 0 ? (
@@ -348,6 +361,12 @@ export function TournamentView({ id, onClose }: Props) {
           ) : null}
 
           {/* Эфир — событие вечера, а не матча: начинают его отсюда. */}
+          {t.matches.length > 0 ? (
+            <Button size="sm" onClick={bracketPicture} title="Сетка картинкой в буфер">
+              Картинкой
+            </Button>
+          ) : null}
+
           <Button onClick={() => setAirSetup(true)}>
             {airLive ? 'Эфир идёт' : 'Эфир'}
           </Button>

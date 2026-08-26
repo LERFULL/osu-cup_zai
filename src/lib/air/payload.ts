@@ -878,6 +878,12 @@ export function credits(ctx: AirContext): CreditsPayload {
     tournament: ctx.bracket.name,
     duration: formatSpan(span(ctx.bracket.createdAt, ctx.bracket.finishedAt)),
     rows,
+    // Организаторы, судьи, ссылки и соцсети контекст не знает: их знает только
+    // эфир. Стор дополняет их из настроек — здесь они пустые, чтобы тип сходился.
+    organizers: [],
+    judges: [],
+    links: [],
+    socials: [],
   };
 }
 

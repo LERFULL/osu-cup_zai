@@ -36,6 +36,20 @@ pub fn kv_del(conn: &Connection, key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Целое значение приложения: отсутствует или битое — дефолт.
+/// Настройки вроде «автобэкап раз в N запусков» не должны падать из-за
+/// кривой записи в базе.
+pub fn kv_get_i64(conn: &Connection, key: &str, default: i64) -> i64 {
+    kv_get(conn, key)
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(default)
+}
+
+/// Записать целое значение приложения.
+pub fn kv_set_i64(conn: &Connection, key: &str, value: i64) -> Result<()> {
+    kv_set(conn, key, &value.to_string())
+}
+
 /// Переходящий джекпот приложения: невыданный остаток прошлых турниров.
 pub fn jackpot(conn: &Connection) -> i64 {
     kv_get(conn, "jackpot")

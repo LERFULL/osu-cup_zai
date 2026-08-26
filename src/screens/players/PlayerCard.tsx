@@ -73,6 +73,10 @@ export function PlayerCard({ id, onClose }: Props) {
   const [color, setColor] = useState('');
   const [pulling, setPulling] = useState(false);
 
+  // Выбор дубля для объединения: null — закрыто, список — открыт.
+  const [mergeList, setMergeList] = useState<Player[] | null>(null);
+  const [merging, setMerging] = useState<number | null>(null);
+
   const reload = useCallback(async () => {
     try {
       const [p, st] = await Promise.all([ipc.getPlayer(id), ipc.playerStats(id)]);
@@ -136,6 +140,35 @@ export function PlayerCard({ id, onClose }: Props) {
     }
   }
 
+  /** Открывает выбор дубля: все живые игроки, кроме самого себя. */
+  async function pickMerge() {
+    try {
+      const list = await ipc.listPlayers(false);
+      setMergeList(list.filter((p) => p.id !== id));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  /** Объединяет дубля с текущим игроком: матчи и статистика переезжают сюда. */
+  async function doMerge(other: Player) {
+    const ok = window.confirm(
+      `Все матчи и статистика ${other.nickname} перейдут к ${player?.nickname ?? 'этому игроку'}, ${other.nickname} уйдёт в архив.`,
+    );
+    if (!ok) return;
+
+    setMerging(other.id);
+    try {
+      await ipc.mergePlayers(id, other.id);
+      setMergeList(null);
+      await reload();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setMerging(null);
+    }
+  }
+
   if (player === null) {
     return (
       <div className={s.screen}>
@@ -176,6 +209,9 @@ export function PlayerCard({ id, onClose }: Props) {
         <h1 className={s.h1}>{player.nickname}</h1>
         {player.isArchived && <span className={s.tag}>в архиве</span>}
         <div className={s.right}>
+          <Button size="sm" onClick={() => void pickMerge()} title="Если этого же игрока завели дважды">
+            Объединить с…
+          </Button>
           <Button variant="primary" disabled={!dirty} onClick={() => void save()}>
             Сохранить
           </Button>
@@ -386,6 +422,48 @@ export function PlayerCard({ id, onClose }: Props) {
           )}
         </section>
       </div>
+
+      {/* Объединение дубля: выбор игрока и подтверждение. */}
+      {mergeList !== null ? (
+        <div className={s.mergeVeil} onClick={() => setMergeList(null)}>
+          <div className={s.mergeCard} onClick={(e) => e.stopPropagation()}>
+            <div className={s.mergeTitle}>Объединить с…</div>
+            <p className={s.mergeHint}>
+              Дубль исчезнет из списков, а его матчи и статистика перейдут к{' '}
+              {player.nickname}.
+            </p>
+
+            <div className={s.mergeList}>
+              {mergeList.length === 0 ? (
+                <div className={s.mergeEmpty}>Других игроков нет.</div>
+              ) : (
+                mergeList.map((p) => (
+                  <button
+                    key={p.id}
+                    className={s.mergeRow}
+                    onClick={() => void doMerge(p)}
+                    disabled={merging !== null}
+                    type="button"
+                  >
+                    <span className={s.mergeDot} style={{ background: p.color }} aria-hidden />
+                    <span className={s.mergeNick}>{p.nickname}</span>
+                    {p.osuUserId !== null ? (
+                      <span className={s.mergeOsu}>osu! {p.osuUserId}</span>
+                    ) : null}
+                    <span className={s.mergeGo}>{merging === p.id ? 'объединяю…' : '→'}</span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className={s.mergeActions}>
+              <Button size="sm" onClick={() => setMergeList(null)}>
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

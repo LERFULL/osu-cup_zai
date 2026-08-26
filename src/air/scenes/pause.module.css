@@ -18,6 +18,97 @@
 }
 
 
+/* ────────────────────────────────────────────────────── стили анимации
+ *
+ * Стиль приходит атрибутом `data-anim` на контейнере слоя (см. `air.css`).
+ * «Сдержанно» — поведение по умолчанию выше, отдельных правил не требует. */
+
+/* Собирается: элементы приезжают по очереди — списки собираются на глазах,
+   а не появляются готовыми. Задержка — по `--i`, которую строка уже ставит. */
+@keyframes comeIn {
+  from {
+    transform: translateX(-64px);
+    opacity: 0;
+  }
+}
+
+[data-anim='assembled'] .person,
+[data-anim='assembled'] .h2hRow,
+[data-anim='assembled'] .step,
+[data-anim='assembled'] .modRow {
+  animation: comeIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms + 140ms);
+}
+
+[data-anim='assembled'] .then,
+[data-anim='assembled'] .creditsRow,
+[data-anim='assembled'] .creditsExtra {
+  animation: comeIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms + 260ms);
+}
+
+[data-anim='assembled'] .fundRow,
+[data-anim='assembled'] .fundWho {
+  animation: comeIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms + 120ms);
+}
+
+/* Сетка собирается колонками слева направо — карточки едут по очереди. */
+[data-anim='assembled'] .bracketCard {
+  animation: comeIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+/* Пьедестал собирается по местам: победитель приезжает последним. */
+[data-anim='assembled'] .podiumStep {
+  animation: comeIn 560ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 300ms + 200ms);
+}
+
+[data-anim='assembled'] .bankSum {
+  animation: comeIn 560ms var(--ease) both;
+}
+
+/* Заставка тоже собирается: имя турнира — затем подпись. */
+[data-anim='assembled'] .idleName {
+  animation: comeIn 560ms var(--ease) both;
+  animation-delay: 80ms;
+}
+
+[data-anim='assembled'] .idleNote {
+  animation: comeIn 560ms var(--ease) both;
+  animation-delay: 260ms;
+}
+
+[data-anim='assembled'] .messageText {
+  animation: comeIn 560ms var(--ease) both;
+  animation-delay: 120ms;
+}
+
+/* Кинематограф: ключевые надписи проявляются со свечением в акцент.
+   Сам наезд с масштаба и размытия делает слой (см. `air.css`), здесь — свет. */
+@keyframes cineTitle {
+  from {
+    opacity: 0;
+    text-shadow: none;
+  }
+
+  45% {
+    opacity: 1;
+    text-shadow: 0 0 90px color-mix(in srgb, var(--accent) 65%, transparent);
+  }
+
+  to {
+    text-shadow: 0 0 34px color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+}
+
+[data-anim='cinematic'] .idleName,
+[data-anim='cinematic'] .messageText {
+  animation: cineTitle 1300ms var(--ease) both;
+}
+
+
 /* ─────────────────────────────────────────────────────────────── сетка */
 
 /* Окно, в которое смотрит камера. Полотно внутри больше окна и едет под ним:
@@ -733,6 +824,17 @@
   color: var(--txt2);
 }
 
+/* Кто сколько унёс: выплаты берутся из призового фонда — это модель, а не
+   настройка, поэтому и показываются золотом, как все деньги эфира. */
+.podiumMoney {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  font-weight: 700;
+  text-shadow: 0 0 30px color-mix(in srgb, var(--gold) 30%, transparent);
+}
+
 .credits {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -762,6 +864,41 @@
 .creditsNick {
   font-size: 30px;
   font-weight: 700;
+}
+
+/* После игроков — то, что заполняется в подготовке: организаторы, судьи,
+   ссылки и соцсети. Компактно и второстепенно: титры — про игроков, остальное
+   — подписи к ним. */
+.creditsExtra {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 22px 8px;
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  text-align: center;
+}
+
+.creditsExtraTitle {
+  font-size: 19px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt3);
+}
+
+.creditsExtraList {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 26px;
+  font-size: 24px;
+  color: var(--txt2);
+}
+
+.creditsExtraList span {
+  white-space: nowrap;
 }
 
 /* ─────────────────────────────────────────────── заставка и надпись */

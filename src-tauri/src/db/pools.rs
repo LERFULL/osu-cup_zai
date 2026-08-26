@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 
 use super::{now_iso, series, sources};
 use crate::error::{AppError, Result};
@@ -318,13 +319,19 @@ fn range_text(lo: Option<f64>, hi: Option<f64>) -> String {
 // ─────────────────────────────────────────────────────────── запись
 
 pub fn create(conn: &Connection, name: &str, template_id: Option<i64>) -> Result<i64> {
+    // Поля строки нового маппула — глобальный дефолт из настроек; без
+    // настройки — встроенный набор. Уже созданные пулы не пересматриваем.
+    let fields = super::prize::kv_get(conn, "defaultFields")
+        .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+        .unwrap_or_else(|| DEFAULT_FIELDS.iter().map(|s| s.to_string()).collect());
+
     conn.execute(
         "INSERT INTO pools (name, template_id, status, version, display_fields, created_at)
          VALUES (?1, ?2, 'draft', 1, ?3, ?4)",
         params![
             name.trim(),
             template_id,
-            serde_json::to_string(&DEFAULT_FIELDS)?,
+            serde_json::to_string(&fields)?,
             now_iso()
         ],
     )?;
@@ -766,6 +773,200 @@ fn names_of(conn: &Connection, pool_ids: &[i64]) -> Result<Vec<String>> {
     Ok(out)
 }
 
+// ─────────────────────────────────────────────── импорт и экспорт JSON
+
+/// Слот маппула в JSON-файле. Одна форма на экспорт и импорт: файл,
+/// выгруженный из приложения, возвращается обратно без потерь.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolJsonSlot {
+    #[serde(default)]
+    pub slot_label: String,
+    #[serde(rename = "mod")]
+    pub mod_tag: String,
+    #[serde(default)]
+    pub beatmap_id: Option<i64>,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub fm_mods: Vec<String>,
+}
+
+/// Файл маппула. `status` выгружается для человека, при импорте не
+/// используется: новый пул всегда черновик — жизненный цикл не переносится.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolJson {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub slots: Vec<PoolJsonSlot>,
+}
+
+/// Что показывает диалог импорта до записи в базу: состав файла и сколько
+/// карт придётся скачивать с osu!.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolImportPreview {
+    pub pool_name: String,
+    pub slots: Vec<PoolJsonSlot>,
+    pub known_maps: i64,
+    pub new_maps: i64,
+}
+
+/// Итог импорта: готовый пул и судьба карт, которых не было в библиотеке.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolImportResult {
+    pub pool: Pool,
+    pub saved_maps: i64,
+    pub skipped_maps: i64,
+}
+
+/// Разбор файла с проверками. Ошибки — на человеческом языке: файл может быть
+/// отредактирован руками, и «invalid type: null» из serde никому не скажет,
+/// что именно не так.
+pub fn parse_import(json: &str) -> Result<PoolJson> {
+    let file: PoolJson = serde_json::from_str(json)
+        .map_err(|e| AppError::Other(format!("Файл не похож на маппул: {e}")))?;
+
+    if file.name.trim().is_empty() {
+        return Err(AppError::Other(
+            "У маппула в файле нет названия — импортировать нечего".into(),
+        ));
+    }
+
+    for (i, slot) in file.slots.iter().enumerate() {
+        if !crate::model::MOD_TAGS.contains(&slot.mod_tag.as_str()) {
+            let place = if slot.slot_label.is_empty() {
+                format!("№{}", i + 1)
+            } else {
+                slot.slot_label.clone()
+            };
+            return Err(AppError::Other(format!(
+                "Неизвестный мод «{}» в слоте {place}",
+                slot.mod_tag
+            )));
+        }
+    }
+
+    Ok(file)
+}
+
+/// Маппул в JSON: { name, status, slots: [{ slotLabel, mod, beatmapId, pinned, fmMods }] }.
+pub fn export_json(conn: &Connection, pool_id: i64) -> Result<String> {
+    let pool = get(conn, pool_id)?;
+    let file = PoolJson {
+        name: pool.name,
+        status: Some(pool.status),
+        slots: pool
+            .slots
+            .iter()
+            .map(|s| PoolJsonSlot {
+                slot_label: s.slot_label.clone(),
+                mod_tag: s.mod_tag.clone(),
+                beatmap_id: s.beatmap_id,
+                pinned: s.pinned,
+                fm_mods: s.fm_mods.clone(),
+            })
+            .collect(),
+    };
+    Ok(serde_json::to_string_pretty(&file)?)
+}
+
+/// Разбор без записи: диалог импорта решает, скачивать ли недостающие карты.
+pub fn preview_import(conn: &Connection, json: &str) -> Result<PoolImportPreview> {
+    let file = parse_import(json)?;
+    let ids = import_beatmap_ids(&file);
+    let known = existing_beatmap_ids(conn, &ids)?;
+    let known_maps = ids.iter().filter(|id| known.contains(*id)).count() as i64;
+
+    Ok(PoolImportPreview {
+        pool_name: file.name.trim().to_string(),
+        known_maps,
+        new_maps: ids.len() as i64 - known_maps,
+        slots: file.slots,
+    })
+}
+
+/// Уникальные id карт из файла, в порядке первого появления.
+pub fn import_beatmap_ids(file: &PoolJson) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::new();
+    for slot in &file.slots {
+        if let Some(id) = slot.beatmap_id {
+            if !out.contains(&id) {
+                out.push(id);
+            }
+        }
+    }
+    out
+}
+
+/// Какие из перечисленных карт уже лежат в библиотеке.
+pub fn existing_beatmap_ids(conn: &Connection, ids: &[i64]) -> Result<HashSet<i64>> {
+    let mut out = HashSet::new();
+    for chunk in ids.chunks(super::CHUNK) {
+        if chunk.is_empty() {
+            continue;
+        }
+        let sql = format!(
+            "SELECT beatmap_id FROM beatmaps WHERE beatmap_id IN ({})",
+            super::placeholders(chunk.len())
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk.iter()), |r| {
+            r.get::<_, i64>(0)
+        })?;
+        for row in rows {
+            out.insert(row?);
+        }
+    }
+    Ok(out)
+}
+
+/// Создаёт пул-черновик из разобранного файла. Возвращает id нового пула.
+///
+/// Карта, которой нет в библиотеке, оставляет слот пустым: хранить висячий
+/// `beatmap_id` нельзя — внешний ключ на `beatmaps` не даст вставить строку, а
+/// строка-призрак с несуществующей картой попала бы в матчи и генерацию и
+/// выглядела бы играемой. Слот остаётся с меткой и модом: его видно, его можно
+/// заполнить руками, и пул не притворяется собранным. Сколько карт пропущено,
+/// импорт сообщает счётчиком.
+pub fn import_pool(conn: &Connection, file: &PoolJson) -> Result<i64> {
+    let known = existing_beatmap_ids(conn, &import_beatmap_ids(file))?;
+    let id = create(conn, file.name.trim(), None)?;
+
+    let mut stmt = conn.prepare(
+        "INSERT INTO pool_slots
+            (pool_id, slot_label, mod, beatmap_id, pinned, star_rating_with_mods, fm_mods,
+             position, sources)
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, NULL)",
+    )?;
+
+    for (i, slot) in file.slots.iter().enumerate() {
+        // Пустую метку в файле заполняем по правилу пула — как при добавлении слота.
+        let label = if slot.slot_label.trim().is_empty() {
+            label_for(&slot.mod_tag, i)
+        } else {
+            slot.slot_label.trim().to_string()
+        };
+        let beatmap_id = slot.beatmap_id.filter(|id| known.contains(id));
+
+        stmt.execute(params![
+            id,
+            label,
+            slot.mod_tag,
+            beatmap_id,
+            slot.pinned as i64,
+            serde_json::to_string(&slot.fm_mods)?,
+            i as i64,
+        ])?;
+    }
+    Ok(id)
+}
+
 /// Карты, лежащие хотя бы в одном из указанных маппулов.
 pub fn beatmaps_in_pools(conn: &Connection, pool_ids: &[i64]) -> Result<Vec<i64>> {
     if pool_ids.is_empty() {
@@ -786,4 +987,176 @@ pub fn beatmaps_in_pools(conn: &Connection, pool_ids: &[i64]) -> Result<Vec<i64>
         out.push(row?);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// База с полным набором миграций — та же схема, что у приложения.
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().expect("база в памяти");
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        for (version, sql) in super::super::MIGRATIONS {
+            conn.execute_batch(sql)
+                .unwrap_or_else(|e| panic!("миграция {version} не применилась: {e}"));
+        }
+        conn
+    }
+
+    fn slot(label: &str, mod_tag: &str, beatmap_id: Option<i64>) -> PoolJsonSlot {
+        PoolJsonSlot {
+            slot_label: label.into(),
+            mod_tag: mod_tag.into(),
+            beatmap_id,
+            pinned: false,
+            fm_mods: vec![],
+        }
+    }
+
+    #[test]
+    fn export_import_json_round_trip() {
+        let conn = db();
+        super::super::beatmaps::upsert(&conn, &test_map(7)).unwrap();
+
+        let pool_id = create(&conn, "Вечерний", None).unwrap();
+        replace_slots(
+            &conn,
+            pool_id,
+            &[
+                PoolSlot {
+                    id: 0,
+                    slot_label: "NM1".into(),
+                    mod_tag: "NM".into(),
+                    beatmap_id: Some(7),
+                    pinned: true,
+                    star_rating_with_mods: None,
+                    fm_mods: vec![],
+                    position: 0,
+                    sources: None,
+                    beatmap: None,
+                    warnings: vec![],
+                },
+                PoolSlot {
+                    id: 0,
+                    slot_label: "TB".into(),
+                    mod_tag: "TB".into(),
+                    beatmap_id: None,
+                    pinned: false,
+                    star_rating_with_mods: None,
+                    fm_mods: vec![],
+                    position: 1,
+                    sources: None,
+                    beatmap: None,
+                    warnings: vec![],
+                },
+            ],
+        )
+        .unwrap();
+
+        // Экспорт → разбор → импорт: состав и порядок слотов не меняются.
+        let json = export_json(&conn, pool_id).unwrap();
+        let file = parse_import(&json).unwrap();
+        let imported = import_pool(&conn, &file).unwrap();
+
+        let got = get(&conn, imported).unwrap();
+        assert_eq!(got.name, "Вечерний");
+        assert_eq!(got.status, "draft");
+        assert_eq!(got.slots.len(), 2);
+        assert_eq!(got.slots[0].slot_label, "NM1");
+        assert_eq!(got.slots[0].beatmap_id, Some(7));
+        assert!(got.slots[0].pinned);
+        assert_eq!(got.slots[1].slot_label, "TB");
+        assert_eq!(got.slots[1].beatmap_id, None);
+    }
+
+    #[test]
+    fn import_skips_maps_missing_from_library() {
+        let conn = db();
+        super::super::beatmaps::upsert(&conn, &test_map(7)).unwrap();
+
+        let file = PoolJson {
+            name: "Чужой пул".into(),
+            status: Some("ready".into()),
+            slots: vec![
+                slot("NM1", "NM", Some(7)),
+                slot("HD1", "HD", Some(999_999)), // нет в библиотеке
+            ],
+        };
+
+        // Превью честно считает: одна карта есть, одна новая.
+        let preview = preview_import(&conn, &serde_json::to_string(&file).unwrap()).unwrap();
+        assert_eq!(preview.known_maps, 1);
+        assert_eq!(preview.new_maps, 1);
+        assert_eq!(preview.pool_name, "Чужой пул");
+
+        // Импорт без карт: неизвестная оставляет слот пустым, а не падает
+        // на внешнем ключе и не притворяется заполненной.
+        let id = import_pool(&conn, &file).unwrap();
+        let got = get(&conn, id).unwrap();
+        assert_eq!(got.slots[0].beatmap_id, Some(7));
+        assert_eq!(got.slots[1].beatmap_id, None);
+        assert_eq!(got.slots[1].mod_tag, "HD");
+    }
+
+    #[test]
+    fn broken_json_and_unknown_mod_report_human_errors() {
+        let e = parse_import("не json вообще").unwrap_err().to_string();
+        assert!(e.contains("не похож на маппул"), "{e}");
+
+        let e = parse_import(r#"{"slots":[]}"#).unwrap_err().to_string();
+        assert!(e.contains("названия"), "{e}");
+
+        let e = parse_import(r#"{"name":"X","slots":[{"slotLabel":"NM1","mod":"XX"}]}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("Неизвестный мод"), "{e}");
+    }
+
+    /// Минимальная карта для внешнего ключа.
+    fn test_map(id: i64) -> crate::model::Beatmap {
+        crate::model::Beatmap {
+            beatmap_id: id,
+            beatmapset_id: Some(id * 10),
+            checksum: None,
+            artist: "A".into(),
+            artist_unicode: None,
+            title: "Song".into(),
+            title_unicode: None,
+            version: "Extra".into(),
+            creator: None,
+            creator_id: None,
+            difficulty_rating: 5.0,
+            bpm: Some(180.0),
+            total_length: Some(120),
+            hit_length: None,
+            cs: None,
+            ar: None,
+            accuracy: None,
+            drain: None,
+            count_circles: None,
+            count_sliders: None,
+            count_spinners: None,
+            max_combo: None,
+            status: None,
+            ranked_date: None,
+            last_updated: None,
+            tags: None,
+            pack_tags: None,
+            genre_id: None,
+            language_id: None,
+            failtimes: None,
+            cover_path: None,
+            preview_path: None,
+            note: None,
+            is_manual: false,
+            is_gone: false,
+            added_at: "2026-01-01T00:00:00Z".into(),
+            mods: vec!["NM".into()],
+            fm_mods: vec![],
+            skillsets: vec![],
+            labels: vec![],
+            set_count: None,
+        }
+    }
 }

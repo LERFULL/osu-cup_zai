@@ -37,10 +37,31 @@ export interface AirState {
   theme: AirTheme;
 }
 
+/** Стиль анимации эфира. Выбирается один на весь эфир, сцена может переопределить. */
+export type AirStyle = 'calm' | 'assembled' | 'cinematic';
+
+/** Человекочитаемые названия стилей — пульт и страница согласны на одни слова. */
+export const STYLE_TITLES: Record<AirStyle, string> = {
+  calm: 'Сдержанно',
+  assembled: 'Собирается',
+  cinematic: 'Кинематограф',
+};
+
 /** Сообщение зрителю. */
 export type AirMessage =
   | { kind: 'snapshot'; state: AirState }
-  | { kind: 'scene'; layers: AirLayer[] }
+  | {
+      /** Смена кадра: новый стек слоёв целиком. */
+      layers: AirLayer[];
+      /**
+       * Тема, если сменилась вместе с кадром. Настоящий сервер кладёт тему
+       * только в снимок (зритель, зашедший позже, получит её целиком), а вот
+       * мок в браузере прикладывает её и сюда — чтобы стиль можно было менять,
+       * не перезагружая страницу.
+       */
+      theme?: AirTheme;
+      kind: 'scene';
+    }
   | { kind: 'patch'; layer: SceneId; payload: ScenePayload }
   | { kind: 'closed'; reason: string }
   | { kind: 'ping' };
@@ -435,6 +456,11 @@ export interface CreditsPayload {
   tournament: string;
   duration: string;
   rows: { place: number | null; nick: string; color: string }[];
+  /** Организаторы и судьи, ссылки и соцсети — по строке на человека/адрес. */
+  organizers: string[];
+  judges: string[];
+  links: string[];
+  socials: string[];
 }
 
 /** Все виды содержимого. Сцена выбирает рендерер по `id`, а не по форме данных. */
@@ -480,6 +506,26 @@ export interface AirConfig {
   /** Включённые заготовки. Невключённая сцена не появится никогда. */
   enabled: SceneId[];
   /**
+   * Стиль анимации на весь эфир: как кадры входят в экран.
+   *
+   * Выбирается один, потому что эфир — это одно целое: смешанные по стилю
+   * переходы читаются как сбой, а не как разнообразие.
+   */
+  style: AirStyle;
+  /** Переопределение стиля для отдельной сцены. Ключа нет — как у всех. */
+  sceneStyle: Partial<Record<SceneId, AirStyle>>;
+  /**
+   * Тексты финала: организаторы, судьи, ссылки и соцсети. В модели турнира их
+   * нет — их знает только эфир, поэтому лежат здесь, а не в редакторе.
+   * Каждое поле — свободный текст, строки через \n.
+   */
+  finalTexts: {
+    organizers: string;
+    judges: string;
+    links: string;
+    socials: string;
+  };
+  /**
    * Порядок сцен паузы по раундам. Ключ — `${bracket}:${round}`.
    *
    * Пауза перед матчами раунда идёт по этому списку, а не подбирается сама:
@@ -508,6 +554,11 @@ export const DEFAULT_CONFIG: AirConfig = {
   // Включено всё: каждая сцена считается по самому турниру, и данных под них
   // не надо доносить руками.
   enabled: [...MATCH_SCENES, ...PAUSE_SCENES],
+  // Сдержанно: эфир говорит, а не показывает трюки. Два других стиля —
+  // осознанный выбор, а не настройка по умолчанию.
+  style: 'calm',
+  sceneStyle: {},
+  finalTexts: { organizers: '', judges: '', links: '', socials: '' },
   roundPlans: {},
   pauseBudget: 240,
   pauseAuto: true,

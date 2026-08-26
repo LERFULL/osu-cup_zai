@@ -6,7 +6,15 @@
 // знает, что существует база, библиотека и другие турниры.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AirLayer, AirMessage, AirState } from '@/lib/air/types';
+import type {
+  AirLayer,
+  AirMap,
+  AirMessage,
+  AirState,
+  AirStyle,
+  AirTheme,
+  MatchLivePayload,
+} from '@/lib/air/types';
 import { connect, isObs, type Link } from './transport';
 import { EnvProvider, LayerProvider } from './scenes/env';
 import { renderScene } from './scenes/registry';
@@ -20,6 +28,77 @@ const STAGE_H = 1080;
 const CURSOR_IDLE = 3000;
 
 /**
+ * Пробный кадр: страница открыта как `air.html?demo`.
+ *
+ * Это не эфир, а выставочный стенд: один статический «Ход матча» на
+ * подставленных данных. Нужно, чтобы поднять источник в OBS и выставить его
+ * размер до того, как кто-то начнёт смотреть. Ни соединения, ни живых данных —
+ * кадр не изменится, сколько бы его ни держали открытым.
+ */
+const DEMO = window.location.search.includes('demo');
+
+/** Подставленные игроки: цвета взяты настоящие — акцент и голубой эфира. */
+const DEMO_A = { id: 1, nick: 'NAGISA', color: '#ff6fb1', osuUserId: null, seed: 1 } as const;
+const DEMO_B = { id: 2, nick: 'KIRA', color: '#5bc8f5', osuUserId: null, seed: 2 } as const;
+
+/** Подставленная карта: значения округлены до правдоподобных, не до реальных. */
+const demoMap = (
+  slot: string,
+  mod: AirMap['mod'],
+  title: string,
+  version: string,
+  stars: number,
+  length: number,
+  bpm: number,
+): AirMap => ({
+  slot,
+  mod,
+  beatmapsetId: null,
+  title,
+  version,
+  stars,
+  length,
+  bpm,
+  mapper: null,
+});
+
+/** Все состояния строки маппула в одном кадре: столько видно только вживую. */
+const DEMO_LIVE: MatchLivePayload = {
+  a: DEMO_A,
+  b: DEMO_B,
+  scoreA: 2,
+  scoreB: 1,
+  bonus: 0,
+  target: 4,
+  round: 'Финал верхней сетки',
+  rows: [
+    { ...demoMap('NM1', 'NM', 'Camellia', 'Garakuta Doll', 5.9, 214, 200), state: 'played', by: 1, winner: 1, n: null },
+    { ...demoMap('NM2', 'NM', 'UNDEAD CORPORATION', 'Everything will freeze', 6.2, 245, 185), state: 'played', by: 2, winner: 2, n: null },
+    { ...demoMap('NM3', 'NM', 'xi', 'Blue Zenith', 6.4, 303, 190), state: 'banned', by: 2, winner: null, n: 1 },
+    { ...demoMap('HD1', 'HD', 'Frums', 'Visions', 5.8, 219, 174), state: 'playing', by: 1, winner: null, n: null },
+    { ...demoMap('DT1', 'DT', 'Kurosaki Maon', 'Setsuna no Kaze', 6.0, 172, 240), state: 'free', by: null, winner: null, n: null },
+    { ...demoMap('TB', 'TB', 'The Quick Brown Fox', 'The Big Black', 7.1, 371, 210), state: 'locked', by: null, winner: null, n: null },
+  ],
+  turn: { text: 'Ход NAGISA — пик', actor: 1 },
+  matchPoint: [1],
+};
+
+/** Состояние пробного кадра: один слой и тема по умолчанию. */
+function demoState(): AirState {
+  const now = new Date().toISOString();
+  return {
+    air: { tournament: 'Пробный кадр', startedAt: now },
+    layers: [{ id: 'matchLive', since: now, until: null, payload: DEMO_LIVE }],
+    theme: { accent: '#ff6fb1', style: 'calm' },
+  };
+}
+
+/** Эффективный стиль слоя: переопределение сцены или стиль всего эфира. */
+function styleOf(theme: AirTheme | null, id: string): AirStyle {
+  return (theme?.[`style:${id}`] ?? theme?.style ?? 'calm') as AirStyle;
+}
+
+/**
  * Сколько уходящий кадр ещё висит под новым.
  *
  * Без этого смена кадра — рез: старое исчезает в тот же миг, и эфир выглядит
@@ -28,10 +107,11 @@ const CURSOR_IDLE = 3000;
 const LEAVE = 420;
 
 export function Viewer() {
-  const [state, setState] = useState<AirState | null>(null);
-  const [link, setLink] = useState<Link>({ kind: 'lost' });
-  // В OBS автозапуск звука разрешён — там кнопки нет вовсе.
-  const [sound, setSound] = useState(() => isObs());
+  const [state, setState] = useState<AirState | null>(DEMO ? demoState() : null);
+  const [link, setLink] = useState<Link>(DEMO ? { kind: 'open' } : { kind: 'lost' });
+  // В OBS автозапуск звука разрешён — там кнопки нет вовсе. Пробному кадру
+  // слушать нечего: карта не играется, только раскладка.
+  const [sound, setSound] = useState(() => isObs() || DEMO);
   /** Страница открыта в рамке — это миниатюра пульта, а не зритель. */
   const framed = window.self !== window.top;
 
@@ -42,7 +122,13 @@ export function Viewer() {
         case 'snapshot':
           return m.state;
         case 'scene':
-          return prev === null ? prev : { ...prev, layers: m.layers };
+          if (prev === null) return prev;
+          // Тему прикладывает мок показа в браузере: смена стиля доходит до
+          // открытой страницы без перезагрузки. Настоящий сервер тему в этом
+          // сообщении не присылает — она и так лежит в каждом снимке.
+          return m.theme === undefined
+            ? { ...prev, layers: m.layers }
+            : { ...prev, layers: m.layers, theme: m.theme };
         case 'patch': {
           if (prev === null) return prev;
           // Патч бьёт по слою, а не по кадру: смены сцены здесь нет, и
@@ -59,6 +145,8 @@ export function Viewer() {
   }, []);
 
   useEffect(() => {
+    // Пробный кадр живёт без соединения: он и не должен никуда ходить.
+    if (DEMO) return;
     const transport = connect({ message: apply, link: setLink });
     return () => transport.stop();
   }, [apply]);
@@ -117,16 +205,21 @@ export function Viewer() {
           {/* Уходящий кадр висит под новым, пока не отыграет свой уход: без
               этого смена читается как рез, а эфир — как листалка картинок. */}
           {leaving.map((l) => (
-            <Layer key={`out-${l.id}-${l.since}`} layer={l} top={false} leaving />
+            <Layer key={`out-${l.id}-${l.since}`} layer={l} top={false} theme={state?.theme ?? null} leaving />
           ))}
           {layers.map((l, index) => (
-            <Layer key={`${l.id}-${l.since}`} layer={l} top={index === layers.length - 1} />
+            <Layer
+              key={`${l.id}-${l.since}`}
+              layer={l}
+              top={index === layers.length - 1}
+              theme={state?.theme ?? null}
+            />
           ))}
         </EnvProvider>
 
         {/* Связи нет — кадр не подменяем: лучше замерший счёт, чем чёрный
             экран. Надпись висит поверх последнего, что успело прийти. */}
-        {link.kind === 'lost' && state !== null ? (
+        {link.kind === 'lost' && state !== null && !DEMO ? (
           <div className={s.badge}>связь потеряна</div>
         ) : null}
       </div>
@@ -156,23 +249,35 @@ export function Viewer() {
  * Один слой кадра.
  *
  * Анимация входа привязана ко времени слоя, а не к приходу сообщения: зашедший
- * посреди сцены видит конечное положение, а не дёргающийся перезапуск.
+ * посреди сцены видит конечное положение, а не дёргающийся перезапуск. Стиль
+ * анимации приходит в теме и ставится сюда атрибутом `data-anim` — по нему
+ * сцены и достраивают свой вход (селекторы в `air.css` и в модулях сцен).
  */
 function Layer({
   layer,
   top,
   leaving,
+  theme,
 }: {
   layer: AirLayer;
   top: boolean;
   leaving?: boolean;
+  theme: AirTheme | null;
 }) {
   const fresh = useRef<boolean>(Date.now() - Date.parse(layer.since) < 900);
   const content = renderScene(layer.id, layer.payload);
   if (content === null) return null;
 
+  const style = styleOf(theme, layer.id);
+  // `data-fresh` отличает только что вошедший слой: «кинематограф» цепляется
+  // за весь слой целиком, и метка нужна, чтобы не задеть уходящий кадр —
+  // тому нужна своя анимация ухода.
+  const freshAttr = leaving !== true && fresh.current ? { 'data-fresh': '' } : {};
+
   return (
     <div
+      data-anim={style}
+      {...freshAttr}
       className={[
         s.layer,
         top ? s.layerTop : null,

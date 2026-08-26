@@ -4,13 +4,16 @@
 // сколько это длится, и только в конце — куда идёт кадр. Решений мало нарочно:
 // эфир идёт сам, и настраивать в нём почти нечего.
 
+import { useEffect, useState } from 'react';
 import { Button, Field, Switch } from '@/components';
 import { Card } from './Card';
 import { RoundPlans } from './RoundPlans';
 import { MATCH_LIST, PAUSE_LIST, type SceneMeta } from '@/lib/air/catalog';
 import { useAir } from '@/lib/air/store';
+import { isTauri } from '@/lib/host';
 import type { PrizeView } from '@/lib/types';
-import type { SceneId } from '@/lib/air/types';
+import type { AirStyle, SceneId } from '@/lib/air/types';
+import { STYLE_TITLES } from '@/lib/air/types';
 import s from './Setup.module.css';
 
 /**
@@ -36,6 +39,69 @@ function moneySceneVisible(id: SceneId, prize: PrizeView | null): boolean {
   }
 }
 
+/** Три стиля по замыслу, а не по силе: подпись говорит, чем они отличаются. */
+const STYLES: { id: AirStyle; about: string }[] = [
+  { id: 'calm', about: 'проявление и небольшой подъём — эфир говорит, а не показывает трюки' },
+  { id: 'assembled', about: 'элементы приезжают по очереди: заголовок, затем строки каскадом' },
+  { id: 'cinematic', about: 'наезд с масштаба и размытия, свечение заголовков в акцент' },
+];
+
+/** Значения селекта стиля сцены: пустое — «как у всех». */
+const STYLE_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'как у всех' },
+  ...STYLES.map((st) => ({ value: st.id, label: STYLE_TITLES[st.id] })),
+];
+
+/**
+ * Мини-демо стиля: маленький кадр с «заголовком» и тремя «строками», который
+ * проигрывает выбранный стиль прямо в кнопке. Перезапуск — сменой key.
+ */
+function StyleDemo({ kind, run }: { kind: AirStyle; run: number }) {
+  return (
+    <div key={run} className={s.demo} {...(run > 0 ? { 'data-demo': kind } : {})}>
+      <span className={s.demoHead} />
+      <span className={s.demoBar} style={{ '--i': 0 } as React.CSSProperties} />
+      <span className={s.demoBar} style={{ '--i': 1 } as React.CSSProperties} />
+      <span className={s.demoBar} style={{ '--i': 2 } as React.CSSProperties} />
+    </div>
+  );
+}
+
+/**
+ * Окно пробного кадра: тот же `air.html` с параметром `demo` — страница сама
+ * рисует «Ход матча» на подставленных данных, без эфира и соединения. Окно, а
+ * не вкладка: размер 1920×1080 важнее всего остального, его и выставляют в OBS.
+ */
+async function openDemoFrame(): Promise<void> {
+  // В показе вёрстки в браузере окон Tauri нет — там хватит и вкладки.
+  if (!isTauri()) {
+    window.open('air.html?demo', '_blank');
+    return;
+  }
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    // Окно уже открыто — не плодим второе, просто поднимаем первое.
+    const existing = await WebviewWindow.getByLabel('demo-frame');
+    if (existing !== null) {
+      await existing.setFocus();
+      return;
+    }
+    const win = new WebviewWindow('demo-frame', {
+      url: 'air.html?demo',
+      width: 1920,
+      height: 1080,
+      title: 'Пробный кадр',
+    });
+    // Отказ (нет прав, занятая метка) приходит событием, а не исключением —
+    // молчать нельзя: кнопка, которая ничего не делает, хуже ошибки.
+    void win.once('tauri://error', (e) => {
+      useAir.setState({ error: `Пробный кадр не открылся: ${String(e.payload)}` });
+    });
+  } catch (e) {
+    useAir.setState({ error: `Пробный кадр не открылся: ${String(e)}` });
+  }
+}
+
 interface Props {
   /** Эфир поднялся: подготовка кончилась, дальше место хоста — у турнира. */
   onStarted?: () => void;
@@ -51,6 +117,17 @@ export function Setup({ onStarted }: Props) {
   const copy = (value: string) =>
     void navigator.clipboard.writeText(value).catch(() => undefined);
 
+  // ── живой предпросмотр стиля: играет в наведённой кнопке, а без наведения —
+  // в выбранной. Счётчик перезапускает демо, пока оно на виду.
+  const [hover, setHover] = useState<AirStyle | null>(null);
+  const [play, setPlay] = useState(0);
+  const showing = hover ?? config.style;
+
+  useEffect(() => {
+    const id = window.setInterval(() => setPlay((p) => p + 1), 3200);
+    return () => window.clearInterval(id);
+  }, []);
+
   const toggle = (id: SceneId) => {
     const has = config.enabled.includes(id);
     void patchConfig({
@@ -58,36 +135,78 @@ export function Setup({ onStarted }: Props) {
     });
   };
 
+  /** Переопределение стиля одной сцены: пустое значение убирает ключ. */
+  const setSceneStyle = (id: SceneId, value: string) => {
+    const next = { ...config.sceneStyle };
+    if (value === '') delete next[id];
+    else next[id] = value as AirStyle;
+    void patchConfig({ sceneStyle: next });
+  };
+
   const group = (title: string, note: string, list: SceneMeta[]) => (
     <Card title={title} note={note}>
       <div className={s.scenes}>
-        {list.filter(visible).map((meta) => (
-          <label
-            key={meta.id}
-            className={[s.scene, config.enabled.includes(meta.id) ? s.sceneOn : null]
-              .filter(Boolean)
-              .join(' ')}
-          >
-            <input
-              type="checkbox"
-              checked={config.enabled.includes(meta.id)}
-              onChange={() => toggle(meta.id)}
-            />
-            <span className={s.sceneText}>
-              <span className={s.sceneTitle}>{meta.title}</span>
-              <span className={s.sceneAbout}>{meta.about}</span>
-            </span>
-            <span className={s.sceneTime}>
-              {meta.timing === 'fixed'
-                ? `${meta.min}–${meta.max} с`
-                : meta.timing === 'data'
-                  ? 'по данным'
-                  : 'без таймера'}
-            </span>
-          </label>
-        ))}
+        {list.filter(visible).map((meta) => {
+          const on = config.enabled.includes(meta.id);
+          return (
+            <div key={meta.id} className={s.sceneWrap}>
+              <label
+                className={[s.scene, on ? s.sceneOn : null].filter(Boolean).join(' ')}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => toggle(meta.id)}
+                />
+                <span className={s.sceneText}>
+                  <span className={s.sceneTitle}>{meta.title}</span>
+                  <span className={s.sceneAbout}>{meta.about}</span>
+                </span>
+                <span className={s.sceneTime}>
+                  {meta.timing === 'fixed'
+                    ? `${meta.min}–${meta.max} с`
+                    : meta.timing === 'data'
+                      ? 'по данным'
+                      : 'без таймера'}
+                </span>
+              </label>
+
+              {/* Стиль этой сцены: нужен редко — финал «кинематографом», а
+                  остальное спокойно. Пустое значение — как у всего эфира. */}
+              {on ? (
+                <label className={s.sceneStyle}>
+                  <span>стиль входа</span>
+                  <select
+                    value={config.sceneStyle[meta.id] ?? ''}
+                    onChange={(e) => setSceneStyle(meta.id, e.target.value)}
+                  >
+                    {STYLE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </Card>
+  );
+
+  const text = (key: keyof typeof config.finalTexts, label: string, hint: string) => (
+    <label className={s.text}>
+      <span className={s.textLabel}>{label}</span>
+      <textarea
+        rows={3}
+        value={config.finalTexts[key]}
+        placeholder={hint}
+        onChange={(e) =>
+          void patchConfig({ finalTexts: { ...config.finalTexts, [key]: e.target.value } })
+        }
+      />
+    </label>
   );
 
   return (
@@ -102,6 +221,35 @@ export function Setup({ onStarted }: Props) {
         >
           Придерживать вскрытие пика
         </Switch>
+      </Card>
+
+      <Card
+        title="Стиль анимации"
+        note="один на весь эфир; отдельную сцену можно переопределить в списке заготовок"
+      >
+        <div className={s.styles}>
+          {STYLES.map((st) => (
+            <button
+              key={st.id}
+              type="button"
+              className={[s.style, config.style === st.id ? s.styleOn : null]
+                .filter(Boolean)
+                .join(' ')}
+              onMouseEnter={() => setHover(st.id)}
+              onMouseLeave={() => setHover(null)}
+              onFocus={() => setHover(st.id)}
+              onBlur={() => setHover(null)}
+              onClick={() => {
+                void patchConfig({ style: st.id });
+                setPlay((p) => p + 1);
+              }}
+            >
+              <span className={s.styleTitle}>{STYLE_TITLES[st.id]}</span>
+              <span className={s.styleAbout}>{st.about}</span>
+              <StyleDemo kind={st.id} run={showing === st.id ? play + 1 : 0} />
+            </button>
+          ))}
+        </div>
       </Card>
 
       {group(
@@ -134,6 +282,27 @@ export function Setup({ onStarted }: Props) {
           Пауза идёт сама
         </Switch>
 
+      </Card>
+
+      <Card title="Тексты финала" note="появятся в титрах, когда турнир доигран">
+        <div className={s.texts}>
+          {text('organizers', 'Организаторы', 'по строке на человека')}
+          {text('judges', 'Судьи', 'по строке на человека')}
+          {text('links', 'Ссылки', 'канал, чат, донаты — по строке на адрес')}
+          {text('socials', 'Соцсети', 'по строке на адрес')}
+        </div>
+        <div className={s.textsNote}>Всё необязательное: пустое поле в титры не попадёт.</div>
+      </Card>
+
+      <Card title="Пробный кадр" note="выставить источник в OBS, пока никто не смотрит">
+        <div className={s.obs}>
+          <div className={s.demoWhat}>
+            Откроется окно 1920×1080 со «Ходом матча» на подставленных данных: NAGISA против
+            KIRA, счёт 2:1, все состояния строк маппула. Этот кадр и есть источник — добавь его
+            в OBS и выровняй по размеру.
+          </div>
+          <Button onClick={() => void openDemoFrame()}>Показать ход матча</Button>
+        </div>
       </Card>
 
       <Card title="Куда идёт кадр">

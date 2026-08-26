@@ -5,6 +5,7 @@ import { poolShape, slots as slotsWord, templateShape, templateSize } from '@/li
 import * as ipc from '@/lib/ipc';
 import { TemplateEditor } from './pools/TemplateEditor';
 import { PoolEditor } from './pools/PoolEditor';
+import { ImportJson } from './pools/ImportJson';
 import { SeriesView } from './pools/SeriesView';
 import { Tree, type Place } from './pools/Tree';
 import s from './Pools.module.css';
@@ -397,9 +398,24 @@ export default function Pools() {
                 + Создать шаблон
               </Button>
             ) : (
-              <Button variant="primary" onClick={() => void makePool()}>
-                + Пустой маппул
-              </Button>
+              <>
+                <ImportJson
+                  onImported={(res) => {
+                    // Импорт создаёт новый пул — открываем его в редакторе.
+                    void reload();
+                    setOpen({ kind: 'pool', id: res.pool.id });
+                  }}
+                >
+                  {(open) => (
+                    <Button size="sm" onClick={open} title="Собрать пул из файла .json">
+                      Импорт JSON
+                    </Button>
+                  )}
+                </ImportJson>
+                <Button variant="primary" onClick={() => void makePool()}>
+                  + Пустой маппул
+                </Button>
+              </>
             )}
           </div>
         </header>

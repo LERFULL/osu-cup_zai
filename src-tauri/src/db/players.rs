@@ -27,31 +27,72 @@ const COLS: &str = "id, nickname, osu_user_id, color, avatar_path, note, is_arch
 /// Палитра для новых игроков: берётся по кругу, чтобы соседи в списке
 /// не сливались. Те же цвета предлагает карточка игрока — при правке
 /// менять оба места.
-const PALETTE: [&str; 8] = [
+const DEFAULT_PALETTE: [&str; 8] = [
     "#ff6fb1", "#5bc8f5", "#7ed957", "#ffd03b", "#c77dff", "#ff6b6b", "#4dd6c1", "#f7913d",
 ];
 
-/// Цвет по номеру. Первые восемь — палитра, дальше считаем свои: на
-/// турнир в двадцать человек восьми цветов не хватает, а повторы в сетке
-/// не различить. Оттенок каждый раз уходит на пол-оборота от предыдущего,
-/// поэтому соседние номера далеки друг от друга.
-pub fn color_at(n: usize) -> String {
-    if n < PALETTE.len() {
-        return PALETTE[n].to_string();
-    }
+/// Формат цвета игрока: ровно #rrggbb.
+fn is_hex_color(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 7 && b[0] == b'#' && b[1..].iter().all(|x| x.is_ascii_hexdigit())
+}
 
-    // Золотое сечение по кругу оттенков: точки не сходятся в кучу даже
-    // на сотне игроков.
-    let step = (n - PALETTE.len()) as f64;
+/// Палитра приложения: своя из настроек (app_kv «palette») или стандартная.
+/// Битая запись — не катастрофа, просто вернём стандартную.
+pub fn palette(conn: &Connection) -> Vec<String> {
+    super::prize::kv_get(conn, "palette")
+        .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+        .filter(|v| v.len() == DEFAULT_PALETTE.len() && v.iter().all(|c| is_hex_color(c)))
+        .unwrap_or_else(|| DEFAULT_PALETTE.iter().map(|s| s.to_string()).collect())
+}
+
+/// Своя палитра из настроек: восемь цветов формата #rrggbb.
+pub fn set_palette(conn: &Connection, colors: &[String]) -> Result<()> {
+    anyhow::ensure!(
+        colors.len() == DEFAULT_PALETTE.len(),
+        "в палитре должно быть {} цветов, а пришло {}",
+        DEFAULT_PALETTE.len(),
+        colors.len()
+    );
+    for c in colors {
+        anyhow::ensure!(is_hex_color(c), "цвет «{c}» — не #rrggbb");
+    }
+    super::prize::kv_set(conn, "palette", &serde_json::to_string(colors)?)?;
+    Ok(())
+}
+
+/// Цвет с номером за пределами палитры: на турнир в двадцать человек восьми
+/// цветов не хватает, а повторы в сетке не различить. Оттенок каждый раз
+/// уходит на пол-оборота от предыдущего, поэтому соседние номера далеки
+/// друг от друга.
+fn generated(n: usize) -> String {
+    let step = (n - DEFAULT_PALETTE.len()) as f64;
     let hue = (196.0 + step * 137.508) % 360.0;
     // Насыщенность и светлота чередуются, чтобы близкие оттенки
     // расходились ещё и по яркости.
-    let (sat, light) = match (n - PALETTE.len()) % 3 {
+    let (sat, light) = match (n - DEFAULT_PALETTE.len()) % 3 {
         0 => (0.62, 0.66),
         1 => (0.78, 0.58),
         _ => (0.52, 0.74),
     };
     hsl_to_hex(hue, sat, light)
+}
+
+/// Цвет по номеру из стандартной палитры.
+pub fn color_at(n: usize) -> String {
+    match DEFAULT_PALETTE.get(n) {
+        Some(c) => c.to_string(),
+        None => generated(n),
+    }
+}
+
+/// Цвет по номеру с палитрой из настроек: как `color_at`, но первые восемь
+/// берутся из сохранённой палитры.
+pub fn color_in(palette: &[String], n: usize) -> String {
+    match palette.get(n) {
+        Some(c) => c.clone(),
+        None => generated(n),
+    }
 }
 
 fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
@@ -74,11 +115,13 @@ fn hsl_to_hex(h: f64, s: f64, l: f64) -> String {
 
 /// Первый цвет, который ещё не занят. Палитра идёт первой, дальше —
 /// считаные: отказывать в добавлении игрока из-за цветов неправильно,
-/// а повторять цвет в одной сетке — тем более.
-pub fn free_color(_conn: &Connection, taken: &[String]) -> String {
+/// а повторять цвет в одной сетке — тем более. Палитру берём из
+/// настроек: свой набор цветов действует и здесь.
+pub fn free_color(conn: &Connection, taken: &[String]) -> String {
+    let palette = palette(conn);
     let mut n = 0usize;
     loop {
-        let candidate = color_at(n);
+        let candidate = color_in(&palette, n);
         if !taken.iter().any(|t| t.eq_ignore_ascii_case(&candidate)) {
             return candidate;
         }
@@ -126,7 +169,7 @@ pub fn create(
     let taken: i64 = conn.query_row("SELECT COUNT(*) FROM players", [], |r| r.get(0))?;
     let color = color
         .map(|c| c.to_string())
-        .unwrap_or_else(|| color_at(taken as usize));
+        .unwrap_or_else(|| color_in(&palette(conn), taken as usize));
 
     conn.execute(
         "INSERT INTO players (nickname, osu_user_id, color, created_at)
@@ -185,6 +228,88 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
 
     conn.execute("DELETE FROM players WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+/// Объединение дубля: всё, что сделал `merge_id`, переезжает на `keep_id`,
+/// osu! ID подтягивается, если у оставшегося его не было, дубль уходит в архив.
+/// Возвращает обновлённого keep-игрока.
+///
+/// Личную статистику не пересчитываем и не переносим: она вся считается
+/// запросами по истории матчей и потому пересчитывается сама.
+pub fn merge(conn: &Connection, keep_id: i64, merge_id: i64) -> Result<Player> {
+    anyhow::ensure!(keep_id != merge_id, "игрока нельзя объединить с самим собой");
+
+    let keep = get(conn, keep_id)?.ok_or_else(|| anyhow::anyhow!("Игрок не найден"))?;
+    let gone = get(conn, merge_id)?
+        .ok_or_else(|| anyhow::anyhow!("Игрок для объединения не найден"))?;
+
+    // Оба в одном матче — коллизия, которую переносом ссылок не разрулить:
+    // после склейки игрок оказался бы играющим сам с собой.
+    let both: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM matches
+          WHERE (player_a = ?1 AND player_b = ?2) OR (player_a = ?2 AND player_b = ?1)",
+        params![keep_id, merge_id],
+        |r| r.get(0),
+    )?;
+    anyhow::ensure!(
+        both == 0,
+        "эти игроки играли друг с другом в одном матче — объединить нельзя"
+    );
+
+    // osu! ID забираем, только если у оставшегося своего нет: свой всегда важнее.
+    if keep.osu_user_id.is_none() && gone.osu_user_id.is_some() {
+        conn.execute(
+            "UPDATE players SET osu_user_id = ?2 WHERE id = ?1",
+            params![keep_id, gone.osu_user_id],
+        )?;
+    }
+
+    // Матчи: обе стороны, победитель и первый бан.
+    conn.execute(
+        "UPDATE matches SET player_a = ?2 WHERE player_a = ?1",
+        params![merge_id, keep_id],
+    )?;
+    conn.execute(
+        "UPDATE matches SET player_b = ?2 WHERE player_b = ?1",
+        params![merge_id, keep_id],
+    )?;
+    conn.execute(
+        "UPDATE matches SET winner_id = ?2 WHERE winner_id = ?1",
+        params![merge_id, keep_id],
+    )?;
+    conn.execute(
+        "UPDATE matches SET first_ban_by = ?2 WHERE first_ban_by = ?1",
+        params![merge_id, keep_id],
+    )?;
+
+    // Действия матчей: кто баннил и кто забрал карту.
+    conn.execute(
+        "UPDATE match_actions SET actor_id = ?2 WHERE actor_id = ?1",
+        params![merge_id, keep_id],
+    )?;
+    conn.execute(
+        "UPDATE match_actions SET winner_id = ?2 WHERE winner_id = ?1",
+        params![merge_id, keep_id],
+    )?;
+
+    // Участия в турнирах. Если keep уже играет турнир, строка дубля не нужна:
+    // своё место и своё место в сетке у keep уже есть, место дубля уходит.
+    // Иначе строка переезжает целиком, вместе с местом: результат дубля в том
+    // турнире и есть результат оставшегося — иначе чемпионство потерялось бы.
+    conn.execute(
+        "DELETE FROM tournament_players WHERE player_id = ?1
+           AND tournament_id IN (SELECT tournament_id FROM tournament_players WHERE player_id = ?2)",
+        params![merge_id, keep_id],
+    )?;
+    conn.execute(
+        "UPDATE tournament_players SET player_id = ?2 WHERE player_id = ?1",
+        params![merge_id, keep_id],
+    )?;
+
+    // Дубль — в архив, не в удаление: на его id всё ещё ссылается история.
+    set_archived(conn, merge_id, true)?;
+
+    Ok(get(conn, keep_id)?.expect("keep только что читался"))
 }
 
 /// Сводка по игроку. Считается запросами по истории, поэтому всегда
@@ -393,5 +518,192 @@ mod tests {
             !taken.contains(&next),
             "занятый цвет не должен выдаваться повторно"
         );
+    }
+
+    /// База только под app_kv: остальное палитре не нужно.
+    fn kv_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE app_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn custom_palette_drives_free_color() {
+        let conn = kv_conn();
+        let own: Vec<String> = (0..8).map(|i| format!("#00{i:02x}aa")).collect();
+        set_palette(&conn, &own).unwrap();
+
+        assert_eq!(palette(&conn), own);
+        assert_eq!(free_color(&conn, &[]), "#0000aa");
+
+        // Занятые из палитры пропускаются, дальше идут считаные.
+        let next = free_color(&conn, &own);
+        assert!(!own.contains(&next), "свободный цвет не из палитры");
+    }
+
+    #[test]
+    fn set_palette_rejects_wrong_input() {
+        let conn = kv_conn();
+        let short: Vec<String> = (0..7).map(|i| format!("#00{i:02x}aa")).collect();
+        assert!(set_palette(&conn, &short).is_err(), "семь цветов — не палитра");
+
+        let bad = vec!["#ff6fb1".to_string(); 8];
+        assert!(set_palette(&conn, &bad).is_ok());
+        let named: Vec<String> = ["red".to_string()]
+            .into_iter()
+            .chain((1..8).map(|i| format!("#00{i:02x}aa")))
+            .collect();
+        // «red» — не hex, но запись выше уже прошла: проверяем отклонение
+        // именованного цвета отдельной попыткой.
+        assert!(set_palette(&conn, &named).is_err(), "именованный цвет не проходит");
+        // Палитра при этом осталась прежней — валидной.
+        assert_eq!(palette(&conn), bad);
+    }
+
+    // ─────────────────────────────────────────── объединение игроков
+
+    /// База с полным набором миграций: объединению нужны матчи и турниры.
+    fn full_db() -> Connection {
+        let conn = Connection::open_in_memory().expect("база в памяти");
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        for (version, sql) in super::super::MIGRATIONS {
+            conn.execute_batch(sql)
+                .unwrap_or_else(|e| panic!("миграция {version} не применилась: {e}"));
+        }
+        conn
+    }
+
+    fn player(conn: &Connection, nickname: &str, osu_user_id: Option<i64>) -> i64 {
+        create(conn, nickname, osu_user_id, None).unwrap()
+    }
+
+    fn tournament(conn: &Connection) -> i64 {
+        conn.execute(
+            "INSERT INTO tournaments (name, bracket_size, created_at) VALUES ('Кубок', 4, '2026-01-01')",
+            [],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    fn match_row(conn: &Connection, t: i64, a: i64, b: i64, winner: Option<i64>) -> i64 {
+        conn.execute(
+            "INSERT INTO matches (tournament_id, bracket, round, slot_in_bracket, player_a, player_b, status, winner_id)
+             VALUES (?1, 'upper', 1, 0, ?2, ?3, 'finished', ?4)",
+            params![t, a, b, winner],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+        if let Some(w) = winner {
+            conn.execute(
+                "INSERT INTO match_actions (match_id, n, type, actor_id, slot_label, winner_id, at)
+                 VALUES (?1, 1, 'result', ?2, 'NM1', ?2, '2026-01-01')",
+                params![id, w],
+            )
+            .unwrap();
+        }
+        id
+    }
+
+    #[test]
+    fn merge_moves_everything_and_archives_the_duplicate() {
+        let conn = full_db();
+        let keep = player(&conn, "X", None);
+        let gone = player(&conn, "NICK", Some(4242));
+        let foe = player(&conn, "Y", None);
+
+        let t1 = tournament(&conn);
+        let t2 = tournament(&conn);
+
+        // keep выиграл матч у foe; дубль выиграл свой. osu! ID только у дубля.
+        let m1 = match_row(&conn, t1, keep, foe, Some(keep));
+        let m2 = match_row(&conn, t1, gone, foe, Some(gone));
+
+        conn.execute(
+            "INSERT INTO tournament_players (tournament_id, player_id, seed, color, placement)
+             VALUES (?1, ?2, 1, '#fff', 1)",
+            params![t1, gone],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tournament_players (tournament_id, player_id, seed, color, placement)
+             VALUES (?1, ?2, 2, '#fff', 3)",
+            params![t2, keep],
+        )
+        .unwrap();
+        // Турнир, где играли оба: строка дубля должна уйти, своя остаться.
+        conn.execute(
+            "INSERT INTO tournament_players (tournament_id, player_id, seed, color, placement)
+             VALUES (?1, ?2, 3, '#fff', 5)",
+            params![t2, gone],
+        )
+        .unwrap();
+
+        let merged = merge(&conn, keep, gone).unwrap();
+
+        // osu! ID переехал, дубль в архиве, keep — нет.
+        assert_eq!(merged.osu_user_id, Some(4242));
+        assert!(!merged.is_archived);
+        assert!(get(&conn, gone).unwrap().unwrap().is_archived);
+
+        // Оба матча теперь принадлежат keep, победители и действия переехали.
+        for m in [m1, m2] {
+            let (a, b, w): (i64, i64, Option<i64>) = conn
+                .query_row(
+                    "SELECT player_a, player_b, winner_id FROM matches WHERE id = ?1",
+                    params![m],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(a, keep, "матч {m}: сторона A");
+            assert_eq!(b, foe, "матч {m}: сторона B");
+            assert_eq!(w, Some(keep), "матч {m}: победитель");
+        }
+        let actor: i64 = conn
+            .query_row(
+                "SELECT actor_id FROM match_actions WHERE match_id = ?1",
+                params![m2],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(actor, keep);
+
+        // Участия: свой турнир остался со своим местом, чужой переехал вместе
+        // с первым местом, общий турнир не задвоился.
+        let rows: Vec<(i64, Option<i64>)> = {
+            let mut st = conn
+                .prepare(
+                    "SELECT tournament_id, placement FROM tournament_players
+                      WHERE player_id = ?1 ORDER BY tournament_id",
+                )
+                .unwrap();
+            st.query_map(params![keep], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        assert_eq!(rows, vec![(t1, Some(1)), (t2, Some(3))], "{rows:?}");
+
+        // Статистика считается сама — и уже видит оба матча и оба турнира.
+        let stats = stats(&conn, keep).unwrap();
+        assert_eq!(stats.matches, 2);
+        assert_eq!(stats.match_wins, 2);
+        assert_eq!(stats.tournaments, 2);
+        assert_eq!(stats.tournament_wins, 1);
+    }
+
+    #[test]
+    fn merge_rejects_players_who_met_in_a_match() {
+        let conn = full_db();
+        let t = tournament(&conn);
+        let a = player(&conn, "A", None);
+        let b = player(&conn, "B", None);
+        match_row(&conn, t, a, b, Some(a));
+
+        let err = merge(&conn, a, b).unwrap_err().to_string();
+        assert!(err.contains("друг с другом"), "{err}");
     }
 }

@@ -1798,6 +1798,53 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
       return undefined;
     },
 
+    // Объединение дубля: переносим ссылки в мок-состоянии — как merge на Rust.
+    merge_players: (a) => {
+      const keepId = a['keepId'] as number;
+      const mergeId = a['mergeId'] as number;
+      const keep = players.find((p) => p.id === keepId);
+      const gone = players.find((p) => p.id === mergeId);
+      if (!keep || !gone) throw new Error('Игрок не найден');
+      if (keepId === mergeId) throw new Error('Игрока нельзя объединить с самим собой');
+
+      const met = matches.some(
+        (m) =>
+          (m.playerA === keepId && m.playerB === mergeId) ||
+          (m.playerA === mergeId && m.playerB === keepId),
+      );
+      if (met) {
+        throw new Error('Эти игроки играли друг с другом в одном матче — объединить нельзя');
+      }
+
+      // osu! ID подтягиваем, только если у оставшегося своего нет.
+      if (keep.osuUserId === null) keep.osuUserId = gone.osuUserId;
+
+      for (const m of matches) {
+        if (m.playerA === mergeId) m.playerA = keepId;
+        if (m.playerB === mergeId) m.playerB = keepId;
+        if (m.winnerId === mergeId) m.winnerId = keepId;
+        if (m.firstBanBy === mergeId) m.firstBanBy = keepId;
+        for (const x of m.actions) {
+          if (x.actorId === mergeId) x.actorId = keepId;
+          if (x.winnerId === mergeId) x.winnerId = keepId;
+        }
+      }
+
+      for (const t of tournaments) {
+        const mine = t.players.find((p) => p.playerId === mergeId);
+        if (mine === undefined) continue;
+        if (t.players.some((p) => p.playerId === keepId)) {
+          // keep уже играет этот турнир — его строка и место остаются.
+          t.players = t.players.filter((p) => p.playerId !== mergeId);
+        } else {
+          mine.playerId = keepId;
+        }
+      }
+
+      gone.isArchived = true;
+      return keep;
+    },
+
     player_stats: (a): PlayerStats => {
       const id = a['id'] as number;
       const own = matches.filter((m) => m.playerA === id || m.playerB === id);

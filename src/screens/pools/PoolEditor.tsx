@@ -11,11 +11,19 @@ import {
   type PoolSlot,
   type PoolWhence,
 } from '@/lib/types';
-import { coverUrl, formatLength, poolAverageStars, slots as slotsWord } from '@/lib/format';
+import {
+  coverUrl,
+  formatLength,
+  plural,
+  poolAverageStars,
+  slots as slotsWord,
+} from '@/lib/format';
 import { FM_CHOICES, derive } from '@/lib/derive';
 import { useReorder } from '@/lib/useReorder';
+import { copyImage, downloadBlob, renderPoolImage } from '@/lib/exportImage';
 import * as ipc from '@/lib/ipc';
 import { Import } from '../library/Import';
+import { ImportJson } from './ImportJson';
 import { Picker } from './Picker';
 import { Report } from './Report';
 import { Whence } from './Whence';
@@ -165,6 +173,30 @@ export function PoolEditor({ id, notes, onClose }: Props) {
       setCurrent(target);
       await load(target);
     });
+  }
+
+  /** Маппул файлом .json: имя файла — название пула. */
+  async function exportJson() {
+    setMenu(null);
+    try {
+      const json = await ipc.exportPoolJson(p.id);
+      downloadBlob(new Blob([json], { type: 'application/json' }), `${p.name}.json`);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  /** Маппул картинкой в буфер; без буфера — файлом. */
+  async function picture() {
+    try {
+      setBusy(true);
+      const blob = await renderPoolImage(p, null);
+      await copyImage(blob, `${p.name}.png`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function setLabel() {
@@ -434,6 +466,15 @@ export function PoolEditor({ id, notes, onClose }: Props) {
               </Menu>
             </div>
 
+            <Button
+              size="sm"
+              onClick={() => void picture()}
+              disabled={busy}
+              title="Маппул картинкой в буфер обмена"
+            >
+              Картинкой
+            </Button>
+
             <Chip active={panel} onClick={() => setPanel(!panel)} title="Источники и исключения">
               Откуда берём
             </Chip>
@@ -453,6 +494,35 @@ export function PoolEditor({ id, notes, onClose }: Props) {
                 >
                   {p.status === 'ready' ? 'Вернуть в черновики' : 'Пометить готовым'}
                 </MenuItem>
+
+                <MenuItem onClick={() => void exportJson()} note="Файл .json — переносится между компьютерами">
+                  Экспорт JSON
+                </MenuItem>
+
+                <ImportJson
+                  onImported={(res) => {
+                    // Импорт создаёт новый пул — редактор переходит в него.
+                    setCurrent(res.pool.id);
+                    void load(res.pool.id);
+                    if (res.skippedMaps > 0) {
+                      setError(
+                        `${res.skippedMaps} ${plural(res.skippedMaps, 'карта', 'карты', 'карт')} не скачались — слоты под них пустые`,
+                      );
+                    }
+                  }}
+                >
+                  {(open) => (
+                    <MenuItem
+                      onClick={() => {
+                        setMenu(null);
+                        open();
+                      }}
+                      note="Собрать пул из файла .json"
+                    >
+                      Импорт JSON…
+                    </MenuItem>
+                  )}
+                </ImportJson>
 
                 {p.seriesName !== null ? (
                   <>

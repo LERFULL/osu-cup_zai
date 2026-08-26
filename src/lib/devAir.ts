@@ -12,6 +12,7 @@ import type {
   AirMessage,
   AirState,
   AirStatus,
+  AirTheme,
   OsuProfile,
   SceneId,
   SceneShow,
@@ -62,6 +63,31 @@ let status: AirStatus = {
 const configs = new Map<number, string>();
 const shows = new Map<number, SceneShow[]>();
 
+/** Настройки эфира переживают перезагрузку страницы: выбор, сделанный в
+ * подготовке, не должен пропадать от F5. Живут в localStorage — как и весь
+ * остальной мок, только в этом браузере. */
+const CONFIG_KEY = 'osucup-mock-air-config';
+
+try {
+  const saved = JSON.parse(window.localStorage.getItem(CONFIG_KEY) ?? '{}') as Record<
+    string,
+    string
+  >;
+  for (const [id, json] of Object.entries(saved)) configs.set(Number(id), json);
+} catch {
+  // Чужие данные в хранилище — не повод падать показу вёрстки.
+}
+
+function saveConfigs(): void {
+  const flat: Record<string, string> = {};
+  for (const [id, json] of configs) flat[String(id)] = json;
+  try {
+    window.localStorage.setItem(CONFIG_KEY, JSON.stringify(flat));
+  } catch {
+    // Хранилище может быть недоступно — мок и без него работает.
+  }
+}
+
 function showsOf(tournamentId: number): SceneShow[] {
   return shows.get(tournamentId) ?? [];
 }
@@ -110,8 +136,15 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
 
     air_scene: (a) => {
       const layers = (Array.isArray(a['layers']) ? a['layers'] : []) as AirLayer[];
-      state = { ...state, layers };
-      send({ kind: 'scene', layers });
+      const theme = a['theme'] as AirTheme | null | undefined;
+      // Тема меняется вместе с кадром: стиль анимации доходит до открытой
+      // страницы сразу, без перезагрузки — как акцент в настоящем эфире.
+      state = {
+        ...state,
+        layers,
+        ...(theme != null ? { theme } : {}),
+      };
+      send({ kind: 'scene', layers, ...(theme != null ? { theme } : {}) });
       return undefined;
     },
 
@@ -134,6 +167,7 @@ export function airHandlers(): Record<string, (a: Args) => unknown> {
     air_config: (a) => configs.get(num(a, 'tournamentId')) ?? null,
     air_set_config: (a) => {
       configs.set(num(a, 'tournamentId'), str(a, 'json'));
+      saveConfigs();
       return undefined;
     },
 

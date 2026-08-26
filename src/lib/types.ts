@@ -629,6 +629,44 @@ export interface PoolOverlap {
   poolIds: number[];
 }
 
+// ─────────────────────────────────────── импорт и экспорт маппула JSON
+
+/** Слот маппула в JSON-файле: одна форма на экспорт и импорт. */
+export interface PoolJsonSlot {
+  slotLabel: string;
+  mod: ModTag;
+  beatmapId: number | null;
+  pinned: boolean;
+  fmMods: string[];
+}
+
+/** Файл маппула. Статус выгружается для человека, при импорте не действует. */
+export interface PoolJson {
+  name: string;
+  status: PoolStatus | null;
+  slots: PoolJsonSlot[];
+}
+
+/** Что показывает диалог импорта до записи: состав файла и раскладка
+ *  известных библиотеке карт — по ней решают, скачивать ли недостающие. */
+export interface PoolImportPreview {
+  poolName: string;
+  slots: PoolJsonSlot[];
+  /** Карты из файла, которые уже лежат в библиотеке. */
+  knownMaps: number;
+  /** Карты, которых в библиотеке нет. */
+  newMaps: number;
+}
+
+/** Итог импорта: созданный пул и судьба карт, которых не было в библиотеке. */
+export interface PoolImportResult {
+  pool: Pool;
+  /** Скачали с osu! и положили в библиотеку. */
+  savedMaps: number;
+  /** Не скачались — нет ключа, нет сети или карты больше не существует. */
+  skippedMaps: number;
+}
+
 // ─────────────────────────────────────────────────────────────── игроки
 
 export interface Player {

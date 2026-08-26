@@ -41,6 +41,15 @@ pub fn run() {
             commands::system::get_queue_status,
             commands::system::cache_size,
             commands::system::clear_cache,
+            // настройки приложения
+            commands::system::default_fields,
+            commands::system::set_default_fields,
+            commands::system::player_palette,
+            commands::system::set_player_palette,
+            commands::system::language,
+            commands::system::set_language,
+            commands::system::backup_every,
+            commands::system::set_backup_every,
             // библиотека
             commands::library::list_beatmaps,
             commands::library::count_without_mods,
@@ -106,6 +115,10 @@ pub fn run() {
             commands::pools::reorder_pool_slots,
             commands::pools::slot_picker,
             commands::pools::pool_whence,
+            // импорт и экспорт маппула JSON
+            commands::pools::export_pool_json,
+            commands::pools::import_pool_preview,
+            commands::pools::import_pool,
             // генерация
             commands::pools::generate_pool,
             commands::pools::reroll_pool,
@@ -145,6 +158,7 @@ pub fn run() {
             commands::imports::cancel_batch,
             // игроки
             commands::players::list_players,
+            commands::players::merge_players,
             commands::players::get_player,
             commands::players::create_player,
             commands::players::update_player,

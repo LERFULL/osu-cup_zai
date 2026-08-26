@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tauri::State;
 
+use crate::db::beatmaps;
 use crate::db::exclusions::Owner;
 use crate::db::{
     exclusions as ex_db, generate, pools as pool_db, series as series_db, supply as supply_db,
@@ -9,8 +10,8 @@ use crate::db::{
 };
 use crate::error::Result;
 use crate::model::{
-    ExclusionTarget, GenReport, GenRules, Pool, PoolTemplate, PoolWhence, SlotPicker, SlotSupply,
-    SourceSet, TemplateSlotInput,
+    Beatmap, ExclusionTarget, GenReport, GenRules, Pool, PoolTemplate, PoolWhence, SlotPicker,
+    SlotSupply, SourceSet, TemplateSlotInput,
 };
 use crate::state::AppState;
 
@@ -279,6 +280,119 @@ pub async fn reorder_pool_slots(
         let target = pool_db::writable(tx, pool_id)?;
         pool_db::reorder(tx, target, &order)?;
         pool_db::get(tx, target)
+    })
+}
+
+// ─────────────────────────────────────────────── импорт и экспорт JSON
+
+/// Маппул в JSON: текст собирается здесь, файл на диск кладёт фронт
+/// через Blob — файлового диалога у окна нет.
+#[tauri::command]
+pub async fn export_pool_json(state: State<'_, Arc<AppState>>, pool_id: i64) -> Result<String> {
+    state.db.with(|conn| pool_db::export_json(conn, pool_id))
+}
+
+/// Разбор файла без записи в базу: диалог импорта показывает, сколько карт
+/// уже в библиотеке, а сколько придётся скачивать с osu!.
+#[tauri::command]
+pub async fn import_pool_preview(
+    state: State<'_, Arc<AppState>>,
+    json: String,
+) -> Result<pool_db::PoolImportPreview> {
+    state.db.with(|conn| pool_db::preview_import(conn, &json))
+}
+
+/// Импорт файла: создаёт пул-черновик со слотами из файла.
+///
+/// `save_maps` — скачать карты, которых нет в библиотеке: без ключа или сети
+/// они пропускаются со счётчиком, слоты остаются пустыми, а импорт не падает.
+#[tauri::command]
+pub async fn import_pool(
+    state: State<'_, Arc<AppState>>,
+    json: String,
+    save_maps: bool,
+) -> Result<pool_db::PoolImportResult> {
+    let state = state.inner().clone();
+
+    // Разбор и проверка — без сети и без базы: кривой файл падает понятным текстом.
+    let parsed = pool_db::parse_import(&json)?;
+
+    // Какие карты уже есть — их не трогаем, остальные кандидаты на скачивание.
+    let ids = pool_db::import_beatmap_ids(&parsed);
+    let known = state.db.with(|conn| pool_db::existing_beatmap_ids(conn, &ids))?;
+    let missing: Vec<i64> = ids.into_iter().filter(|id| !known.contains(id)).collect();
+
+    let mut fetched: Vec<Beatmap> = Vec::new();
+    if save_maps && !missing.is_empty() {
+        // Нет ключа — нет и скачивания: пул всё равно создаётся.
+        if let Ok(creds) = state.credentials() {
+            for chunk in missing.chunks(crate::import::BATCH) {
+                state
+                    .limiter
+                    .acquire_reserving(crate::import::LOBBY_RESERVE)
+                    .await;
+                match state.osu.beatmaps(&creds, chunk).await {
+                    Ok(maps) => fetched.extend(maps),
+                    // Сеть лежит — дёргать её дальше бессмысленно: оставшиеся
+                    // карты уходят в пропущенные.
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+
+    let saved = fetched.len() as i64;
+    let skipped = (missing.len() - fetched.len()) as i64;
+
+    let pool_id = state.db.with_tx(|tx| {
+        for map in &fetched {
+            beatmaps::upsert(tx, map)?;
+        }
+        pool_db::import_pool(tx, &parsed)
+    })?;
+
+    // Обложки скачанных карт — тем же порядком, что и обычный импорт: строки
+    // пула сразу выглядят обжито. В лучшем усилии: без сети обложек просто нет.
+    let mut sets: Vec<i64> = fetched.iter().filter_map(|m| m.beatmapset_id).collect();
+    sets.sort_unstable();
+    sets.dedup();
+
+    for set_id in sets {
+        let with_set: Vec<i64> = fetched
+            .iter()
+            .filter(|m| m.beatmapset_id == Some(set_id))
+            .map(|m| m.beatmap_id)
+            .collect();
+
+        // Файл уже в кеше — качать нечего, но путь в карту прописать надо:
+        // после удаления и повторного добавления строка в базе новая.
+        let path = if state.covers.has(set_id) {
+            Some(state.covers.path_for(set_id).to_string_lossy().to_string())
+        } else if let Ok(bytes) = state.osu.download_cover(set_id).await {
+            state
+                .covers
+                .put(set_id, &bytes)
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        } else {
+            None
+        };
+
+        if let Some(path) = path {
+            let _ = state.db.with(|conn| {
+                for id in &with_set {
+                    beatmaps::set_cover_path(conn, *id, &path)?;
+                }
+                Ok(())
+            });
+        }
+    }
+
+    let pool = state.db.with(|conn| pool_db::get(conn, pool_id))?;
+    Ok(pool_db::PoolImportResult {
+        pool,
+        saved_maps: saved,
+        skipped_maps: skipped,
     })
 }
 

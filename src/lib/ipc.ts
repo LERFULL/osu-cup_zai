@@ -34,6 +34,8 @@ import type {
   PlayerStats,
   Pool,
   PoolField,
+  PoolImportPreview,
+  PoolImportResult,
   PoolOverlap,
   PoolStatus,
   PoolTemplate,
@@ -251,6 +253,22 @@ export const reorderPoolSlots = (poolId: number, order: number[]) =>
 export const slotPicker = (poolId: number, position: number) =>
   invoke<SlotPicker>('slot_picker', { poolId, position });
 
+// ──────────────────────────────── импорт и экспорт маппула JSON
+
+/** Маппул в JSON: файл сохраняем на фронте через Blob, Rust отдаёт текст. */
+export const exportPoolJson = (poolId: number) => invoke<string>('export_pool_json', { poolId });
+
+/** Разбор файла без записи: диалог «в файле N карт, из них M новых». */
+export const importPoolPreview = (json: string) =>
+  invoke<PoolImportPreview>('import_pool_preview', { json });
+
+/**
+ * Импорт файла: создаёт пул-черновик со слотами из него. `saveMaps` — скачать
+ * карты, которых нет в библиотеке (без ключа и сети они пропускаются).
+ */
+export const importPool = (json: string, saveMaps: boolean) =>
+  invoke<PoolImportResult>('import_pool', { json, saveMaps });
+
 /** Источники, исключения, правила и запас — содержимое панели «Откуда берём». */
 export const poolWhence = (poolId: number) => invoke<PoolWhence>('pool_whence', { poolId });
 
@@ -365,6 +383,34 @@ export const getQueueStatus = () => invoke<QueueStatus>('get_queue_status');
 export const getCacheSize = () => invoke<number>('cache_size');
 export const clearCache = () => invoke<void>('clear_cache');
 
+// ───────────────────────────────────────────────────── настройки приложения
+
+/**
+ * Поля строки карты для новых маппулов. `null` — настройка не задана,
+ * действует встроенный набор: звёзды, длина, BPM.
+ */
+export const getDefaultFields = () => invoke<PoolField[] | null>('default_fields');
+
+export const setDefaultFields = (fields: PoolField[]) =>
+  invoke<void>('set_default_fields', { fields });
+
+/** Палитра цветов игроков: восемь hex-цветов. */
+export const getPlayerPalette = () => invoke<string[]>('player_palette');
+
+export const setPlayerPalette = (colors: string[]) =>
+  invoke<void>('set_player_palette', { colors });
+
+/** Язык интерфейса. Приложение одноязычное — русский. */
+export const getLanguage = () => invoke<string>('language');
+
+export const setLanguage = (lang: string) => invoke<void>('set_language', { lang });
+
+/** Автобэкап раз в N запусков. 0 — выключен. */
+export const getBackupEvery = () => invoke<number>('backup_every');
+
+export const setBackupEvery = (every: number) =>
+  invoke<void>('set_backup_every', { every });
+
 // ─────────────────────────────────────────────────────────────── события
 
 export const onImportProgress = (fn: (p: ImportProgress) => void): Promise<UnlistenFn> =>
@@ -398,6 +444,13 @@ export const updatePlayer = (
 /** Мягкое удаление: из выбора уходит, история остаётся читаемой. */
 export const archivePlayer = (id: number, archived: boolean) =>
   invoke<void>('archive_player', { id, archived });
+
+/**
+ * Объединение дубля: все матчи и статистика `mergeId` переходят к `keepId`,
+ * дубль уходит в архив. Возвращает обновлённого keep-игрока.
+ */
+export const mergePlayers = (keepId: number, mergeId: number) =>
+  invoke<Player>('merge_players', { keepId, mergeId });
 
 export const deletePlayer = (id: number) => invoke<void>('delete_player', { id });
 
