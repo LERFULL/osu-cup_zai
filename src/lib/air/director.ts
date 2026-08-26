@@ -121,6 +121,18 @@ export function planMatch(
 
   // ── матч открыт
   if (prev === null || prev.id !== next.id) {
+    // Деньги на голове идут врезкой перед представлением: сначала что
+    // на кону, потом кто играет.
+    const heads = build.bountyHeads(ctx, next);
+    if (heads !== null) {
+      const intro = layer('matchIntro', build.matchIntro(ctx, next), secondsOf('matchIntro'));
+      out.push(
+        single('bountyHeads', heads, `Головы — ${heads.a.nick} и ${heads.b.nick}`, {
+          kind: 'layers',
+          layers: [intro],
+        }),
+      );
+    }
     out.push(
       single('matchIntro', build.matchIntro(ctx, next), representation(next, ctx), live),
     );
@@ -186,6 +198,19 @@ export function planMatch(
           'matchResult',
           result,
           `Итог матча — победил ${result.winner.nick}`,
+          { kind: 'pause' },
+        ),
+      );
+    }
+
+    // С головы сняли деньги — событие матча, а не паузы: деньги видно сразу
+    const bounty = build.bountyTaken(ctx, next);
+    if (bounty !== null) {
+      out.push(
+        single(
+          'bountyTaken',
+          bounty,
+          `Баунти снято — ${bounty.killer.nick} забирает ${bounty.taken}`,
           { kind: 'pause' },
         ),
       );

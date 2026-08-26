@@ -1834,6 +1834,28 @@ function seedDemoTournament(): void {
     call('set_tournament_pools', { id: t.id, poolIds: [pool.id] });
     call('shuffle_tournament_seeds', { id: t.id });
 
+    // Фонд в демо — «Локальный смешанный»: деньги-сцены эфира без него
+    // не показать, а показывать их надо.
+    call('set_tournament_prize', {
+      id: t.id,
+      config: {
+        fund: 10_000,
+        engine: { kind: 'places', shares: [34, 24, 17, 11, 8, 6], growth: 200, lowerDiscount: 50 },
+        addons: {
+          bounty: { amounts: [700, 450, 350], rollover: true },
+          matchPayments: { amount: 2_500, growth: 200, lowerDiscount: 50 },
+          rookieRace: 1_500,
+          underdog: true,
+          spectator: 1_000,
+          jackpot: true,
+        },
+        bestMatchId: null,
+        jackpotIn: 0,
+        rolledOut: 0,
+      },
+      emergency: false,
+    });
+
     // Сетка и запуск: турнир должен быть «идёт», иначе эфир справедливо
     // отвечает, что показывать нечего.
     call('start_tournament', { id: t.id });

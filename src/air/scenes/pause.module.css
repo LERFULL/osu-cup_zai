@@ -853,3 +853,190 @@
   font-size: 30px;
   font-weight: 700;
 }
+
+/* ─────────────────────────────────────────────── сцены про деньги */
+
+.fundBoard {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.fundScheme {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fundRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 16px;
+  padding: 12px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  animation: rowIn 0.5s both;
+  animation-delay: calc(var(--i) * 0.06s);
+}
+
+.fundRowTitle {
+  color: var(--txt);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.fundRowNote {
+  grid-column: 1;
+  color: var(--txt3);
+  font-size: 15px;
+}
+
+.fundRowSum {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  align-self: center;
+  color: #ffd03b;
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 700;
+}
+
+/* Места — золотом, матчевые — голубым, баунти — розовым, гонка — зелёным. */
+.fundPlaces .fundRowSum {
+  color: #ffd03b;
+}
+
+.fundMatches .fundRowSum {
+  color: #5bc8f5;
+}
+
+.fundMaps .fundRowSum {
+  color: #7ed957;
+}
+
+.fundBounty .fundRowSum {
+  color: #ff6fb1;
+}
+
+.fundRookie .fundRowSum {
+  color: #7ed957;
+}
+
+.fundSpectator .fundRowSum {
+  color: #c77dff;
+}
+
+.fundJackpot .fundRowSum {
+  color: #f7913d;
+}
+
+.fundEarned {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fundEmpty {
+  padding: 24px 0;
+  color: var(--txt3);
+  font-size: 20px;
+}
+
+.fundWho {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  animation: rowIn 0.5s both;
+  animation-delay: calc(var(--i) * 0.06s);
+}
+
+.fundWhoOut {
+  opacity: 0.55;
+}
+
+.fundWhoStripe {
+  flex: none;
+  width: 5px;
+  height: 34px;
+  border-radius: 3px;
+  background: var(--who);
+}
+
+.fundWhoNick {
+  flex: 1;
+  overflow: hidden;
+  color: var(--txt);
+  font-size: 24px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fundWhoSum {
+  color: #ffd03b;
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+/* Зрительский банк и джекпот: одна крупная цифра по центру. */
+.bank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 36px;
+  padding: 36px 0 12px;
+}
+
+.bankSum {
+  color: #ffd03b;
+  font-family: var(--mono);
+  font-size: 120px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-shadow: 0 0 60px rgba(255, 208, 59, 0.35);
+  animation: sumIn 0.7s both;
+}
+
+.bankBest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.bankLabel {
+  color: var(--txt3);
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.bankMatch {
+  color: var(--txt);
+  font-size: 34px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.bankNote {
+  color: var(--txt3);
+  font-size: 18px;
+}
+
+@keyframes sumIn {
+  from {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

@@ -476,11 +476,12 @@ export const useAir = create<AirStore>((set, get) => ({
  * ни рекорды, ни разбор по модам.
  */
 async function loadContext(tournamentId: number): Promise<AirContext> {
-  const [bracket, editor, players, pools] = await Promise.all([
+  const [bracket, editor, players, pools, prize] = await Promise.all([
     ipc.tournamentBracket(tournamentId),
     ipc.tournamentEditor(tournamentId),
     ipc.listPlayers(true),
     ipc.listPools(),
+    ipc.prizeState(tournamentId).catch(() => null),
   ]);
 
   const inside = bracket.players.map((p) => p.playerId);
@@ -503,7 +504,7 @@ async function loadContext(tournamentId: number): Promise<AirContext> {
     (osuIds.length === 0 ? [] : await ipc.airProfiles(osuIds)).map((x) => [x.osuUserId, x]),
   );
 
-  return { bracket, editor, players, pools, stats, profiles, logs };
+  return { bracket, editor, players, pools, stats, profiles, logs, prize };
 }
 
 // ────────────────────────────────────────────────────── слежка за матчем
@@ -607,13 +608,16 @@ async function refreshBracket(get: Get, set: Set) {
   bracketAt = Date.now();
 
   try {
-    const [bracket, editor] = await Promise.all([
+    const [bracket, editor, prize] = await Promise.all([
       ipc.tournamentBracket(id),
       ipc.tournamentEditor(id),
+      ipc.prizeState(id).catch(() => null),
     ]);
     const had = get().ctx;
     if (had === null) return;
-    set({ ctx: { ...had, bracket, editor } });
+    // Фонд освежается вместе с сеткой: живой счётчик и баунти меняются
+    // с каждым результатом карты, а не только по окончании матча.
+    set({ ctx: { ...had, bracket, editor, prize: prize ?? had.prize } });
   } catch {
     // Не прочиталось — оставляем прошлую сетку: кадр не должен гаснуть из-за
     // одного неудачного чтения.
@@ -1004,6 +1008,14 @@ function buildScene(
       return done(build.champion(ctx));
     case 'credits':
       return ctx.bracket.status === 'finished' ? done(build.credits(ctx)) : null;
+    case 'fundBoard':
+      return done(build.fundBoard(ctx));
+    case 'rookieRace':
+      return done(build.rookieRace(ctx));
+    case 'spectatorBank':
+      return done(build.spectatorBank(ctx));
+    case 'jackpotScene':
+      return done(build.jackpotScene(ctx));
     default:
       // Сцены матча выводятся сценарием, а не руками: они привязаны к событию,
       // а не к моменту.
@@ -1093,6 +1105,17 @@ function reasonFor(state: AirStore, id: SceneId): string {
       return 'сыграно слишком мало';
     case 'bracket':
       return 'сетки ещё нет';
+    case 'fundBoard':
+      return 'фонд не задан';
+    case 'rookieRace':
+      return 'надстройка выключена или новичков меньше двух';
+    case 'spectatorBank':
+      return 'зрительский банк выключен';
+    case 'jackpotScene':
+      return 'джекпот выключен';
+    case 'bountyHeads':
+    case 'bountyTaken':
+      return 'надстройка выключена или голов нет';
     default:
       return 'нет данных';
   }

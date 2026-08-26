@@ -11,15 +11,19 @@ import type {
   ChampionPayload,
   CountdownPayload,
   CreditsPayload,
+  FundBoardPayload,
   IdlePayload,
+  JackpotPayload,
   MessagePayload,
   NextUpPayload,
   PlayerCardPayload,
   RecordsPayload,
+  RookieRacePayload,
+  SpectatorBankPayload,
   StandingsPayload,
 } from '@/lib/air/types';
 import { useLayer } from './env';
-import { big, Face, Frame, Head, Stat } from './parts';
+import { big, Face, Frame, Head, Roll, Stat } from './parts';
 import s from './pause.module.css';
 
 // ─────────────────────────────────────────────────────────────── сетка
@@ -416,6 +420,141 @@ export function Credits({ p }: { p: CreditsPayload }) {
             </span>
           </div>
         ))}
+      </div>
+    </Frame>
+  );
+}
+
+// ────────────────────────────────────────────────── сцены про деньги
+
+const RUB = (n: number): string => `${Math.round(n).toLocaleString('ru-RU')} ₽`;
+
+/**
+ * Табло фонда. Слева — за что платят, справа — кто сколько уже взял:
+ * зритель за десять секунд понимает и устройство, и происходящее.
+ */
+export function FundBoard({ p }: { p: FundBoardPayload }) {
+  const paid = p.paid;
+
+  return (
+    <Frame title="Призовой фонд" note={`раздано ${RUB(paid)} из ${RUB(p.fund)}`}>
+      <div className={s.fundBoard}>
+        <div className={s.fundScheme}>
+          {p.scheme.map((row, index) => (
+            <div
+              key={`${row.title}-${index}`}
+              className={[s.fundRow, s[`fund${row.kind.charAt(0).toUpperCase()}${row.kind.slice(1)}`] ?? null]
+                .filter(Boolean)
+                .join(' ')}
+              style={{ '--i': index } as React.CSSProperties}
+            >
+              <span className={s.fundRowTitle}>{row.title}</span>
+              {row.note !== null ? <span className={s.fundRowNote}>{row.note}</span> : null}
+              <span className={s.fundRowSum}>{RUB(row.amount)}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className={s.fundEarned}>
+          {p.earned.length === 0 ? (
+            <div className={s.fundEmpty}>пока никто ничего не взял</div>
+          ) : (
+            p.earned.map((row, index) => (
+              <div
+                key={row.nick}
+                className={s.fundWho}
+                style={{ '--who': row.color, '--i': index } as React.CSSProperties}
+              >
+                <span className={s.fundWhoStripe} aria-hidden />
+                <span className={s.fundWhoNick}>{row.nick}</span>
+                <Roll value={RUB(row.amount)} className={s.fundWhoSum} />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/** Гонка новичков: та же таблица, второй зачёт. */
+export function RookieRace({ p }: { p: RookieRacePayload }) {
+  return (
+    <Frame title="Гонка новичков" note={`призовой зачёт — ${RUB(p.amount)}`}>
+      <div className={s.fundBoard}>
+        <div className={s.fundScheme}>
+          <div className={s.fundRow} style={{ '--i': 0 } as React.CSSProperties}>
+            <span className={s.fundRowTitle}>сетка одна</span>
+            <span className={s.fundRowNote}>гонки две</span>
+            <span className={s.fundRowSum}>{RUB(p.amount)}</span>
+          </div>
+        </div>
+        <div className={s.fundEarned}>
+          {p.rows.map((row, index) => (
+            <div
+              key={row.nick}
+              className={[s.fundWho, row.out ? s.fundWhoOut : null].filter(Boolean).join(' ')}
+              style={{ '--who': row.color, '--i': index } as React.CSSProperties}
+            >
+              <span className={s.fundWhoStripe} aria-hidden />
+              <span className={s.fundWhoNick}>{row.nick}</span>
+              <span className={s.fundWhoSum}>
+                {row.out ? (row.place !== null ? `${row.place} место` : 'выбыл') : 'ещё играет'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/** Зрительский банк: за что голосуют и кто взял. */
+export function SpectatorBank({ p }: { p: SpectatorBankPayload }) {
+  return (
+    <Frame title="Зрительский банк" note={p.note}>
+      <div className={s.bank}>
+        <div className={s.bankSum} style={{ '--i': 0 } as React.CSSProperties}>
+          {RUB(p.amount)}
+        </div>
+        <div className={s.bankBest}>
+          {p.best !== null ? (
+            <>
+              <span className={s.bankLabel}>лучший матч вечера</span>
+              <span className={s.bankMatch}>{p.best}</span>
+              <span className={s.bankNote}>приз делится между игроками матча</span>
+            </>
+          ) : (
+            <>
+              <span className={s.bankLabel}>за что голосуют</span>
+              <span className={s.bankMatch}>самый интересный матч вечера</span>
+              <span className={s.bankNote}>победителя отмечает хост — смотрите до конца</span>
+            </>
+          )}
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/** Джекпот: невыданный остаток переезжает дальше. */
+export function JackpotScene({ p }: { p: JackpotPayload }) {
+  return (
+    <Frame title="Переходящий джекпот" note="невыданный остаток не сгорает">
+      <div className={s.bank}>
+        <div className={s.bankSum} style={{ '--i': 0 } as React.CSSProperties}>
+          {RUB(p.projected)}
+        </div>
+        <div className={s.bankBest}>
+          <span className={s.bankLabel}>уезжает в фонд следующего турнира</span>
+          {p.current > 0 ? (
+            <span className={s.bankNote}>
+              сейчас в джекпоте уже {RUB(p.current)} — анонсируй следующий прямо сейчас
+            </span>
+          ) : (
+            <span className={s.bankNote}>первый выпуск серии — копилка заводится сегодня</span>
+          )}
+        </div>
       </div>
     </Frame>
   );

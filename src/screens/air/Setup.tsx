@@ -9,8 +9,32 @@ import { Card } from './Card';
 import { RoundPlans } from './RoundPlans';
 import { MATCH_LIST, PAUSE_LIST, type SceneMeta } from '@/lib/air/catalog';
 import { useAir } from '@/lib/air/store';
+import type { PrizeView } from '@/lib/types';
 import type { SceneId } from '@/lib/air/types';
 import s from './Setup.module.css';
+
+/**
+ * Сцены про деньги появляются только под включённую механику: движок мест не
+ * даёт ни одной, кроме табло, а «Шоу» даёт все. Фонд не раздувает каталог у
+ * тех, кто им не пользуется, — сцену включает настройка турнира, а не вкус.
+ */
+function moneySceneVisible(id: SceneId, prize: PrizeView | null): boolean {
+  switch (id) {
+    case 'fundBoard':
+      return prize !== null;
+    case 'bountyHeads':
+    case 'bountyTaken':
+      return prize?.config.addons.bounty != null;
+    case 'rookieRace':
+      return prize?.config.addons.rookieRace != null;
+    case 'spectatorBank':
+      return prize?.config.addons.spectator != null;
+    case 'jackpotScene':
+      return prize?.config.addons.jackpot === true;
+    default:
+      return true;
+  }
+}
 
 interface Props {
   /** Эфир поднялся: подготовка кончилась, дальше место хоста — у турнира. */
@@ -20,6 +44,9 @@ interface Props {
 export function Setup({ onStarted }: Props) {
   const { config, patchConfig, start, ctx, error, status } = useAir();
   const live = status?.live === true;
+  const prize = ctx?.prize ?? null;
+
+  const visible = (meta: SceneMeta): boolean => moneySceneVisible(meta.id, prize);
 
   const copy = (value: string) =>
     void navigator.clipboard.writeText(value).catch(() => undefined);
@@ -34,7 +61,7 @@ export function Setup({ onStarted }: Props) {
   const group = (title: string, note: string, list: SceneMeta[]) => (
     <Card title={title} note={note}>
       <div className={s.scenes}>
-        {list.map((meta) => (
+        {list.filter(visible).map((meta) => (
           <label
             key={meta.id}
             className={[s.scene, config.enabled.includes(meta.id) ? s.sceneOn : null]

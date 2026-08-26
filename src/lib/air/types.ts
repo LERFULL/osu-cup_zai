@@ -114,6 +114,8 @@ export const MATCH_SCENES = [
   'mapProgress',
   'mapResult',
   'matchResult',
+  'bountyHeads',
+  'bountyTaken',
 ] as const;
 
 export const PAUSE_SCENES = [
@@ -125,6 +127,10 @@ export const PAUSE_SCENES = [
   'records',
   'champion',
   'credits',
+  'fundBoard',
+  'rookieRace',
+  'spectatorBank',
+  'jackpotScene',
   'idle',
   'message',
 ] as const;
@@ -180,6 +186,15 @@ export interface PickRevealPayload {
   by: AirPlayer | null;
 }
 
+/** Живой счётчик движка «за карты»: кто сколько уже заработал. */
+export interface AirMoney {
+  aEarned: number;
+  bEarned: number;
+  /** Цена карты в этом матче — победная и утешительная. */
+  perWin: number;
+  perLoss: number;
+}
+
 export interface MapProgressPayload {
   map: AirMap;
   a: AirPlayer;
@@ -190,6 +205,8 @@ export interface MapProgressPayload {
   startedAt: string;
   /** Длина под модом, секунды. */
   length: number;
+  /** Живой счётчик движка «за карты». `null` — фонд не про карты. */
+  money: AirMoney | null;
 }
 
 export interface MapResultPayload {
@@ -201,6 +218,10 @@ export interface MapResultPayload {
   scoreB: number;
   a: AirPlayer;
   b: AirPlayer;
+  /** Живой счётчик движка «за карты». */
+  money: AirMoney | null;
+  /** Ступень андердога — «андердог ×3», а не коэффициент. */
+  underdog: string | null;
 }
 
 export interface MatchResultPayload {
@@ -214,6 +235,10 @@ export interface MatchResultPayload {
   winnerGoes: string | null;
   loserGoes: string | null;
   round: string;
+  /** Ступень андердога — «андердог ×3», а не коэффициент. */
+  underdog: string | null;
+  /** Заработок за этот матч, если движок платит за победы. */
+  matchMoney: number | null;
 }
 
 /** Сторона матча в сетке. */
@@ -337,6 +362,62 @@ export interface RecordsPayload {
   items: { title: string; value: string; note: string | null }[];
 }
 
+/** Строка табло фонда: источник денег и сумма. */
+export interface FundBoardRow {
+  title: string;
+  note: string | null;
+  amount: number;
+  /** Цвет строки: места — золотой, надстройки — свой. */
+  kind: 'places' | 'matches' | 'maps' | 'bounty' | 'rookie' | 'spectator' | 'jackpot' | 'rest';
+}
+
+export interface FundBoardPayload {
+  fund: number;
+  paid: number;
+  /** Как фонд распределён. */
+  scheme: FundBoardRow[];
+  /** Кто сколько уже заработал, по убыванию. */
+  earned: { nick: string; color: string; osuUserId: number | null; amount: number }[];
+  /** Осталось раздать — уходит в джекпот, если он включён. */
+  remainder: number;
+}
+
+export interface BountyHeadsPayload {
+  a: AirPlayer;
+  b: AirPlayer;
+  /** Сколько висит на каждом — то, что соперник может снять. */
+  headA: number;
+  headB: number;
+}
+
+export interface BountyTakenPayload {
+  killer: AirPlayer;
+  victim: AirPlayer;
+  taken: number;
+  /** Сколько переехало на голову убийцы — режим переката. */
+  moved: number;
+}
+
+export interface RookieRacePayload {
+  amount: number;
+  rows: { nick: string; color: string; osuUserId: number | null; place: number | null; out: boolean }[];
+}
+
+export interface SpectatorBankPayload {
+  amount: number;
+  /** За что голосуют — формулировка банка. */
+  note: string;
+  /** Кто уже взял: подпись лучшего матча. `null` — ещё не отмечен. */
+  best: string | null;
+}
+
+export interface JackpotPayload {
+  /** Сколько переедет в следующий турнир, если сейчас закончить. */
+  projected: number;
+  /** Сколько лежит в джекпоте прямо сейчас. */
+  current: number;
+}
+
 export interface ChampionPayload {
   podium: {
     place: number;
@@ -345,6 +426,8 @@ export interface ChampionPayload {
     osuUserId: number | null;
     matches: string;
     maps: string;
+    /** Кто сколько унёс — из призового фонда. `null` — фонда нет. */
+    earned: number | null;
   }[];
 }
 
@@ -365,6 +448,8 @@ export type ScenePayload =
   | MapProgressPayload
   | MapResultPayload
   | MatchResultPayload
+  | BountyHeadsPayload
+  | BountyTakenPayload
   | BracketPayload
   | StandingsPayload
   | NextUpPayload
@@ -373,6 +458,10 @@ export type ScenePayload =
   | RecordsPayload
   | ChampionPayload
   | CreditsPayload
+  | FundBoardPayload
+  | RookieRacePayload
+  | SpectatorBankPayload
+  | JackpotPayload
   | Record<string, never>;
 
 // ──────────────────────────────────────────────── пульт: что знает хост

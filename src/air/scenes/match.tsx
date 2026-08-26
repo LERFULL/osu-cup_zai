@@ -7,6 +7,8 @@
 import { useEffect, useState } from 'react';
 import type {
   BanRevealPayload,
+  BountyHeadsPayload,
+  BountyTakenPayload,
   MapProgressPayload,
   MapResultPayload,
   MatchIntroPayload,
@@ -289,6 +291,23 @@ export function MapResult({ p }: { p: MapResultPayload }) {
 
       <MapLine map={p.map} className={s.resultLine} />
 
+      {/* Живой счётчик движка «за карты» и ступень андердога. */}
+      {p.money !== null ? (
+        <div className={s.moneyRow}>
+          <span className={s.moneySide} style={{ color: p.a.color }}>
+            {p.money.aEarned.toLocaleString('ru-RU')} ₽
+          </span>
+          <span className={s.moneyPer}>
+            карта {p.money.perLoss.toLocaleString('ru-RU')} ₽ · победная{' '}
+            {p.money.perWin.toLocaleString('ru-RU')} ₽
+          </span>
+          <span className={s.moneySide} style={{ color: p.b.color }}>
+            {p.money.bEarned.toLocaleString('ru-RU')} ₽
+          </span>
+        </div>
+      ) : null}
+      {p.underdog !== null ? <div className={s.underdogTag}>{p.underdog}</div> : null}
+
       {/* Цифры есть только когда подключено лобби: у судьи их нет вовсе. */}
       {p.scores.length > 0 ? (
         <div className={s.scores}>
@@ -359,6 +378,13 @@ export function MatchResult({ p }: { p: MatchResultPayload }) {
               <span style={{ color: loser.color }}>{loser.nick}</span> → {p.loserGoes}
             </div>
           ) : null}
+          {p.underdog !== null ? <div className={s.underdogTag}>{p.underdog}</div> : null}
+          {p.matchMoney !== null && p.matchMoney > 0 ? (
+            <div className={s.finalMoney}>
+              <span style={{ color: p.winner.color }}>{p.winner.nick}</span> зарабатывает{' '}
+              {p.matchMoney.toLocaleString('ru-RU')} ₽
+            </div>
+          ) : null}
         </div>
       </div>
     </Frame>
@@ -408,7 +434,84 @@ export function MapProgress({ p }: { p: MapProgressPayload }) {
           <span className={s.progressLeft}>осталось {time(left)}</span>
           <span className={s.progressTotal}>{time(p.length)}</span>
         </div>
+
+        {/* Живой счётчик: число растёт по ходу матча, а не появляется в конце. */}
+        {p.money !== null ? (
+          <div className={s.progressMoney}>
+            <span className={s.progressMoneySide} style={{ color: p.a.color }}>
+              {p.money.aEarned.toLocaleString('ru-RU')} ₽
+            </span>
+            <span className={s.progressMoneyHint}>
+              карта — {p.money.perLoss.toLocaleString('ru-RU')} ₽
+            </span>
+            <span className={s.progressMoneySide} style={{ color: p.b.color }}>
+              {p.money.bEarned.toLocaleString('ru-RU')} ₽
+            </span>
+          </div>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────── деньги на голове
+
+/** Головы перед матчем: что висит на каждом — то, что соперник может снять. */
+export function BountyHeads({ p }: { p: BountyHeadsPayload }) {
+  return (
+    <Frame title="Деньги на голове" note="выбил — забрал сразу">
+      <div className={s.headsVs}>
+        <div className={s.headsSide} style={{ '--who': p.a.color } as React.CSSProperties}>
+          <Head player={p.a} size={140} glow={p.headA > 0} />
+          <div className={s.headsSum}>{p.headA > 0 ? `${p.headA.toLocaleString('ru-RU')} ₽` : '—'}</div>
+          <div className={s.headsNote}>{p.headA > 0 ? 'снимает соперник' : 'ничего не висит'}</div>
+        </div>
+
+        <div className={s.headsMid} aria-hidden>
+          VS
+        </div>
+
+        <div
+          className={[s.headsSide, s.headsSideR].filter(Boolean).join(' ')}
+          style={{ '--who': p.b.color } as React.CSSProperties}
+        >
+          <Head player={p.b} size={140} glow={p.headB > 0} right />
+          <div className={s.headsSum}>{p.headB > 0 ? `${p.headB.toLocaleString('ru-RU')} ₽` : '—'}</div>
+          <div className={s.headsNote}>{p.headB > 0 ? 'снимает соперник' : 'ничего не висит'}</div>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+/** Баунти снято: кто снял, сколько забрал и сколько переехало на голову. */
+export function BountyTaken({ p }: { p: BountyTakenPayload }) {
+  return (
+    <Frame title="Баунти снято" note="выбил — забрал сразу">
+      <div className={s.taken}>
+        <div className={s.takenSide} style={{ '--who': p.killer.color } as React.CSSProperties}>
+          <Head player={p.killer} size={150} glow />
+          <div className={s.takenNick}>{p.killer.nick}</div>
+          <div className={s.takenSum}>+{p.taken.toLocaleString('ru-RU')} ₽</div>
+        </div>
+
+        <div className={s.takenArrow} aria-hidden>
+          →
+        </div>
+
+        <div className={s.takenSide} style={{ '--who': p.victim.color } as React.CSSProperties}>
+          <Head player={p.victim} size={110} />
+          <div className={s.takenNick}>{p.victim.nick}</div>
+          <div className={s.takenNote}>с головы сняли</div>
+        </div>
+      </div>
+
+      {p.moved > 0 ? (
+        <div className={s.takenMoved}>
+          <span style={{ color: p.killer.color }}>{p.killer.nick}</span> теперь сам с головой в{' '}
+          {p.moved.toLocaleString('ru-RU')} ₽ — снять её может следующий
+        </div>
+      ) : null}
+    </Frame>
   );
 }

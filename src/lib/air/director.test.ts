@@ -188,6 +188,7 @@ function context(patch: Partial<AirContext> = {}): AirContext {
     stats: new Map([[A, stats()]]),
     profiles: new Map(),
     logs: [],
+    prize: null,
     ...patch,
   };
 }

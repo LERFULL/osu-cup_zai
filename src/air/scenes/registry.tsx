@@ -22,6 +22,8 @@ const REGISTRY: Partial<Record<SceneId, Renderer>> = {
   mapProgress: match.MapProgress as Renderer,
   mapResult: match.MapResult as Renderer,
   matchResult: match.MatchResult as Renderer,
+  bountyHeads: match.BountyHeads as Renderer,
+  bountyTaken: match.BountyTaken as Renderer,
 
   // сцены паузы
   bracket: pause.BracketScene as Renderer,
@@ -32,6 +34,10 @@ const REGISTRY: Partial<Record<SceneId, Renderer>> = {
   records: pause.Records as Renderer,
   champion: pause.Champion as Renderer,
   credits: pause.Credits as Renderer,
+  fundBoard: pause.FundBoard as Renderer,
+  rookieRace: pause.RookieRace as Renderer,
+  spectatorBank: pause.SpectatorBank as Renderer,
+  jackpotScene: pause.JackpotScene as Renderer,
   idle: pause.Idle as Renderer,
   message: pause.Message as Renderer,
 };
