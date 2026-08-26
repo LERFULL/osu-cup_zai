@@ -12,7 +12,6 @@ import Tournaments from '@/screens/Tournaments';
 import Home from '@/screens/Home';
 import History from '@/screens/History';
 import { useAirKeys } from '@/screens/air/shared';
-import Stub from '@/screens/Stub';
 import s from './App.module.css';
 
 const NAV = [
