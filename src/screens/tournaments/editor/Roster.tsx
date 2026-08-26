@@ -121,6 +121,15 @@ export function Roster({ id, t, state, emergency, players, run }: EditorCtx) {
         <span className={s.seedName}>{p.nickname}</span>
         {byeSeeds.has(seed) ? <span className={s.bye}>без игры</span> : null}
 
+        <button
+          className={p.isRookie ? s.rookieOn : s.rookie}
+          type="button"
+          title="Новичок — играет во второй гонке призового фонда, если она включена"
+          onClick={() => run(() => ipc.setPlayerRookie(id, p.playerId, !p.isRookie))}
+        >
+          новичок
+        </button>
+
         <div className={s.wrap}>
           <button
             className={s.more}

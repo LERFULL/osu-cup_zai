@@ -906,6 +906,8 @@ pub struct Tournament {
     pub bye_seeds: Vec<i64>,
     pub created_at: String,
     pub finished_at: Option<String>,
+    /// Призовой фонд. `None` — без фонда, всё работает как раньше.
+    pub prize: Option<crate::model::PrizeConfig>,
     pub players: Vec<TournamentPlayer>,
     pub pool_ids: Vec<i64>,
 }
@@ -922,6 +924,8 @@ pub struct TournamentPlayer {
     /// Аватар из профиля osu!. Свой у игрока, а не у турнира.
     pub avatar_path: Option<String>,
     pub placement: Option<i64>,
+    /// Новичок — играет во второй гонке, если она включена.
+    pub is_rookie: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1208,4 +1212,257 @@ pub struct Standing {
     pub walkovers: i64,
     /// Самая длинная серия побед по картам подряд внутри турнира.
     pub best_streak: i64,
+}
+
+// ─────────────────────────────────────────────────────── призовой фонд
+
+/// Конфигурация призового фонда. Лежит в турнире одной JSON-строкой.
+///
+/// Движок ровно один — переключателем, надстроек сколько угодно. Каждая
+/// надстройка забирает свою долю фонда, движку остаётся разница.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PrizeConfig {
+    /// Объявленный фонд, ₽.
+    pub fund: i64,
+    pub engine: PrizeEngineCfg,
+    pub addons: PrizeAddonsCfg,
+    /// Матч, отмеченный хостом как лучший (зрительский банк).
+    pub best_match_id: Option<i64>,
+    /// Сколько вкатилось из переходящего джекпота при старте.
+    pub jackpot_in: i64,
+    /// Сколько уехало в джекпот при завершении.
+    pub rolled_out: i64,
+}
+
+/// Движок: как деньги вообще начисляются.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PrizeEngineCfg {
+    /// places | matches | maps
+    pub kind: String,
+    /// places: проценты по местам, убывающие, в сумме сто.
+    pub shares: Vec<i64>,
+    /// matches: во сколько раз дороже следующий раунд верхней, проценты.
+    pub growth: i64,
+    /// matches: скидка нижней сетки, проценты.
+    pub lower_discount: i64,
+}
+
+impl PrizeEngineCfg {
+    pub fn places(shares: Vec<i64>) -> Self {
+        Self {
+            kind: "places".into(),
+            shares,
+            growth: 200,
+            lower_discount: 50,
+        }
+    }
+
+    pub fn matches(growth: i64, lower_discount: i64) -> Self {
+        Self {
+            kind: "matches".into(),
+            shares: vec![],
+            growth,
+            lower_discount,
+        }
+    }
+
+    pub fn maps() -> Self {
+        Self {
+            kind: "maps".into(),
+            shares: vec![],
+            growth: 200,
+            lower_discount: 50,
+        }
+    }
+}
+
+/// Надстройки поверх движка.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PrizeAddonsCfg {
+    /// Деньги на голове первых сидов.
+    pub bounty: Option<BountyCfg>,
+    /// Выплаты за победы в матчах поверх движка мест.
+    pub match_payments: Option<MatchPaymentsCfg>,
+    /// Отдельный зачёт новичков, ₽.
+    pub rookie_race: Option<i64>,
+    /// Множитель за андердога по разнице групп сидов.
+    pub underdog: bool,
+    /// Приз за лучший матч, ₽.
+    pub spectator: Option<i64>,
+    /// Переходящий джекпот.
+    pub jackpot: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BountyCfg {
+    /// Сумма на каждом сиде: [700, 450, 350] — на первом, втором и третьем.
+    pub amounts: Vec<i64>,
+    /// Режим переката: половина убийце, половина ему на голову.
+    pub rollover: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchPaymentsCfg {
+    pub amount: i64,
+    pub growth: i64,
+    pub lower_discount: i64,
+}
+
+/// Строка лестницы мест: гарантия движка и максимум с надстройками.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaceLadder {
+    pub place: i64,
+    pub guarantee: i64,
+    /// Максимум движка без надстроек: строгая проверка сравнивает его
+    /// с гарантией места выше.
+    pub engine_max: i64,
+    pub max_total: i64,
+    /// Группа мест: выбывшие одного раунда сидят в одной группе. Проверка
+    /// сравнивает только стыки групп — внутри раунда порядок мест условен.
+    pub group: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LadderCheck {
+    pub ok: bool,
+    pub broken_at: Option<i64>,
+    pub text: String,
+}
+
+/// Цена победы в матче раунда — для показа.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundPrice {
+    /// «upper:2».
+    pub key: String,
+    pub title: String,
+    pub matches: i64,
+    pub price: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MapPrice {
+    /// Карта, взятая в победном матче.
+    pub win: i64,
+    /// Карта, взятая в проигранном матче.
+    pub loss: i64,
+    /// Точная цена единицы — для живого счётчика.
+    pub unit: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoneySpan {
+    pub min: i64,
+    pub max: i64,
+}
+
+/// Заработок игрока по источникам.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrizeRow {
+    pub player_id: i64,
+    pub nickname: String,
+    pub color: String,
+    pub seed: Option<i64>,
+    pub rookie: bool,
+    /// Итоговое или текущее место. `None` — ещё играет.
+    pub place: Option<i64>,
+    pub places: i64,
+    pub matches: i64,
+    pub maps: i64,
+    pub bounty: i64,
+    pub rookie_prize: i64,
+    pub spectator: i64,
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BountyHead {
+    pub player_id: i64,
+    pub nickname: String,
+    pub seed: Option<i64>,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BountyEvent {
+    pub killer_id: i64,
+    pub killer_nick: String,
+    pub killer_color: String,
+    pub victim_id: i64,
+    pub victim_nick: String,
+    pub victim_color: String,
+    pub taken: i64,
+    /// Сколько переехало на голову победителю (режим переката).
+    pub moved: i64,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RookieRow {
+    pub player_id: i64,
+    pub nickname: String,
+    pub color: String,
+    pub place: Option<i64>,
+    /// alive | out
+    pub status: String,
+    pub earned: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BestMatchView {
+    pub id: i64,
+    /// «Финал верхней — NAGISA : KIRA 4:3».
+    pub label: String,
+    pub a_nick: String,
+    pub b_nick: String,
+}
+
+/// Весь взгляд на фонд турнира: и для редактора, и для эфира, и для итогов.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrizeView {
+    pub config: PrizeConfig,
+    /// Фонд с учётом вкатанного джекпота.
+    pub fund_effective: i64,
+    /// Сколько остаётся движку после надстроек.
+    pub engine_share: i64,
+    pub ladder: Vec<PlaceLadder>,
+    pub check: LadderCheck,
+    /// Справка по надстройкам: «четвёртое может унести до…».
+    pub note: Option<String>,
+    /// Цены матчей движка по раундам.
+    pub match_prices: Vec<RoundPrice>,
+    /// Цены матчей надстройки «выплаты за матчи».
+    pub payment_prices: Vec<RoundPrice>,
+    pub map_price: Option<MapPrice>,
+    /// Разброс фонда движка «за карты».
+    pub spread: Option<MoneySpan>,
+    pub rows: Vec<PrizeRow>,
+    /// Головы на сейчас.
+    pub heads: Vec<BountyHead>,
+    /// Последнее снятие — для сцены «Баунти снято».
+    pub last_bounty: Option<BountyEvent>,
+    pub rookie_rows: Vec<RookieRow>,
+    pub best_match: Option<BestMatchView>,
+    /// Сколько фонда не выплачено на сейчас.
+    pub remainder: i64,
+    /// Переходящий джекпот приложения на сейчас.
+    pub jackpot_now: i64,
+    pub finished: bool,
+    /// Ошибки конфигурации: с ними турнир не запустить.
+    pub problems: Vec<String>,
 }

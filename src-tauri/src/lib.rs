@@ -8,6 +8,7 @@ mod import;
 mod links;
 mod model;
 mod osu;
+mod prize;
 mod queue;
 mod state;
 
@@ -172,6 +173,12 @@ pub fn run() {
             commands::tournaments::set_tournament_grand_advantage,
             commands::tournaments::tournament_editor,
             commands::tournaments::undo_tournament_edit,
+            commands::prize::prize_state,
+            commands::prize::prize_preview,
+            commands::prize::set_tournament_prize,
+            commands::prize::set_player_rookie,
+            commands::prize::set_best_match,
+            commands::prize::jackpot_value,
             commands::tournaments::start_tournament,
             commands::tournaments::confirm_tournament,
             commands::tournaments::reopen_tournament,

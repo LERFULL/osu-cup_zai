@@ -16,6 +16,9 @@ interface Props {
   live: boolean;
   /** Название матча — то же, что подписано на сетке. */
   title: string;
+  /** Зрительский банк включён: лучший матч отмечается здесь. */
+  spectator: boolean;
+  bestMatchId: number | null;
   onClose: () => void;
   run: (work: () => Promise<unknown>) => void;
 }
@@ -38,6 +41,8 @@ export function MatchEdit({
   emergency,
   live,
   title,
+  spectator,
+  bestMatchId,
   onClose,
   run,
 }: Props) {
@@ -234,6 +239,26 @@ export function MatchEdit({
           Сменить маппул
         </MenuItem>
       )}
+
+      {spectator && played && !m.isWalkover ? (
+        <>
+          <MenuSeparator />
+          <MenuItem
+            note="зрительский банк: приз за лучший матч"
+            onClick={() => {
+              onClose();
+              run(() =>
+                ipc.setBestMatch(
+                  m.tournamentId,
+                  bestMatchId === m.id ? null : m.id,
+                ),
+              );
+            }}
+          >
+            {bestMatchId === m.id ? '✓ ' : ''}Лучший матч вечера
+          </MenuItem>
+        </>
+      ) : null}
 
       <MenuSeparator />
 

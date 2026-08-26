@@ -388,3 +388,17 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+/* Заработок в итогах: пьедестал и таблица. */
+.statMoney .statValue {
+  color: #ffd03b;
+  font-weight: 800;
+}
+
+.tableMoney {
+  flex: none;
+  color: #ffd03b;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}

@@ -6,6 +6,7 @@ import type {
   EditorState,
   Player,
   Pool,
+  PrizeView,
   Series,
   TournamentPlayer,
 } from '@/lib/types';
@@ -51,6 +52,7 @@ export function TournamentView({ id, onClose }: Props) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [pools, setPools] = useState<Pool[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
+  const [prize, setPrize] = useState<PrizeView | null>(null);
   const [match, setMatch] = useState<number | null>(null);
   /** Открыта подготовка эфира: стиль, наполнение паузы, адрес для OBS. */
   const [airSetup, setAirSetup] = useState(false);
@@ -93,16 +95,18 @@ export function TournamentView({ id, onClose }: Props) {
     }
 
     try {
-      const [ed, ps, pl, sr] = await Promise.all([
+      const [ed, ps, pl, sr, pr] = await Promise.all([
         ipc.tournamentEditor(id),
         ipc.listPlayers(false),
         ipc.listPools(),
         ipc.listSeries(),
+        ipc.prizeState(id),
       ]);
       setEditor(ed);
       setPlayers(ps);
       setPools(pl);
       setSeries(sr);
+      setPrize(pr);
       // Аварийная правка держится только пока турнир идёт.
       // Аварийная правка держится только пока турнир идёт. Зовём напрямую,
       // а не через обёртку: чтение турнира не должно зависеть от неё.
@@ -258,6 +262,7 @@ export function TournamentView({ id, onClose }: Props) {
     ) : (
       <BracketView
         bracket={t}
+        prize={prize}
         onOpenMatch={setMatch}
         editing={editing}
         picked={pick?.matchId ?? null}
@@ -424,6 +429,8 @@ export function TournamentView({ id, onClose }: Props) {
             pools={pools}
             emergency={emergency}
             live={live}
+            spectator={prize?.config.addons.spectator != null}
+            bestMatchId={prize?.config.bestMatchId ?? null}
             title={roundOf(picked.id, editor, t)}
             onClose={() => setPick(null)}
             run={run}

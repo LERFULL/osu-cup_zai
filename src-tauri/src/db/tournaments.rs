@@ -100,6 +100,7 @@ fn json_or_default<T: Default + serde::de::DeserializeOwned>(raw: Option<String>
 }
 
 fn row_to_tournament(row: &rusqlite::Row) -> rusqlite::Result<Tournament> {
+    let prize_raw: Option<String> = row.get("prize")?;
     Ok(Tournament {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -114,6 +115,7 @@ fn row_to_tournament(row: &rusqlite::Row) -> rusqlite::Result<Tournament> {
         bye_seeds: json_or_default(row.get("bye_seeds")?),
         created_at: row.get("created_at")?,
         finished_at: row.get("finished_at")?,
+        prize: prize_raw.and_then(|s| serde_json::from_str(&s).ok()),
         players: Vec::new(),
         pool_ids: Vec::new(),
     })
@@ -121,7 +123,7 @@ fn row_to_tournament(row: &rusqlite::Row) -> rusqlite::Result<Tournament> {
 
 const COLS: &str = "id, name, status, bracket_size, target_score, bans_per_round, \
                     first_ban, no_repeat_pool, pool_by_round, grand_advantage, \
-                    bye_seeds, created_at, finished_at";
+                    bye_seeds, created_at, finished_at, prize";
 
 pub fn list(conn: &Connection) -> Result<Vec<Tournament>> {
     let sql = format!("SELECT {COLS} FROM tournaments ORDER BY created_at DESC, id DESC");
@@ -147,7 +149,7 @@ pub fn get(conn: &Connection, id: i64) -> Result<Tournament> {
 
 pub fn players_of(conn: &Connection, tournament_id: i64) -> Result<Vec<TournamentPlayer>> {
     let mut st = conn.prepare(
-        "SELECT tp.player_id, p.nickname, tp.seed, tp.color, p.avatar_path, tp.placement
+        "SELECT tp.player_id, p.nickname, tp.seed, tp.color, p.avatar_path, tp.placement, tp.is_rookie
            FROM tournament_players tp
            JOIN players p ON p.id = tp.player_id
           WHERE tp.tournament_id = ?1
@@ -161,6 +163,7 @@ pub fn players_of(conn: &Connection, tournament_id: i64) -> Result<Vec<Tournamen
             color: r.get(3)?,
             avatar_path: r.get(4)?,
             placement: r.get(5)?,
+            is_rookie: r.get::<_, i64>(6)? != 0,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -1023,6 +1026,11 @@ pub fn confirm(conn: &Connection, id: i64) -> Result<()> {
         "запускать можно только построенную, но ещё не начатую сетку"
     );
 
+    // Сломанная призовая лестница не даёт запустить турнир: кто-то
+    // заработал бы больше, проиграв раньше, и в эфире это заметят мгновенно.
+    super::prize::ensure_startable(conn, id)?;
+    super::prize::carry_jackpot(conn, id)?;
+
     conn.execute(
         "UPDATE tournaments SET status = 'running' WHERE id = ?1",
         params![id],
@@ -1643,6 +1651,10 @@ pub fn reopen_if_finished(conn: &Connection, id: i64) -> Result<()> {
         return Ok(());
     }
 
+    // Джекпот, уехавший из этого турнира, возвращается: отменой последнего
+    // матча турнир снова открыт, и остаток посчитается заново.
+    super::prize::unroll_jackpot(conn, id)?;
+
     conn.execute(
         "UPDATE tournament_players SET placement = NULL WHERE tournament_id = ?1",
         params![id],
@@ -1714,6 +1726,10 @@ pub fn finish(conn: &Connection, id: i64) -> Result<()> {
           WHERE id = ?1",
         params![id],
     )?;
+
+    // Невыданный остаток фонда не сгорает: с включённым джекпотом он уезжает
+    // в фонд следующего турнира.
+    super::prize::roll_jackpot(conn, id)?;
     Ok(())
 }
 

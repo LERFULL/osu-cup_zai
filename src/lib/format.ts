@@ -35,6 +35,12 @@ export function formatBpm(bpm: number | null | undefined): string {
   return String(Math.round(bpm));
 }
 
+/** «12 345 ₽» — деньги с пробелом-разделителем. */
+export function money(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return `${Math.round(n).toLocaleString('ru-RU')} ₽`;
+}
+
 /** «34 карты», «1 карта», «22 карты» — с правильным окончанием. */
 export function plural(n: number, one: string, few: string, many: string): string {
   const abs = Math.abs(n) % 100;

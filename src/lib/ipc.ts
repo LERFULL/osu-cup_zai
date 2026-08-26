@@ -2,6 +2,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
+  PrizeConfig,
+  PrizeView,
   ApiCredentials,
   AppStatus,
   Beatmap,
@@ -575,6 +577,26 @@ export const replaceMatchPlayer = (
 
 // Rust здесь только транспорт: сцены, переходы и подбор под бюджет считает
 // пульт. Поэтому команд мало, и ни одна из них не знает, что такое сцена.
+
+
+// ───────────────────────────────────────────── призовой фонд
+
+export const prizeState = (id: number) =>
+  invoke<PrizeView | null>('prize_state', { id });
+
+export const prizePreview = (id: number, config: PrizeConfig) =>
+  invoke<PrizeView>('prize_preview', { id, config });
+
+export const setTournamentPrize = (id: number, config: PrizeConfig, emergency = false) =>
+  invoke<PrizeView>('set_tournament_prize', { id, config, emergency });
+
+export const setPlayerRookie = (id: number, playerId: number, rookie: boolean) =>
+  invoke<void>('set_player_rookie', { id, playerId, rookie });
+
+export const setBestMatch = (id: number, matchId: number | null) =>
+  invoke<void>('set_best_match', { id, matchId });
+
+export const jackpotValue = () => invoke<number>('jackpot_value');
 
 export const airStatus = () => invoke<AirStatus>('air_status');
 

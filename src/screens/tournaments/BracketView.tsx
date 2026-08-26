@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Avatar } from '@/components';
-import { coverUrl, plural } from '@/lib/format';
-import type { Bracket, BracketSide, Match, Standing, TournamentPlayer } from '@/lib/types';
+import { coverUrl, money, plural } from '@/lib/format';
+import type { Bracket, BracketSide, Match, PrizeView, Standing, TournamentPlayer } from '@/lib/types';
 import { COL_W, layoutBracket } from '@/lib/bracketLayout';
 import s from './BracketView.module.css';
 
@@ -10,6 +10,8 @@ export const DRAG_PLAYER = 'application/x-osucup-player';
 
 interface Props {
   bracket: Bracket;
+  /** Призовой фонд: у итогов видно, кто сколько унёс. */
+  prize?: PrizeView | null;
   onOpenMatch: (id: number) => void;
   /** Режим настройки: клик по матчу открывает правку, а не сам матч. */
   editing?: boolean;
@@ -56,6 +58,7 @@ function placeLabel(placement: number): string {
 
 export function BracketView({
   bracket,
+  prize = null,
   onOpenMatch,
   editing = false,
   onPickMatch,
@@ -184,7 +187,7 @@ export function BracketView({
   return (
     <div className={s.wrap}>
       {bracket.status === 'finished' ? (
-        <Results standings={bracket.standings} podium={podium} />
+        <Results standings={bracket.standings} podium={podium} prize={prize} />
       ) : champion !== null ? (
         <div className={s.champion}>
           <span className={s.crown} aria-hidden>
@@ -284,10 +287,20 @@ export function BracketView({
 }
 
 /** Итоги турнира: пьедестал и таблица всех участников. */
-function Results({ standings, podium }: { standings: Standing[]; podium: Standing[] }) {
+function Results({
+  standings,
+  podium,
+  prize = null,
+}: {
+  standings: Standing[];
+  podium: Standing[];
+  prize?: PrizeView | null;
+}) {
   const maps = (p: Standing) => p.mapWins + p.mapLosses;
   const share = (p: Standing) =>
     maps(p) === 0 ? null : Math.round((p.mapWins / maps(p)) * 100);
+  const earned = (playerId: number) =>
+    prize?.rows.find((r) => r.playerId === playerId)?.total ?? null;
 
   return (
     <section className={s.results}>
@@ -319,6 +332,12 @@ function Results({ standings, podium }: { standings: Standing[]; podium: Standin
             </div>
 
             <div className={s.stats}>
+              {earned(p.playerId) !== null ? (
+                <div className={[s.stat, s.statMoney].filter(Boolean).join(' ')}>
+                  <span className={s.statName}>унёс</span>
+                  <span className={s.statValue}>{money(earned(p.playerId))}</span>
+                </div>
+              ) : null}
               <div className={s.stat}>
                 <span className={s.statName}>карты</span>
                 <span className={s.statValue}>
@@ -378,6 +397,9 @@ function Results({ standings, podium }: { standings: Standing[]; podium: Standin
               <span className={s.tableScore}>
                 {p.matchWins}—{p.matchLosses} по матчам · {p.mapWins}—{p.mapLosses} по картам
               </span>
+              {earned(p.playerId) !== null ? (
+                <span className={s.tableMoney}>{money(earned(p.playerId))}</span>
+              ) : null}
             </div>
           ))}
         </div>

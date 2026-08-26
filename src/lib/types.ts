@@ -728,6 +728,8 @@ export interface TournamentPlayer {
   /** Аватар из профиля osu!. Свой у игрока, а не у турнира. */
   avatarPath: string | null;
   placement: number | null;
+  /** Новичок — играет во второй гонке, если она включена. */
+  isRookie: boolean;
 }
 
 export interface Tournament {
@@ -748,8 +750,178 @@ export interface Tournament {
   byeSeeds: number[];
   createdAt: string;
   finishedAt: string | null;
+  /** Призовой фонд. `null` — без фонда, всё работает как раньше. */
+  prize: PrizeConfig | null;
   players: TournamentPlayer[];
   poolIds: number[];
+}
+
+// ─────────────────────────────────────────────────────── призовой фонд
+
+export type PrizeEngineKind = 'places' | 'matches' | 'maps';
+
+export interface PrizeEngine {
+  kind: PrizeEngineKind;
+  /** places: проценты по местам, убывающие, в сумме сто. */
+  shares: number[];
+  /** matches: во сколько раз дороже следующий раунд верхней, проценты. */
+  growth: number;
+  /** matches/maps: скидка нижней сетки, проценты. */
+  lowerDiscount: number;
+}
+
+export interface BountyConfig {
+  /** Сумма на каждом сиде: [700, 450, 350] — на первом, втором и третьем. */
+  amounts: number[];
+  /** Режим переката: половина убийце, половина ему на голову. */
+  rollover: boolean;
+}
+
+export interface MatchPaymentsConfig {
+  amount: number;
+  growth: number;
+  lowerDiscount: number;
+}
+
+export interface PrizeAddons {
+  bounty: BountyConfig | null;
+  matchPayments: MatchPaymentsConfig | null;
+  rookieRace: number | null;
+  underdog: boolean;
+  spectator: number | null;
+  jackpot: boolean;
+}
+
+/** Конфигурация призового фонда: движок ровно один, надстроек сколько угодно. */
+export interface PrizeConfig {
+  /** Объявленный фонд, ₽. Ноль — фонда нет. */
+  fund: number;
+  engine: PrizeEngine;
+  addons: PrizeAddons;
+  /** Матч, отмеченный хостом как лучший (зрительский банк). */
+  bestMatchId: number | null;
+  /** Сколько вкатилось из переходящего джекпота при старте. */
+  jackpotIn: number;
+  /** Сколько уехало в джекпот при завершении. */
+  rolledOut: number;
+}
+
+/** Строка лестницы мест: гарантия движка и максимум с надстройками. */
+export interface PlaceLadder {
+  place: number;
+  guarantee: number;
+  /** Максимум движка без надстроек — то, что сравнивает строгая проверка. */
+  engineMax: number;
+  maxTotal: number;
+  /** Группа мест: выбывшие одного раунда сидят в одной группе. */
+  group: number;
+}
+
+export interface LadderCheck {
+  ok: boolean;
+  brokenAt: number | null;
+  text: string;
+}
+
+export interface RoundPrice {
+  /** «upper:2». */
+  key: string;
+  title: string;
+  matches: number;
+  price: number;
+}
+
+export interface MapPrice {
+  /** Карта, взятая в победном матче. */
+  win: number;
+  /** Карта, взятая в проигранном матче. */
+  loss: number;
+  unit: number;
+}
+
+export interface MoneySpan {
+  min: number;
+  max: number;
+}
+
+export interface PrizeRow {
+  playerId: number;
+  nickname: string;
+  color: string;
+  seed: number | null;
+  rookie: boolean;
+  place: number | null;
+  places: number;
+  matches: number;
+  maps: number;
+  bounty: number;
+  rookiePrize: number;
+  spectator: number;
+  total: number;
+}
+
+export interface BountyHead {
+  playerId: number;
+  nickname: string;
+  seed: number | null;
+  amount: number;
+}
+
+export interface BountyEvent {
+  killerId: number;
+  killerNick: string;
+  killerColor: string;
+  victimId: number;
+  victimNick: string;
+  victimColor: string;
+  taken: number;
+  /** Сколько переехало на голову победителю (режим переката). */
+  moved: number;
+  at: string;
+}
+
+export interface RookieRow {
+  playerId: number;
+  nickname: string;
+  color: string;
+  place: number | null;
+  status: 'alive' | 'out';
+  earned: number;
+}
+
+export interface BestMatchView {
+  id: number;
+  label: string;
+  aNick: string;
+  bNick: string;
+}
+
+/** Весь взгляд на фонд турнира: и для редактора, и для эфира, и для итогов. */
+export interface PrizeView {
+  config: PrizeConfig;
+  /** Фонд с учётом вкатанного джекпота. */
+  fundEffective: number;
+  /** Сколько остаётся движку после надстроек. */
+  engineShare: number;
+  ladder: PlaceLadder[];
+  check: LadderCheck;
+  note: string | null;
+  matchPrices: RoundPrice[];
+  paymentPrices: RoundPrice[];
+  mapPrice: MapPrice | null;
+  spread: MoneySpan | null;
+  rows: PrizeRow[];
+  heads: BountyHead[];
+  lastBounty: BountyEvent | null;
+  rookieRows: RookieRow[];
+  bestMatch: BestMatchView | null;
+  /** Сколько фонда не выплачено на сейчас. */
+  remainder: number;
+  /** Переходящий джекпот приложения на сейчас. */
+  jackpotNow: number;
+  finished: boolean;
+  /** Ошибки конфигурации: с ними турнир не запустить. */
+  problems: string[];
 }
 
 export type BracketSide = 'upper' | 'lower' | 'grand';
@@ -846,7 +1018,7 @@ export interface EditorBye {
   why: string;
 }
 
-export type EditorSection = 'rules' | 'bracket' | 'pools' | 'players';
+export type EditorSection = 'rules' | 'prize' | 'bracket' | 'pools' | 'players';
 
 /** Предупреждение раздела. Блокирует только то, без чего сетку не построить. */
 export interface EditorCheck {

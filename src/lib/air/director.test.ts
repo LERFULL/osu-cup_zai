@@ -82,8 +82,8 @@ const state = (patch: Partial<MatchState> = {}): MatchState => ({
   ...match(),
   tournamentName: 'Кубок',
   players: [
-    { playerId: A, nickname: 'NAGISA', seed: 1, color: '#ff6fb1', avatarPath: null, placement: null },
-    { playerId: B, nickname: 'MEI', seed: 4, color: '#5bc8f5', avatarPath: null, placement: null },
+    { playerId: A, nickname: 'NAGISA', seed: 1, color: '#ff6fb1', avatarPath: null, placement: null, isRookie: false },
+    { playerId: B, nickname: 'MEI', seed: 4, color: '#5bc8f5', avatarPath: null, placement: null, isRookie: false },
   ],
   rows: [
     row('NM1', 'NM', { kind: 'free' }),
@@ -131,9 +131,10 @@ function context(patch: Partial<AirContext> = {}): AirContext {
     byeSeeds: [],
     createdAt: '2026-08-01T00:00:00Z',
     finishedAt: null,
+    prize: null,
     players: [
-      { playerId: A, nickname: 'NAGISA', seed: 1, color: '#ff6fb1', avatarPath: null, placement: null },
-      { playerId: B, nickname: 'MEI', seed: 4, color: '#5bc8f5', avatarPath: null, placement: null },
+      { playerId: A, nickname: 'NAGISA', seed: 1, color: '#ff6fb1', avatarPath: null, placement: null, isRookie: false },
+      { playerId: B, nickname: 'MEI', seed: 4, color: '#5bc8f5', avatarPath: null, placement: null, isRookie: false },
     ],
     poolIds: [5],
     matches: [

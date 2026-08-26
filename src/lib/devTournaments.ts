@@ -27,6 +27,8 @@ import type {
   Standing,
   Tournament,
   TournamentEdit,
+  PrizeConfig,
+  PrizeView,
 } from './types';
 import { checkFeasible } from './feasible';
 import { freeColor } from './colors';
@@ -44,6 +46,9 @@ interface DevMatch extends Match {
 const players: Player[] = [];
 const tournaments: Tournament[] = [];
 const matches: DevMatch[] = [];
+
+/** Переходящий джекпот заглушки: в браузере всегда пустой. */
+const mockJackpot = 0;
 
 // ─────────────────────────────────────────────────────────────── сетка
 
@@ -1262,9 +1267,137 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
       color: freeColor(t.players.map((x) => x.color)),
       avatarPath: p.avatarPath,
       placement: null,
+      isRookie: false,
     });
     rebuildIfSeeded(t);
     pushEdit(t, 'playersAdd', live, `добавлен ${p.nickname}`, before);
+  };
+
+
+  // ───────────────────────────────────────────── призовой фонд (упрощённо)
+
+  /** Приблизительный вид фонда: вёрстке важны поля, а не математика —
+   * настоящий расчёт живёт в Rust и покрыт тестами. */
+  const mockPrizeView = (t: Tournament, config: PrizeConfig): PrizeView => {
+    const seats = roster(t);
+    const bountyTotal = config.addons.bounty?.amounts.reduce((a, b) => a + b, 0) ?? 0;
+    const payments = config.addons.matchPayments?.amount ?? 0;
+    const rookie = config.addons.rookieRace ?? 0;
+    const spectator = config.addons.spectator ?? 0;
+    const effective = config.fund + config.jackpotIn;
+    const engineShare = effective - bountyTotal - payments - rookie - spectator;
+
+    const problems: string[] = [];
+    if (engineShare < 0) problems.push('надстройки съедают больше фонда, чем в нём есть');
+    if (config.engine.kind === 'places') {
+      const shares = config.engine.shares;
+      if (shares.reduce((a, b) => a + b, 0) !== 100) {
+        problems.push('проценты мест должны давать в сумме сто');
+      }
+      if (shares.slice(1).some((v, i) => v >= (shares[i] ?? 0))) {
+        problems.push('проценты мест должны убывать');
+      }
+    }
+
+    const amounts: number[] =
+      config.engine.kind === 'places'
+        ? config.engine.shares.map((share) => Math.floor((engineShare * share) / 100))
+        : [];
+    if (amounts.length > 0) {
+      const left = engineShare - amounts.reduce((a, b) => a + b, 0);
+      amounts[0] = (amounts[0] ?? 0) + left;
+    }
+
+    const ladder = seats.map((_p, i) => ({
+      place: i + 1,
+      guarantee: amounts[i] ?? 0,
+      engineMax: amounts[i] ?? 0,
+      maxTotal: (amounts[i] ?? 0) + (i > 0 ? bountyTotal : 0),
+      group: i + 1,
+    }));
+
+    const rows = seats.map((p) => ({
+      playerId: p.playerId,
+      nickname: p.nickname,
+      color: p.color,
+      seed: p.seed,
+      rookie: p.isRookie,
+      place: p.placement,
+      places: amounts[(p.placement ?? 1) - 1] ?? 0,
+      matches: 0,
+      maps: 0,
+      bounty: 0,
+      rookiePrize: 0,
+      spectator: 0,
+      total: amounts[(p.placement ?? 1) - 1] ?? 0,
+    }));
+
+    const matchPrices =
+      config.engine.kind === 'matches' && matches.length > 0
+        ? [...new Set(matches.filter((m) => m.tournamentId === t.id).map((m) => `${m.bracket}:${m.round}`))]
+            .sort()
+            .map((key) => {
+              const [bracket, round] = key.split(':');
+              const own = matches.filter(
+                (m) => m.tournamentId === t.id && m.bracket === bracket && m.round === Number(round),
+              );
+              return {
+                key,
+                title:
+                  bracket === 'grand'
+                    ? 'Гранд-финал'
+                    : `Раунд ${round} ${bracket === 'upper' ? 'верхней' : 'нижней'}`,
+                matches: own.length,
+                price: Math.floor(engineShare / Math.max(1, matches.length)),
+              };
+            })
+        : [];
+
+    return {
+      config,
+      fundEffective: effective,
+      engineShare,
+      ladder,
+      check: problems.length > 0
+        ? { ok: false, brokenAt: null, text: problems[0] ?? 'фонд не сходится' }
+        : { ok: true, brokenAt: null, text: 'места убывают по всей лестнице' },
+      note: bountyTotal > 0 && ladder.length > 3
+        ? `4-е место может унести до ${bountyTotal + (amounts[3] ?? 0)} ₽ при гарантированных ${amounts[2] ?? 0} ₽ за 3-е — это работа надстройки, а не ошибка`
+        : null,
+      matchPrices,
+      paymentPrices: [],
+      mapPrice:
+        config.engine.kind === 'maps'
+          ? { win: Math.floor(engineShare / 60) * 2, loss: Math.floor(engineShare / 60), unit: engineShare / 60 }
+          : null,
+      spread: config.engine.kind === 'maps' ? { min: engineShare - 500, max: engineShare + 800 } : null,
+      rows,
+      heads: (config.addons.bounty?.amounts ?? []).map((amount, i) => {
+        const seat = seats.find((x) => x.seed === i + 1);
+        return {
+          playerId: seat?.playerId ?? 0,
+          nickname: seat?.nickname ?? '—',
+          seed: i + 1,
+          amount,
+        };
+      }),
+      lastBounty: null,
+      rookieRows: seats
+        .filter((p) => p.isRookie)
+        .map((p, i) => ({
+          playerId: p.playerId,
+          nickname: p.nickname,
+          color: p.color,
+          place: i + 1,
+          status: p.placement === null ? 'alive' : 'out',
+          earned: 0,
+        })),
+      bestMatch: null,
+      remainder: effective - rows.reduce((a, r) => a + r.total, 0),
+      jackpotNow: mockJackpot,
+      finished: t.status === 'finished',
+      problems,
+    };
   };
 
   return {
@@ -1429,6 +1562,7 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
         byeSeeds: [],
         createdAt: new Date().toISOString(),
         finishedAt: null,
+        prize: null,
         players: [],
         poolIds: [],
       };
@@ -1571,6 +1705,39 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
       addPlayer(findT(a['id']), a['playerId'] as number, a['emergency'] === true);
       return undefined;
     },
+
+    prize_state: (a) => {
+      const t = findT(a['id']);
+      return t.prize === null ? null : mockPrizeView(t, t.prize);
+    },
+
+    prize_preview: (a) => {
+      const t = findT(a['id']);
+      return mockPrizeView(t, a['config'] as PrizeConfig);
+    },
+
+    set_tournament_prize: (a) => {
+      const t = findT(a['id']);
+      const config = a['config'] as PrizeConfig;
+      t.prize = config.fund > 0 ? config : null;
+      return mockPrizeView(t, config);
+    },
+
+    set_player_rookie: (a) => {
+      const t = findT(a['id']);
+      const seat = t.players.find((x) => x.playerId === a['playerId']);
+      if (seat) seat.isRookie = a['rookie'] === true;
+      return undefined;
+    },
+
+    set_best_match: (a) => {
+      const t = findT(a['id']);
+      if (t.prize === null) throw new Error('зрительский банк не задан: фонда нет');
+      t.prize.bestMatchId = typeof a['matchId'] === 'number' ? a['matchId'] : null;
+      return undefined;
+    },
+
+    jackpot_value: () => mockJackpot,
 
     remove_tournament_player: (a) => {
       const t = findT(a['id']);
@@ -1976,6 +2143,7 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
         color: freeColor(t.players.map((x) => x.color)),
         avatarPath: p.avatarPath,
         placement: null,
+        isRookie: false,
       });
 
       const was = slot === 'a' ? m.playerA : m.playerB;

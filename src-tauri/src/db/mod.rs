@@ -11,6 +11,7 @@ pub mod labels;
 pub mod matches;
 pub mod players;
 pub mod pools;
+pub mod prize;
 pub mod series;
 pub mod sources;
 pub mod supply;
@@ -43,6 +44,9 @@ const EDITOR: &str = include_str!("migrations/004_tournament_editor.sql");
 /// Эфир: настройки, счётчик показов сцен и ссылка на лобби матча.
 const AIR: &str = include_str!("migrations/005_air.sql");
 
+/// Призовой фонд: конфиг в турнире, флаг новичка и значения приложения.
+const PRIZE: &str = include_str!("migrations/006_prize.sql");
+
 /// Миграции по возрастанию версии. Чтобы добавить версию 6, допиши пару
 /// `(6, include_str!("migrations/006_...sql"))` — цикл применит её сам.
 const MIGRATIONS: &[(i64, &str)] = &[
@@ -51,10 +55,11 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (3, SERIES),
     (4, EDITOR),
     (5, AIR),
+    (6, PRIZE),
 ];
 
 /// Версия схемы, которую ожидает текущий код.
-const TARGET_VERSION: i64 = 5;
+const TARGET_VERSION: i64 = 6;
 
 pub struct Db {
     conn: Mutex<Connection>,

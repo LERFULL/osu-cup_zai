@@ -3,6 +3,7 @@ import { Button, Switch } from '@/components';
 import type { Bracket, EditorSection, EditorState, Player, Pool, Series } from '@/lib/types';
 import * as ipc from '@/lib/ipc';
 import { Rules } from './Rules';
+import { Prize } from './Prize';
 import { BracketSetup } from './BracketSetup';
 import { Pools } from './Pools';
 import { Roster } from './Roster';
@@ -29,6 +30,7 @@ interface Props extends EditorCtx {
 
 const TITLE: Record<EditorSection, string> = {
   rules: 'Правила',
+  prize: 'Призовой фонд',
   bracket: 'Сетка',
   pools: 'Маппулы',
   players: 'Участники',
@@ -40,6 +42,8 @@ function summary(section: EditorSection, ctx: EditorCtx): string {
   switch (section) {
     case 'rules':
       return `до ${t.targetScore.default} побед`;
+    case 'prize':
+      return t.prize === null ? 'нет' : `${t.prize.fund.toLocaleString('ru-RU')} ₽`;
     case 'bracket':
       return state.matchesTotal > 0
         ? `${state.matchesTotal} матчей`
@@ -91,6 +95,9 @@ export function Editor({ onEmergency, ...ctx }: Props) {
       <div className={s.list}>
         {section('rules', () => (
           <Rules {...ctx} />
+        ))}
+        {section('prize', () => (
+          <Prize {...ctx} />
         ))}
         {section('bracket', () => (
           <BracketSetup {...ctx} />
