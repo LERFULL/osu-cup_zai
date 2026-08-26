@@ -308,3 +308,59 @@
     flex-direction: column;
   }
 }
+
+/* Подсказки первого матча: полупрозрачная вуаль поверх экрана и карточка
+   по центру. Пока она открыта, экран матча модален. */
+.hints {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(12, 14, 19, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.hintsCard {
+  width: 100%;
+  max-width: 430px;
+  padding: 22px 24px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.hintsTitle {
+  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.hintsList {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  color: var(--txt2);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.hintsList li::marker {
+  color: var(--pink);
+  font-weight: 700;
+}
+
+.hintsList b {
+  color: var(--txt);
+}
+
+.hintsCheck {
+  margin-bottom: 14px;
+}
+
+.hintsActions {
+  display: flex;
+  justify-content: flex-end;
+}

@@ -9,9 +9,10 @@
 }
 
 .card {
+  position: relative;
   width: 100%;
   max-width: 520px;
-  padding: 30px 34px 32px;
+  padding: 30px 34px 26px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: rgba(22, 25, 34, 0.85);
@@ -35,6 +36,25 @@
   border-radius: 3px;
   background: var(--pink);
   box-shadow: 0 0 12px rgba(255, 111, 177, 0.7);
+}
+
+/* Первый шаг — не мелкая метка в углу, а само имя приложения. */
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin: 6px 0 10px;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.markBig {
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  background: var(--pink);
+  box-shadow: 0 0 22px rgba(255, 111, 177, 0.8);
 }
 
 .h1 {
@@ -84,9 +104,14 @@
 }
 
 .ok {
+  color: var(--green);
+  font-weight: 700;
+}
+
+/* Результат проверки ключа — зелёная плашка, а не просто зелёный текст. */
+.result.ok {
   border-color: rgba(126, 217, 87, 0.4);
   background: rgba(126, 217, 87, 0.1);
-  color: var(--green);
 }
 
 .invalid {
@@ -108,6 +133,205 @@
   margin-top: 20px;
 }
 
-.next {
+/* «Проверить» после успеха — зелёная, как просит ТЗ. Дублирование класса
+   поднимает специфичность над вариантом кнопки. */
+.checkOk.checkOk {
+  border-color: rgba(126, 217, 87, 0.55);
+  color: var(--green);
+}
+
+/* Скип — тот же смысл на каждом шаге, поэтому живёт в углу, а не в потоке. */
+.skip {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  padding: 6px 11px;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--txt3);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.skip:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--txt);
+}
+
+.warn {
+  margin: 0 0 14px;
+  padding: 10px 13px;
+  border: 1px solid rgba(255, 208, 59, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 208, 59, 0.08);
+  color: var(--gold);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.error {
+  margin-top: 14px;
+  padding: 10px 13px;
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  border-radius: 10px;
+  background: rgba(255, 107, 107, 0.08);
+  color: var(--red);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.found {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 12.5px;
+}
+
+.dim {
+  color: var(--txt3);
+}
+
+.progress {
+  margin-top: 14px;
+}
+
+.bar {
+  height: 4px;
+  border-radius: 2px;
+  background: #232838;
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--pink);
+  box-shadow: 0 0 10px rgba(255, 111, 177, 0.6);
+  transition: width 0.25s ease;
+}
+
+.stat {
+  margin-top: 8px;
+  color: var(--txt2);
+  font-size: 12.5px;
+}
+
+.templates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tpl {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--txt);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.13s, background 0.13s;
+}
+
+.tpl:hover {
+  border-color: #39415a;
+}
+
+.tplOn {
+  border-color: var(--pink);
+  background: rgba(255, 111, 177, 0.07);
+}
+
+.tplName {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.tplShape {
+  flex: 1;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tplSize {
+  color: var(--txt2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* Сводка сделанного: скатанный пул, собранный турнир. */
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  border: 1px solid rgba(126, 217, 87, 0.3);
+  border-radius: 10px;
+  background: rgba(126, 217, 87, 0.06);
+  font-size: 12.5px;
+}
+
+.count {
+  margin-top: 9px;
+  color: var(--txt2);
+  font-size: 12.5px;
+}
+
+/* Нижняя навигация: назад, точки шагов, счётчик. */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.dots {
+  display: flex;
+  gap: 6px;
+  margin: 0 auto;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2a3040;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.dotDone {
+  background: #55607d;
+}
+
+.dotNow {
+  background: var(--pink);
+  box-shadow: 0 0 8px rgba(255, 111, 177, 0.7);
+}
+
+.stepNum {
+  color: var(--txt3);
+  font-size: 11.5px;
+  white-space: nowrap;
 }

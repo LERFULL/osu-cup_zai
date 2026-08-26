@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Avatar, Button, Empty, MapRow, Menu, MenuItem, MenuSeparator } from '@/components';
+import { Avatar, Button, Empty, MapRow, Menu, MenuItem, MenuSeparator, Switch } from '@/components';
 import type { MapRowEnd } from '@/components';
 import type {
   Beatmap,
@@ -12,6 +12,7 @@ import type {
 import { coverUrl } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { useAir } from '@/lib/air/store';
+import { useApp } from '@/store/app';
 import { Panel } from '@/screens/air/Panel';
 import s from './MatchView.module.css';
 
@@ -52,6 +53,25 @@ export function MatchView({ id, onClose }: Props) {
   const airLive = useAir((st) => st.status?.live === true);
   const [busy, setBusy] = useState(false);
 
+  // Подсказки первого матча: показываются, пока пользователь не сказал
+  // «больше не показывать». Решение живёт в конфиге — на весь приложение.
+  const hintsSeen = useApp((st) => st.status?.matchHintsSeen ?? true);
+  const [hintsOpen, setHintsOpen] = useState(() => !hintsSeen);
+  const [noMoreHints, setNoMoreHints] = useState(false);
+
+  async function closeHints() {
+    setHintsOpen(false);
+    if (!noMoreHints) return;
+    try {
+      await ipc.setMatchHintsSeen();
+      useApp.setState((st) =>
+        st.status === null ? {} : { status: { ...st.status, matchHintsSeen: true } },
+      );
+    } catch {
+      // Не запомнилось — в следующий раз спросим снова, это не ошибка.
+    }
+  }
+
   const reload = useCallback(async () => {
     try {
       const [state, list] = await Promise.all([ipc.matchState(id), ipc.listPools()]);
@@ -87,6 +107,9 @@ export function MatchView({ id, onClose }: Props) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (m === null) return;
+      // Пока открыты подсказки, экран матча модален: случайная клавиша
+      // не должна забанить карту.
+      if (hintsOpen) return;
       if (e.key === 'Escape') {
         onClose();
         return;
@@ -121,7 +144,7 @@ export function MatchView({ id, onClose }: Props) {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [m, cursor, id, onClose, run]);
+  }, [m, cursor, id, onClose, run, hintsOpen]);
 
   if (m === null) {
     return (
@@ -483,6 +506,37 @@ export function MatchView({ id, onClose }: Props) {
         {airLive ? <Panel /> : null}
         </div>
       </div>
+
+      {/* Первая экскурсия по матчу — вуаль поверх экрана. */}
+      {hintsOpen ? (
+        <div className={s.hints}>
+          <div className={s.hintsCard}>
+            <div className={s.hintsTitle}>Первый матч — три вещи, которые стоит знать</div>
+            <ul className={s.hintsList}>
+              <li>
+                <b>Строка состояния</b> под счётом подсказывает, чей сейчас ход и что он
+                делает — бан или пик.
+              </li>
+              <li>
+                <b>Наведи на пикнутую карту</b> — появятся кнопки победителей.
+              </li>
+              <li>
+                <b>Ctrl+Z</b> отменяет последнее действие.
+              </li>
+            </ul>
+            <div className={s.hintsCheck}>
+              <Switch checked={noMoreHints} onChange={setNoMoreHints}>
+                больше не показывать
+              </Switch>
+            </div>
+            <div className={s.hintsActions}>
+              <Button variant="primary" onClick={() => void closeHints()}>
+                Понятно
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,7 @@
 
 use rusqlite::Connection;
 
-use crate::db::{beatmaps, collections, labels, matches, players, tournaments};
+use crate::db::{beatmaps, collections, history, labels, matches, players, tournaments};
 use crate::model::{
     Beatmap, BeatmapAttributes, ByRound, LibraryFilter, Phase, Range, RowState, SkillsetTag,
 };
@@ -2960,4 +2960,188 @@ fn editor_blocks_only_what_stops_the_bracket() {
         .checks
         .iter()
         .any(|c| c.section == "pools" && c.text.contains("повтором")));
+}
+
+// ─────────────────────────────────────────────────────────── история
+
+/// Завершённый турнир из двух игроков: один матч, сыгранный до двух побед.
+fn finished_tournament(conn: &mut Connection) -> i64 {
+    let t = tournament(conn, &["Ari", "Bo"]);
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(conn, t, &[pool]).unwrap();
+
+    let br = tournaments::bracket_of(conn, t).unwrap();
+    let m = br.matches[0].clone();
+    play_out(conn, pool, m.id, m.player_a.unwrap());
+    t
+}
+
+#[test]
+fn history_summarizes_a_finished_tournament() {
+    let mut conn = db();
+    let t = finished_tournament(&mut conn);
+
+    // Черновик в историю не попадает — он ещё на экране турниров.
+    tournaments::create(&conn, "Черновик", 4, 1).unwrap();
+
+    let list = history::list(&conn).unwrap();
+    assert_eq!(list.len(), 1, "в истории только завершённые");
+    let summary = &list[0];
+    assert_eq!(summary.id, t);
+    assert_eq!(summary.player_count, 2);
+    assert_eq!(summary.match_count, 1);
+    assert_eq!(summary.champion.as_ref().unwrap().nickname, "Ari");
+    assert!(summary.finished_at.is_some());
+
+    // Финал — единственный матч: счёт совпадает с его результатом.
+    let final_match = summary.final_match.as_ref().unwrap();
+    assert_eq!(final_match.nick_a, "Ari");
+    assert_eq!(final_match.score_a, 2);
+    assert_eq!(final_match.score_b, 0);
+    assert!(!final_match.is_walkover);
+
+    // Чемпион выиграл единственный матч — поражений нет, и заметка об этом есть.
+    assert!(summary.notes.iter().any(|n| n.contains("без поражений")));
+    assert!(summary.notes.iter().any(|n| n.contains("матч")));
+
+    // Деталь: сетка с итогами и летопись с покартовыми результатами.
+    let detail = history::detail(&conn, t).unwrap();
+    assert_eq!(detail.bracket.tournament.status, "finished");
+    assert_eq!(detail.bracket.standings.len(), 2);
+    assert_eq!(detail.matches.len(), 1);
+
+    let log = &detail.matches[0];
+    // На двоих вся сетка — один матч верхней, он и есть финал.
+    assert_eq!(log.title, "Финал верхней");
+    assert_eq!(log.nick_a.as_deref(), Some("Ari"));
+    assert!(!log.maps.is_empty(), "карты финала при нём");
+    assert!(log.maps.iter().all(|m| m.winner_nick.is_some()));
+}
+
+#[test]
+fn export_import_round_trip_reuses_players() {
+    let mut conn = db();
+    let t = finished_tournament(&mut conn);
+    let before: i64 = conn
+        .query_row("SELECT COUNT(*) FROM players", [], |r| r.get(0))
+        .unwrap();
+
+    let json = history::export_tournament(&conn, t).unwrap();
+    let imported = history::import_tournament(&conn, &json).unwrap();
+    assert_ne!(imported, t);
+
+    // Игроки склеились по никам: новых строк в таблице нет.
+    let after: i64 = conn
+        .query_row("SELECT COUNT(*) FROM players", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(before, after);
+
+    let list = history::list(&conn).unwrap();
+    assert_eq!(list.len(), 2);
+    let copy = list.iter().find(|s| s.id == imported).unwrap();
+    assert_eq!(copy.name, "Кубок (импорт)");
+    assert_eq!(copy.champion.as_ref().unwrap().nickname, "Ari");
+    assert_eq!(copy.match_count, 1);
+
+    // Связи сетки переехали: у копии финала нет ссылки вперёд, а место
+    // победителя совпадает с оригиналом.
+    let detail = history::detail(&conn, imported).unwrap();
+    assert_eq!(detail.matches.len(), 1);
+    assert!(detail.matches[0].maps.len() > 0, "действия матча при нём");
+}
+
+#[test]
+fn database_backup_restore_and_import_replace_the_live_file() {
+    use crate::db::Db;
+
+    let dir = std::env::temp_dir().join(format!("osucup-history-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let path = dir.join("osucup.sqlite");
+    let db = Db::open(&path).unwrap();
+    db.with(|conn| {
+        players::create(conn, "Ari", None, None)?;
+        Ok(())
+    })
+    .unwrap();
+
+    // Бэкап: имя по штампу, файл лежит в папке данных.
+    let name = db
+        .with(|conn| Ok(history::backup_database(conn, &dir, &path)?))
+        .unwrap();
+    assert!(name.starts_with("osucup-2"));
+    assert!(name.ends_with(".db"));
+
+    // После бэкапа пишем ещё — восстановление должно вернуть базу к копии.
+    db.with(|conn| {
+        players::create(conn, "Bo", None, None)?;
+        Ok(())
+    })
+    .unwrap();
+
+    history::restore_backup(&db, &dir, &path, &name).unwrap();
+    db.with(|conn| {
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM players", [], |r| r.get(0))?;
+        assert_eq!(n, 1, "восстановление вернуло базу к бэкапу");
+        Ok(())
+    })
+    .unwrap();
+
+    // Импорт чужого файла: соединение должно увидеть подмену, а не остаться
+    // на старом inode.
+    let foreign = dir.join("foreign.sqlite");
+    {
+        let other = Db::open(&foreign).unwrap();
+        other
+            .with(|conn| {
+                players::create(conn, "Cy", None, None)?;
+                players::create(conn, "Di", None, None)?;
+                Ok(())
+            })
+            .unwrap();
+    }
+    let bytes = std::fs::read(&foreign).unwrap();
+    history::import_database(&db, &path, &base64_for_test(&bytes)).unwrap();
+    db.with(|conn| {
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM players", [], |r| r.get(0))?;
+        assert_eq!(n, 2, "подменённая база видна через тот же объект Db");
+        Ok(())
+    })
+    .unwrap();
+
+    // Испорченный файл — ошибка, а не снесённая база.
+    assert!(history::import_database(&db, &path, "%%%not-base64").is_err());
+
+    let names = history::list_backups(&dir).unwrap();
+    assert_eq!(names, vec![name]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Кодирует байты в base64 — зеркалит то, что присылает фронт.
+fn base64_for_test(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(ALPHABET[(n >> 18) as usize & 63] as char);
+        out.push(ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            ALPHABET[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
 }

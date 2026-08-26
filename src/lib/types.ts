@@ -243,6 +243,8 @@ export interface AppStatus {
   hasCredentials: boolean;
   online: boolean;
   onboarded: boolean;
+  /** Подсказки при первом входе в матч уже показывались. */
+  matchHintsSeen: boolean;
   dbPath: string;
   cachePath: string;
 }
@@ -1143,4 +1145,74 @@ export interface MatchState extends Match {
   target: number;
   /** Кому осталась одна победа. */
   matchPoint: number[];
+}
+
+// ─────────────────────────────────────────────────────────── история
+
+/** Игрок в сводке истории: ник, цвет в том турнире и id. */
+export interface HistoryPlayer {
+  playerId: number;
+  nickname: string;
+  color: string;
+}
+
+/** Финал турнира: кто играл и с каким счётом. */
+export interface HistoryFinal {
+  nickA: string;
+  nickB: string;
+  colorA: string;
+  colorB: string;
+  scoreA: number;
+  scoreB: number;
+  isWalkover: boolean;
+}
+
+/** Карточка завершённого турнира в списке истории. */
+export interface HistorySummary {
+  id: number;
+  name: string;
+  finishedAt: string | null;
+  playerCount: number;
+  matchCount: number;
+  champion: HistoryPlayer | null;
+  /** Первые три места, по возрастанию места. */
+  podium: HistoryPlayer[];
+  finalMatch: HistoryFinal | null;
+  /** Объявленный фонд. `null` — турнир играли без денег. */
+  prizeFund: number | null;
+  /** Заметки-достижения: «чемпион без поражений», «самый долгий матч». */
+  notes: string[];
+}
+
+/** Покартовый результат: строка маппула и кто её взял. */
+export interface HistoryMapResult {
+  n: number;
+  slotLabel: string;
+  winnerNick: string | null;
+  winnerColor: string | null;
+}
+
+/** Матч в летописи турнира. */
+export interface MatchLogView {
+  id: number;
+  bracket: BracketSide;
+  round: number;
+  /** Как матч подписан на сетке: «Финал нижней, матч 2». */
+  title: string;
+  nickA: string | null;
+  nickB: string | null;
+  colorA: string | null;
+  colorB: string | null;
+  scoreA: number;
+  scoreB: number;
+  isWalkover: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  maps: HistoryMapResult[];
+}
+
+/** Детальный вид турнира в истории: сетка целиком плюс летопись матчей. */
+export interface HistoryDetail {
+  bracket: Bracket;
+  matches: MatchLogView[];
 }

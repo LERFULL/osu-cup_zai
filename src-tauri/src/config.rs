@@ -17,6 +17,8 @@ pub struct AppConfig {
     pub client_id: String,
     pub client_secret: String,
     pub onboarded: bool,
+    /// Подсказки при первом входе в матч уже показывались.
+    pub match_hints_seen: bool,
 }
 
 impl AppConfig {
@@ -75,6 +77,11 @@ impl ConfigStore {
 
     pub fn set_onboarded(&self, value: bool) -> Result<()> {
         self.update(|c| c.onboarded = value)
+    }
+
+    /// Подсказки матча показываются один раз — пока пользователь не решит иначе.
+    pub fn set_match_hints_seen(&self) -> Result<()> {
+        self.update(|c| c.match_hints_seen = true)
     }
 
     fn update(&self, f: impl FnOnce(&mut AppConfig)) -> Result<()> {

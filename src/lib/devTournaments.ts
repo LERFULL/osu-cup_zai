@@ -14,8 +14,10 @@ import type {
   EditorCheck,
   EditorRound,
   EditorState,
+  HistorySummary,
   Match,
   MatchAction,
+  MatchLogView,
   MatchRow,
   MatchState,
   Phase,
@@ -1400,6 +1402,344 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
     };
   };
 
+  // ─────────────────────────────────────────────────────────── история
+
+  /** Завершённый турнир для вёрстки истории. Собирается один раз, лениво —
+   * экран истории не всегда открывают, а список турниров не должен дергаться
+   * при каждом заходе. */
+  let historySeeded = false;
+
+  /** Доигрывает матч за обоих: баны, пики и результаты по очереди. */
+  const playMatch = (m: DevMatch) => {
+    const pool = pools.list()[0];
+    if (m.poolId === null && pool !== undefined) m.poolId = pool.id;
+    if (m.firstBanBy === null && m.playerA !== null) {
+      m.firstBanBy = m.playerA;
+      m.status = 'running';
+      // Длительность подкладываем: заметке «самый долгий матч» нужно что
+      // показывать, а играются матчи здесь мгновенно.
+      const minutes = 18 + (m.id % 26);
+      m.startedAt = new Date(Date.now() - minutes * 60000).toISOString();
+      const [target, bans] = ruleOf(m);
+      m.targetScore ??= target;
+      m.bansEach ??= bans;
+    }
+
+    for (let guard = 0; guard < 200; guard++) {
+      const st = stateOf(m);
+      if (st.phase.kind === 'finished') {
+        // Как record_result: счёт доехал до цели — матч закрывается и
+        // продвигает победителя по сетке. Без этого действия копятся,
+        // а сетка ниже стоит на месте.
+        if (m.winnerId === null && st.phase.winner !== null) {
+          close(m, st.phase.winner, false);
+        }
+        return;
+      }
+      if (st.phase.kind === 'ban' || st.phase.kind === 'pick') {
+        const row = st.rows.find((r) => r.state.kind === 'free');
+        if (row === undefined) break;
+        push(m, st.phase.kind, st.phase.actor, row.slotLabel, null);
+      } else if (st.phase.kind === 'result') {
+        push(m, 'result', null, st.phase.slotLabel, m.playerA);
+      } else {
+        break;
+      }
+    }
+
+    // Карт в маппуле не хватило — закрываем техпобедой: сетка не должна встать.
+    if (m.winnerId === null && m.playerA !== null) {
+      m.actions.length = 0;
+      close(m, m.playerA, true);
+    }
+  };
+
+  const ensureHistoryDemo = () => {
+    if (historySeeded) return;
+    historySeeded = true;
+
+    try {
+      const made: Tournament = {
+        id: newId(),
+        name: 'osu!cup — прошлая пятница',
+        status: 'draft',
+        bracketSize: 0,
+        targetScore: { default: 4, rounds: {} },
+        bansPerRound: { default: 1, rounds: {} },
+        firstBan: 'random',
+        noRepeatPool: true,
+        poolByRound: {},
+        grandAdvantage: 0,
+        byeSeeds: [],
+        createdAt: new Date().toISOString(),
+        finishedAt: null,
+        prize: {
+          fund: 10000,
+          engine: { kind: 'places', shares: [50, 30, 20], growth: 200, lowerDiscount: 50 },
+          addons: {
+            bounty: null,
+            matchPayments: null,
+            rookieRace: null,
+            underdog: false,
+            spectator: null,
+            jackpot: false,
+          },
+          bestMatchId: null,
+          jackpotIn: 0,
+          rolledOut: 0,
+        },
+        players: [],
+        poolIds: [],
+      };
+      tournaments.push(made);
+
+      for (const nickname of ['RIN', 'MEI', 'AKI', 'HARU', 'YUI', 'KEN', 'NOZOMI', 'SHIN']) {
+        const p: Player = {
+          id: newId(),
+          nickname,
+          osuUserId: null,
+          color: freeColor(players.map((x) => x.color)),
+          avatarPath: null,
+          note: null,
+          isArchived: false,
+          createdAt: new Date().toISOString(),
+        };
+        players.push(p);
+        addPlayer(made, p.id, false);
+      }
+
+      const pool = pools.list()[0];
+      if (pool !== undefined) made.poolIds = [pool.id];
+
+      buildBracket(made);
+      made.status = 'running';
+
+      // Матчи идут по очереди — как их открывала бы сетка.
+      for (let guard = 0; guard < 100; guard++) {
+        const next = matches.find(
+          (x) =>
+            x.tournamentId === made.id &&
+            x.status !== 'finished' &&
+            x.playerA !== null &&
+            x.playerB !== null,
+        );
+        if (next === undefined) break;
+        playMatch(next);
+      }
+
+      // Финальные места — только когда сетка реально доиграна: закрыть
+      // недоигранный турнир значило бы показать пустой пьедестал.
+      if (allPlayed(made)) finishTournament(made);
+      else console.warn('osu!cup: демо-история собрана не полностью');
+    } catch (e) {
+      console.warn('osu!cup: демо-история не собралась', e);
+    }
+  };
+
+  /** Сводка завершённого турнира — как history_list в Rust. */
+  const historySummaryOf = (t: Tournament): HistorySummary => {
+    const mine = matches.filter((x) => x.tournamentId === t.id);
+    const order = { grand: 0, lower: 1, upper: 2 } as const;
+    const last = mine
+      .filter((x) => x.nextWinSlot === null)
+      .sort((x, y) => order[x.bracket] - order[y.bracket])[0];
+    const seat = (id: number | null) =>
+      id === null ? null : (t.players.find((p) => p.playerId === id) ?? null);
+
+    const champion = t.players.find((p) => p.placement === 1) ?? null;
+
+    let finalMatch: HistorySummary['finalMatch'] = null;
+    if (last !== undefined) {
+      const a = seat(last.playerA);
+      const b = seat(last.playerB);
+      if (a !== null && b !== null) {
+        const [sa, sb] = score(last);
+        const [ba, bb] = bonus(last);
+        finalMatch = {
+          nickA: a.nickname,
+          nickB: b.nickname,
+          colorA: a.color,
+          colorB: b.color,
+          scoreA: sa + ba,
+          scoreB: sb + bb,
+          isWalkover: last.isWalkover,
+        };
+      }
+    }
+
+    const notes: string[] = [];
+    if (champion !== null) {
+      const losses = mine.filter(
+        (x) =>
+          x.status === 'finished' &&
+          x.winnerId !== null &&
+          x.winnerId !== champion.playerId &&
+          (x.playerA === champion.playerId || x.playerB === champion.playerId),
+      ).length;
+      if (losses === 0) notes.push('чемпион без поражений');
+    }
+
+    const longest = mine
+      .filter((x) => x.startedAt !== null && x.finishedAt !== null)
+      .map((x) => ({
+        mins: Math.round(
+          (Date.parse(x.finishedAt as string) - Date.parse(x.startedAt as string)) / 60000,
+        ),
+        title: titleOf(x),
+      }))
+      .sort((a, b) => b.mins - a.mins)[0];
+    if (longest !== undefined && longest.mins >= 1) {
+      notes.push(`самый долгий матч — ${longest.mins} мин (${longest.title})`);
+    }
+    notes.push(`${mine.length} ${plural(mine.length, 'матч', 'матча', 'матчей')}`);
+
+    return {
+      id: t.id,
+      name: t.name,
+      finishedAt: t.finishedAt,
+      playerCount: t.players.length,
+      matchCount: mine.length,
+      champion:
+        champion === null
+          ? null
+          : {
+              playerId: champion.playerId,
+              nickname: champion.nickname,
+              color: champion.color,
+            },
+      podium: t.players
+        .filter((p) => p.placement !== null && p.placement <= 3)
+        .sort((x, y) => (x.placement ?? 9) - (y.placement ?? 9))
+        .map((p) => ({ playerId: p.playerId, nickname: p.nickname, color: p.color })),
+      finalMatch,
+      prizeFund: t.prize !== null && t.prize.fund > 0 ? t.prize.fund : null,
+      notes,
+    };
+  };
+
+  /** Летопись матчей турнира — как history_detail в Rust. */
+  const historyLogOf = (t: Tournament): MatchLogView[] => {
+    const order = { upper: 0, lower: 1, grand: 2 } as const;
+    const mine = matches
+      .filter((x) => x.tournamentId === t.id)
+      .sort(
+        (x, y) =>
+          order[x.bracket] - order[y.bracket] || x.round - y.round || x.slotInBracket - y.slotInBracket,
+      );
+    const seat = (id: number | null) =>
+      id === null ? null : (t.players.find((p) => p.playerId === id) ?? null);
+
+    return mine.map((m) => {
+      const [sa, sb] = score(m);
+      const [ba, bb] = bonus(m);
+      const a = seat(m.playerA);
+      const b = seat(m.playerB);
+      return {
+        id: m.id,
+        bracket: m.bracket,
+        round: m.round,
+        title: titleOf(m),
+        nickA: a?.nickname ?? null,
+        nickB: b?.nickname ?? null,
+        colorA: a?.color ?? null,
+        colorB: b?.color ?? null,
+        scoreA: sa + ba,
+        scoreB: sb + bb,
+        isWalkover: m.isWalkover,
+        startedAt: m.startedAt,
+        finishedAt: m.finishedAt,
+        maps: m.actions
+          .filter((x) => x.type === 'result')
+          .map((x) => {
+            const winner = seat(x.winnerId);
+            return {
+              n: x.n,
+              slotLabel: x.slotLabel,
+              winnerNick: winner?.nickname ?? null,
+              winnerColor: winner?.color ?? null,
+            };
+          }),
+      };
+    });
+  };
+
+  /** Импорт снимка — как в Rust: игроки склеиваются по никам, id матчей
+   * разводятся заново. */
+  const importSnapshot = (raw: string): number => {
+    const snap = JSON.parse(raw) as Snapshot;
+    const src = snap.tournament;
+    const made: Tournament = {
+      ...clone(src),
+      id: newId(),
+      name: `${src.name} (импорт)`,
+      status: 'finished',
+      createdAt: new Date().toISOString(),
+      poolIds: [],
+      poolByRound: {},
+      players: [],
+    };
+    tournaments.push(made);
+
+    const playerIds = new Map<number, number>();
+    for (const seat of src.players) {
+      const known = players.find(
+        (x) => x.nickname.toLowerCase() === seat.nickname.toLowerCase(),
+      );
+      const p: Player =
+        known ??
+        {
+          id: newId(),
+          nickname: seat.nickname,
+          osuUserId: null,
+          color: seat.color,
+          avatarPath: null,
+          note: null,
+          isArchived: false,
+          createdAt: new Date().toISOString(),
+        };
+      if (known === undefined) players.push(p);
+      playerIds.set(seat.playerId, p.id);
+      made.players.push({ ...clone(seat), playerId: p.id });
+    }
+
+    const remap = (id: number | null) => (id === null ? null : (playerIds.get(id) ?? null));
+
+    const matchIds = new Map<number, number>();
+    const copied: DevMatch[] = snap.matches.map((m) => {
+      const id = newId();
+      matchIds.set(m.id, id);
+      return {
+        ...clone(m),
+        id,
+        tournamentId: made.id,
+        poolId: null,
+        playerA: remap(m.playerA),
+        playerB: remap(m.playerB),
+        winnerId: remap(m.winnerId),
+        firstBanBy: remap(m.firstBanBy),
+        nextWinSlot: null,
+        nextLoseSlot: null,
+        actions: m.actions.map((x) => ({
+          ...clone(x),
+          actorId: remap(x.actorId),
+          winnerId: remap(x.winnerId),
+        })),
+      };
+    });
+
+    // Связи сетки — вторым проходом, по карте старых id на новые.
+    snap.matches.forEach((old, i) => {
+      const copy = copied[i];
+      if (copy === undefined) return;
+      copy.nextWinSlot = old.nextWinSlot === null ? null : (matchIds.get(old.nextWinSlot) ?? null);
+      copy.nextLoseSlot =
+        old.nextLoseSlot === null ? null : (matchIds.get(old.nextLoseSlot) ?? null);
+    });
+    matches.push(...copied);
+
+    return made.id;
+  };
+
   return {
     // ─────────────────────────────────────────────────────── игроки
 
@@ -2160,6 +2500,33 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
       );
       return stateOf(m);
     },
+
+    // ───────────────────────────────────────────────────────── история
+
+    history_list: () => {
+      ensureHistoryDemo();
+      return tournaments
+        .filter((t) => t.status === 'finished')
+        .map(historySummaryOf);
+    },
+
+    history_detail: (a) => {
+      const t = findT(a['id']);
+      if (t.status !== 'finished') throw new Error('Турнир ещё не завершён');
+      return { bracket: bracketOf(t), matches: historyLogOf(t) };
+    },
+
+    export_tournament: (a) => JSON.stringify(snapshotOf(findT(a['id']))),
+
+    import_tournament: (a) => importSnapshot(String(a['json'])),
+
+    // Базы в браузере нет — файловые команды возвращают правдоподобные
+    // заглушки: вёрстка кнопок проверяется, файлы ни к чему.
+    export_database: () => '/app-data/exports/osucup-база.db',
+    import_database: () => undefined,
+    backup_database: () => 'osucup-2026-02-10-180000.db',
+    list_backups: () => ['osucup-2026-02-10-180000.db'],
+    restore_backup: () => undefined,
 
     // Список маппулов нужен экрану матча и сборке турнира.
     __pool_names: () => pools.list(),

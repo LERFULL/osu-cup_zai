@@ -844,6 +844,7 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     hasCredentials: true,
     online: true,
     onboarded: true,
+    matchHintsSeen: true,
     dbPath: 'C:\\Users\\…\\osucup.sqlite',
     cachePath: 'C:\\Users\\…\\covers',
   }),

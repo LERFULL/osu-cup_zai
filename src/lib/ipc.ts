@@ -20,6 +20,8 @@ import type {
   Folder,
   GenReport,
   GenRules,
+  HistoryDetail,
+  HistorySummary,
   ImportProgress,
   Label,
   LibraryFilter,
@@ -62,6 +64,9 @@ import type {
 
 export const getStatus = () => invoke<AppStatus>('get_status');
 export const setOnboarded = (value: boolean) => invoke<void>('set_onboarded', { value });
+
+/** Подсказки при первом входе в матч показываться больше не будут. */
+export const setMatchHintsSeen = () => invoke<void>('set_match_hints_seen');
 
 // ─────────────────────────────────────────────────────────────── ключ
 
@@ -652,3 +657,31 @@ export const onAirViewers = (fn: (n: number) => void): Promise<UnlistenFn> =>
 /** Что показал опрос лобби. */
 export const onAirLobby = (fn: (u: LobbyUpdate) => void): Promise<UnlistenFn> =>
   listen<LobbyUpdate>('air:lobby', (e) => fn(e.payload));
+
+// ─────────────────────────────────────────────────────────── история
+
+export const historyList = () => invoke<HistorySummary[]>('history_list');
+
+export const historyDetail = (id: number) => invoke<HistoryDetail>('history_detail', { id });
+
+/** Снимок турнира в JSON. Файла из окна не сохранить — скачиваем через Blob. */
+export const exportTournament = (id: number) => invoke<string>('export_tournament', { id });
+
+/** Турнир из JSON-снимка. Возвращает id нового турнира. */
+export const importTournament = (json: string) => invoke<number>('import_tournament', { json });
+
+/**
+ * Копия базы в папке данных. Возвращает полный путь к файлу: путь показывает
+ * пользователю, папку открывает tauri opener.
+ */
+export const exportDatabase = (backup = false) =>
+  invoke<string>('export_database', { backup });
+
+/** База с другого компьютера, содержимое файла в base64. */
+export const importDatabase = (data: string) => invoke<void>('import_database', { data });
+
+export const backupDatabase = () => invoke<string>('backup_database');
+
+export const listBackups = () => invoke<string[]>('list_backups');
+
+export const restoreBackup = (name: string) => invoke<void>('restore_backup', { name });

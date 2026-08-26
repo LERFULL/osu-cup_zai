@@ -7,6 +7,7 @@ pub mod bracket;
 pub mod collections;pub mod exclusions;
 pub mod feasible;
 pub mod generate;
+pub mod history;
 pub mod labels;
 pub mod matches;
 pub mod players;
@@ -127,6 +128,19 @@ impl Db {
         let out = f(&tx)?;
         tx.commit()?;
         Ok(out)
+    }
+
+    /// Заменяет соединение на новое — файл под ним могли подменить при
+    /// импорте базы. Мьютекс уже даёт изменчивость из-под `&self`, старое
+    /// соединение закрывается тем же присваиванием.
+    pub fn reopen(&self, path: impl AsRef<Path>) -> Result<()> {
+        let fresh = Db::open(path)?;
+        let mut guard = self.lock()?;
+        *guard = fresh
+            .conn
+            .into_inner()
+            .map_err(|_| AppError::Db("Соединение с базой повреждено после сбоя".into()))?;
+        Ok(())
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {

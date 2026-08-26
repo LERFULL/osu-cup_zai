@@ -33,6 +33,7 @@ pub fn run() {
             // состояние и ключ
             commands::system::get_status,
             commands::system::set_onboarded,
+            commands::system::set_match_hints_seen,
             commands::system::get_credentials,
             commands::system::save_credentials,
             commands::system::check_credentials,
@@ -187,6 +188,16 @@ pub fn run() {
             commands::tournaments::tournament_bracket,
             commands::tournaments::tournament_pool_overlaps,
             commands::tournaments::finish_tournament,
+            // история
+            commands::history::history_list,
+            commands::history::history_detail,
+            commands::history::export_tournament,
+            commands::history::import_tournament,
+            commands::history::export_database,
+            commands::history::import_database,
+            commands::history::backup_database,
+            commands::history::list_backups,
+            commands::history::restore_backup,
             // матчи
             commands::matches::match_state,
             commands::matches::set_match_pool,

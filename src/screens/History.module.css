@@ -1,0 +1,374 @@
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 17px 24px 13px;
+}
+
+.h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.022em;
+}
+
+.right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.date {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.error {
+  margin: 0 24px 12px;
+  padding: 10px 13px;
+  border-radius: 10px;
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--red);
+  font-size: 12.5px;
+}
+
+/* Ответ на действие — не ошибка, поэтому и тон другой. */
+.note {
+  margin: 0 24px 12px;
+  padding: 10px 13px;
+  border-radius: 10px;
+  background: rgba(126, 217, 87, 0.1);
+  color: var(--green);
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 24px 28px;
+  overflow-y: auto;
+}
+
+/* История шире остальных экранов: внутри лежат сетки турниров. */
+.col {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+/* ── карточка турнира */
+
+.card {
+  margin-bottom: 10px;
+  padding: 15px 16px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  cursor: pointer;
+  transition: background 0.13s, transform 0.13s;
+}
+
+.card:hover {
+  background: var(--card2);
+}
+
+.card:active {
+  transform: translateY(1px);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--pink);
+  outline-offset: 2px;
+}
+
+.cardTop {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.name {
+  font-size: 15.5px;
+  font-weight: 800;
+}
+
+/* Пьедестал: три места в ряд, чемпион — крупнее и с подсветкой. */
+.podium {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.step,
+.stepFirst {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card2);
+}
+
+.stepFirst {
+  border-color: color-mix(in srgb, var(--pink) 45%, transparent);
+  background: color-mix(in srgb, var(--pink) 10%, var(--card2));
+}
+
+.place {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.stepNick {
+  font-size: 12.5px;
+  color: var(--txt2);
+}
+
+.championNick {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 11px;
+}
+
+.finalScore {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.score {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--txt2);
+}
+
+.tag {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--txt3);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fund {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.shape {
+  color: var(--txt3);
+  font-size: 12px;
+}
+
+.notes {
+  margin-top: 9px;
+  color: var(--txt2);
+  font-size: 12px;
+}
+
+/* ── летопись матчей */
+
+.logHead {
+  margin: 26px 0 10px;
+  color: var(--txt3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.matchRow {
+  border-radius: 12px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.matchLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  color: var(--txt);
+  font-family: var(--f);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.13s;
+}
+
+.matchLine:hover {
+  background: var(--card2);
+}
+
+.matchLine[aria-disabled='true'] {
+  cursor: default;
+}
+
+.matchLine[aria-disabled='true']:hover {
+  background: none;
+}
+
+.matchTitle {
+  flex: 0 0 172px;
+  color: var(--txt2);
+  font-size: 12px;
+}
+
+.matchPlayers {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 700;
+}
+
+.matchTags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.chevron {
+  color: var(--txt3);
+  font-size: 11px;
+}
+
+.maps {
+  padding: 4px 14px 10px 186px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.mapRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+
+.mapSlot {
+  min-width: 36px;
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.mapDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.mapWinner {
+  color: var(--txt2);
+}
+
+/* ── перенос базы */
+
+.db {
+  margin-top: 26px;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.dbTitle {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.dbNote {
+  margin-top: 3px;
+  color: var(--txt3);
+  font-size: 12px;
+}
+
+.dbActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.dbPath {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.dbPathText {
+  min-width: 0;
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.backups {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.backupRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--card2);
+}
+
+.backupName {
+  flex: 1;
+  min-width: 0;
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}

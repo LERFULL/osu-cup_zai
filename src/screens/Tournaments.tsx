@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, Empty, Menu, MenuItem, MenuSeparator } from '@/components';
 import type { Tournament } from '@/lib/types';
 import * as ipc from '@/lib/ipc';
+import { useApp } from '@/store/app';
 import { TournamentView } from './tournaments/TournamentView';
 import s from './Tournaments.module.css';
 
@@ -41,6 +42,17 @@ export default function Tournaments() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Главная присылает сюда конкретный турнир — «Продолжить» на карточке или
+  // свежесозданный. Забираем запрос на входе, чтобы список не затёр его собой.
+  const wanted = useApp((st) => st.openTournament);
+  const clearWanted = useApp((st) => st.setOpenTournament);
+
+  useEffect(() => {
+    if (wanted === null) return;
+    setOpen(wanted);
+    clearWanted(null);
+  }, [wanted, clearWanted]);
 
   if (open !== null) {
     return (

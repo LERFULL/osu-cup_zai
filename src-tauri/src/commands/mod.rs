@@ -2,6 +2,7 @@
 
 pub mod air;
 pub mod collections;
+pub mod history;
 pub mod imports;
 pub mod library;
 pub mod matches;

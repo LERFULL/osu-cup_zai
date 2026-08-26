@@ -14,6 +14,7 @@ pub async fn get_status(state: State<'_, Arc<AppState>>) -> Result<AppStatus> {
         has_credentials: cfg.credentials().is_some(),
         online: true,
         onboarded: cfg.onboarded,
+        match_hints_seen: cfg.match_hints_seen,
         db_path: state.db_path.to_string_lossy().to_string(),
         cache_path: state.data_dir.join("covers").to_string_lossy().to_string(),
     })
@@ -22,6 +23,12 @@ pub async fn get_status(state: State<'_, Arc<AppState>>) -> Result<AppStatus> {
 #[tauri::command]
 pub async fn set_onboarded(state: State<'_, Arc<AppState>>, value: bool) -> Result<()> {
     state.cfg.set_onboarded(value)
+}
+
+/// Подсказки при первом входе в матч больше не показываем.
+#[tauri::command]
+pub async fn set_match_hints_seen(state: State<'_, Arc<AppState>>) -> Result<()> {
+    state.cfg.set_match_hints_seen()
 }
 
 #[tauri::command]

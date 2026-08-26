@@ -23,6 +23,10 @@ export type Route =
 interface AppState {
   status: AppStatus | null;
   route: Route;
+  /** Турнир, который экран турниров должен открыть при входе. Главная
+   *  кладёт его перед переходом («Продолжить», «Новый турнир»), экран
+   *  турниров забирает и обнуляет. */
+  openTournament: number | null;
   ready: boolean;
   /** Приложение не смогло подняться: база не открылась или сорвался вызов. */
   fatal: string | null;
@@ -44,6 +48,7 @@ interface AppState {
 
   init: () => Promise<void>;
   go: (route: Route) => void;
+  setOpenTournament: (id: number | null) => void;
   refreshCollections: () => Promise<void>;
   /** Только счётчик «Без мод-тегов» — после правки тегов одной карты. */
   refreshUntagged: () => Promise<void>;
@@ -60,6 +65,7 @@ interface AppState {
 export const useApp = create<AppState>((set, get) => ({
   status: null,
   route: 'home',
+  openTournament: null,
   ready: false,
   fatal: null,
 
@@ -101,6 +107,12 @@ export const useApp = create<AppState>((set, get) => ({
 
   go(route) {
     set({ route });
+  },
+
+  // Экран турниров держит свой выбор в локальном состоянии, поэтому с
+  // другого экрана дотянуться до него можно только через стор.
+  setOpenTournament(id) {
+    set({ openTournament: id });
   },
 
   async refreshCollections() {

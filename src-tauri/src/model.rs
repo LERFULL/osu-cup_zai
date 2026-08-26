@@ -228,6 +228,8 @@ pub struct AppStatus {
     pub has_credentials: bool,
     pub online: bool,
     pub onboarded: bool,
+    /// Показывались ли уже подсказки при первом входе в матч.
+    pub match_hints_seen: bool,
     pub db_path: String,
     pub cache_path: String,
 }
