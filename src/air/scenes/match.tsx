@@ -120,6 +120,41 @@ export function MatchLive({ p }: { p: MatchLivePayload }) {
         {p.turn.text}
       </div>
 
+      {/* Живые деньги матча: цена победы, головы, счётчик карт — по ходу игры.
+          Не сцена и не событие: деньги всё время на экране, как счёт. */}
+      {p.money !== null && (p.money.winPrice > 0 || p.money.headA > 0 || p.money.headB > 0 || p.money.perLoss > 0) ? (
+        <div className={s.liveMoney}>
+          <span className={s.liveMoneySide} style={{ color: p.a.color }}>
+            <Roll value={`${p.money.aEarned.toLocaleString('ru-RU')} ₽`} />
+            {p.money.headA > 0 ? (
+              <span className={s.liveMoneyHead}>
+                голова {p.money.headA.toLocaleString('ru-RU')} ₽
+              </span>
+            ) : null}
+          </span>
+          <span className={s.liveMoneyMid}>
+            {[
+              p.money.winPrice > 0
+                ? `победа — ${p.money.winPrice.toLocaleString('ru-RU')} ₽`
+                : null,
+              p.money.perLoss > 0
+                ? `карта — ${p.money.perLoss.toLocaleString('ru-RU')} ₽`
+                : null,
+            ]
+              .filter((x) => x !== null)
+              .join('  ·  ')}
+          </span>
+          <span className={`${s.liveMoneySide} ${s.liveMoneyRight}`} style={{ color: p.b.color }}>
+            {p.money.headB > 0 ? (
+              <span className={s.liveMoneyHead}>
+                голова {p.money.headB.toLocaleString('ru-RU')} ₽
+              </span>
+            ) : null}
+            <Roll value={`${p.money.bEarned.toLocaleString('ru-RU')} ₽`} />
+          </span>
+        </div>
+      ) : null}
+
       <div className={s.livePool}>
         {groups.map((group) => (
           <div key={group.mod} className={s.liveGroup}>
@@ -291,18 +326,32 @@ export function MapResult({ p }: { p: MapResultPayload }) {
 
       <MapLine map={p.map} className={s.resultLine} />
 
-      {/* Живой счётчик движка «за карты» и ступень андердога. */}
+      {/* Живые деньги: счётчик карт, цена победы и головы. */}
       {p.money !== null ? (
         <div className={s.moneyRow}>
           <span className={s.moneySide} style={{ color: p.a.color }}>
-            {p.money.aEarned.toLocaleString('ru-RU')} ₽
+            <span className={s.moneyEarned}>{p.money.aEarned.toLocaleString('ru-RU')} ₽</span>
+            {p.money.headA > 0 ? (
+              <span className={s.moneyHead}>голова {p.money.headA.toLocaleString('ru-RU')} ₽</span>
+            ) : null}
           </span>
           <span className={s.moneyPer}>
-            карта {p.money.perLoss.toLocaleString('ru-RU')} ₽ · победная{' '}
-            {p.money.perWin.toLocaleString('ru-RU')} ₽
+            {[
+              p.money.perLoss > 0
+                ? `карта ${p.money.perLoss.toLocaleString('ru-RU')} ₽ · победная ${p.money.perWin.toLocaleString('ru-RU')} ₽`
+                : null,
+              p.money.winPrice > 0
+                ? `победа в матче ${p.money.winPrice.toLocaleString('ru-RU')} ₽`
+                : null,
+            ]
+              .filter((x) => x !== null)
+              .join('  ·  ')}
           </span>
           <span className={s.moneySide} style={{ color: p.b.color }}>
-            {p.money.bEarned.toLocaleString('ru-RU')} ₽
+            <span className={s.moneyEarned}>{p.money.bEarned.toLocaleString('ru-RU')} ₽</span>
+            {p.money.headB > 0 ? (
+              <span className={s.moneyHead}>голова {p.money.headB.toLocaleString('ru-RU')} ₽</span>
+            ) : null}
           </span>
         </div>
       ) : null}
@@ -440,12 +489,31 @@ export function MapProgress({ p }: { p: MapProgressPayload }) {
           <div className={s.progressMoney}>
             <span className={s.progressMoneySide} style={{ color: p.a.color }}>
               {p.money.aEarned.toLocaleString('ru-RU')} ₽
+              {p.money.headA > 0 ? (
+                <span className={s.progressMoneyHead}>
+                  голова {p.money.headA.toLocaleString('ru-RU')} ₽
+                </span>
+              ) : null}
             </span>
             <span className={s.progressMoneyHint}>
-              карта — {p.money.perLoss.toLocaleString('ru-RU')} ₽
+              {[
+                p.money.perLoss > 0
+                  ? `карта — ${p.money.perLoss.toLocaleString('ru-RU')} ₽`
+                  : null,
+                p.money.winPrice > 0
+                  ? `победа — ${p.money.winPrice.toLocaleString('ru-RU')} ₽`
+                  : null,
+              ]
+                .filter((x) => x !== null)
+                .join('  ·  ')}
             </span>
             <span className={s.progressMoneySide} style={{ color: p.b.color }}>
               {p.money.bEarned.toLocaleString('ru-RU')} ₽
+              {p.money.headB > 0 ? (
+                <span className={s.progressMoneyHead}>
+                  голова {p.money.headB.toLocaleString('ru-RU')} ₽
+                </span>
+              ) : null}
             </span>
           </div>
         ) : null}

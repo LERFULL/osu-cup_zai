@@ -3145,3 +3145,71 @@ fn base64_for_test(bytes: &[u8]) -> String {
     }
     out
 }
+
+// ───────────────────────────────────────────────────────── фонд и деньги
+
+/// Регрессия «Не удалось прочитать локальную базу: no such column: score_a»:
+/// форма фонда читала счёт матча из колонок, которых в схеме нет и никогда
+/// не было. Счёт живёт в журнале действий — фонд обязан собираться и по
+/// идущему матчу, и по отмеченному лучшему.
+#[test]
+fn prize_state_reads_scores_from_the_action_log() {
+    use crate::db::prize;
+    use crate::model::{BountyCfg, PrizeAddonsCfg, PrizeConfig, PrizeEngineCfg};
+
+    let mut conn = db();
+    let t = tournament(&mut conn, &["Ari", "Bo", "Cy", "Di"]);
+    let pool = pool_with_tb(&conn);
+    tournaments::set_pools(&mut conn, t, &[pool]).unwrap();
+
+    // Фонд с баунти и зрительским банком: надстройки сильнее всего меняют
+    // расчёт, поэтому проверяем на них.
+    let config = PrizeConfig {
+        fund: 10_000,
+        engine: PrizeEngineCfg::places(vec![50, 30, 20]),
+        addons: PrizeAddonsCfg {
+            bounty: Some(BountyCfg {
+                amounts: vec![700, 450, 350],
+                rollover: true,
+            }),
+            spectator: Some(1000),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    prize::set_config(&conn, t, &config, true).unwrap();
+
+    // Матч идёт: баны, пик и один результат. Раньше именно здесь падало.
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+    let m = br
+        .matches
+        .iter()
+        .find(|m| m.player_a.is_some() && m.player_b.is_some())
+        .unwrap();
+    matches::set_pool(&conn, m.id, Some(pool)).unwrap();
+    let (a, b) = (m.player_a.unwrap(), m.player_b.unwrap());
+    matches::set_first_ban(&conn, m.id, a).unwrap();
+    matches::ban(&conn, m.id, "NM1").unwrap();
+    matches::ban(&conn, m.id, "HD1").unwrap();
+    matches::pick(&conn, m.id, "NM2").unwrap();
+    matches::result(&conn, m.id, a).unwrap();
+
+    let view = prize::state(&conn, t).unwrap().expect("фонд задан");
+    assert!(view.problems.is_empty(), "проблем быть не должно: {:?}", view.problems);
+
+    // Доигрываем 2:1 и отмечаем матч лучшим: подпись лучшего матча
+    // собирает счёт тем же способом и обязана показать реальный счёт.
+    matches::pick(&conn, m.id, "HD2").unwrap();
+    matches::result(&conn, m.id, b).unwrap();
+    matches::pick(&conn, m.id, "TB").unwrap();
+    matches::result(&conn, m.id, a).unwrap();
+
+    prize::set_best_match(&conn, t, Some(m.id)).unwrap();
+    let view = prize::state(&conn, t).unwrap().expect("фонд задан");
+    let best = view.best_match.as_ref().expect("лучший матч отмечен");
+    assert!(
+        best.label.contains("2:1"),
+        "в подписи лучшего матча должен быть счёт 2:1, а там «{}»",
+        best.label
+    );
+}

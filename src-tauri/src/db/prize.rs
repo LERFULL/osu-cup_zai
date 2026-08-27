@@ -65,12 +65,23 @@ fn jackpot_add(conn: &Connection, delta: i64) -> Result<()> {
 // ───────────────────────────────────────────────────────── форма сетки
 
 /// Фактические матчи турнира как форма фонда.
+///
+/// Счёта в таблице матчей нет и быть не может: он считается из журнала
+/// действий (см. `tournaments::fill_scores`). Колонок `score_a`/`score_b`
+/// здесь никогда не было — запросы, которые их читали, валили весь экран
+/// турнира ошибкой «no such column».
 fn shape_of(conn: &Connection, t: &Tournament) -> Result<Vec<ShapeMatch>> {
     let mut st = conn.prepare(
-        "SELECT id, bracket, round, slot_in_bracket, next_win_slot, next_lose_slot,
-                player_a, player_b, winner_id, is_walkover, status,
-                target_score, score_a, score_b, first_ban_by
-           FROM matches WHERE tournament_id = ?1",
+        "SELECT m.id, m.bracket, m.round, m.slot_in_bracket, m.next_win_slot, m.next_lose_slot,
+                m.player_a, m.player_b, m.winner_id, m.is_walkover, m.status,
+                m.target_score, m.first_ban_by,
+                COALESCE((SELECT COUNT(*) FROM match_actions r
+                           WHERE r.match_id = m.id AND r.type = 'result'
+                             AND r.winner_id = m.player_a), 0) AS maps_a,
+                COALESCE((SELECT COUNT(*) FROM match_actions r
+                           WHERE r.match_id = m.id AND r.type = 'result'
+                             AND r.winner_id = m.player_b), 0) AS maps_b
+           FROM matches m WHERE m.tournament_id = ?1",
     )?;
     let rows = st.query_map(params![t.id], |r| {
         Ok((
@@ -86,9 +97,9 @@ fn shape_of(conn: &Connection, t: &Tournament) -> Result<Vec<ShapeMatch>> {
             r.get::<_, i64>(9)?,
             r.get::<_, String>(10)?,
             r.get::<_, Option<i64>>(11)?,
-            r.get::<_, i64>(12)?,
+            r.get::<_, Option<i64>>(12)?,
             r.get::<_, i64>(13)?,
-            r.get::<_, Option<i64>>(14)?,
+            r.get::<_, i64>(14)?,
         ))
     })?;
 
@@ -99,7 +110,7 @@ fn shape_of(conn: &Connection, t: &Tournament) -> Result<Vec<ShapeMatch>> {
 
     let mut out = Vec::new();
     for row in rows.collect::<rusqlite::Result<Vec<_>>>()? {
-        let (id, bracket, round, slot, next_win, next_lose, a, b, winner, walkover, status, target, score_a, score_b, _) = row;
+        let (id, bracket, round, slot, next_win, next_lose, a, b, winner, walkover, status, target, _, score_a, score_b) = row;
         // Замороженное правило матча сильнее правила раунда.
         let target = target
             .or_else(|| Some(t.target_score.at_key(&bracket, round)))
@@ -121,6 +132,7 @@ fn shape_of(conn: &Connection, t: &Tournament) -> Result<Vec<ShapeMatch>> {
             },
             walkover: walkover != 0,
             finished: status == "finished",
+            running: status == "running" && a.is_some() && b.is_some(),
             target,
             maps_a: score_a,
             maps_b: score_b,
@@ -161,6 +173,7 @@ fn projected_shape(conn: &Connection, id: i64) -> Result<Vec<ShapeMatch>> {
             winner_seed: None,
             walkover: false,
             finished: false,
+            running: false,
             target: t.target_score.at_key(s.bracket, s.round).max(1),
             maps_a: 0,
             maps_b: 0,
@@ -191,10 +204,17 @@ fn seat_order(players: &[crate::model::TournamentPlayer], size: usize) -> Vec<Op
 // ───────────────────────────────────────────────────── состояние фонда
 
 /// Подпись матча для лучшего: «Финал верхней — NAGISA : KIRA 4:3».
+/// Счёт — из журнала действий, в таблице матчей его нет.
 fn match_label(conn: &Connection, tournament_id: i64, match_id: i64) -> Result<Option<String>> {
     let row: Option<(String, i64, Option<i64>, Option<i64>, i64, i64)> = conn
         .query_row(
-            "SELECT m.bracket, m.round, m.player_a, m.player_b, m.score_a, m.score_b
+            "SELECT m.bracket, m.round, m.player_a, m.player_b,
+                    COALESCE((SELECT COUNT(*) FROM match_actions r
+                               WHERE r.match_id = m.id AND r.type = 'result'
+                                 AND r.winner_id = m.player_a), 0),
+                    COALESCE((SELECT COUNT(*) FROM match_actions r
+                               WHERE r.match_id = m.id AND r.type = 'result'
+                                 AND r.winner_id = m.player_b), 0)
                FROM matches m WHERE m.id = ?1 AND m.tournament_id = ?2",
             params![match_id, tournament_id],
             |r| {
@@ -261,6 +281,7 @@ fn canonical_shape(conn: &Connection, id: i64, players: usize) -> Result<Vec<Sha
             winner_seed: None,
             walkover: false,
             finished: false,
+            running: false,
             target: t.target_score.at_key(s.bracket, s.round).max(1),
             maps_a: 0,
             maps_b: 0,

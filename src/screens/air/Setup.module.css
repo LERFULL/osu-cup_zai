@@ -108,6 +108,7 @@
 /* Мини-кадр в кнопке: «заголовок» и три «строки» играют выбранный стиль.
    Демо живёт только внутри кнопки — это подсказка, а не сам эфир. */
 .demo {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -146,11 +147,19 @@
   animation-delay: calc(var(--i, -1) * 40ms);
 }
 
-/* Собирается: заголовок первым, строки — за ним по очереди слева. */
+/* Собирается: части приезжают с разных сторон — в миниатюре видно,
+   что кадр монтируется, а не проявляется. */
 @keyframes demoLeft {
   from {
     opacity: 0;
     transform: translateX(-26px);
+  }
+}
+
+@keyframes demoRight {
+  from {
+    opacity: 0;
+    transform: translateX(26px);
   }
 }
 
@@ -163,12 +172,39 @@
   animation-delay: calc(var(--i, -1) * 90ms + 160ms);
 }
 
-/* Кинематограф: кадр въезжает с масштаба и размытия, «заголовок» светится. */
+[data-demo='assembled'] .demoBar:nth-child(odd) {
+  animation-name: demoRight;
+}
+
+/* Кинематограф в миниатюре: наезд, планки письма-бокса и полёт камеры,
+   который не останавливается после входа. */
 @keyframes demoCine {
   from {
     opacity: 0;
-    transform: scale(1.06);
+    transform: scale(1.1);
     filter: blur(4px);
+  }
+}
+
+@keyframes demoDrift {
+  from {
+    transform: scale(1);
+  }
+
+  to {
+    transform: scale(1.07);
+  }
+}
+
+@keyframes demoBarTop {
+  from {
+    transform: translateY(-100%);
+  }
+}
+
+@keyframes demoBarBottom {
+  from {
+    transform: translateY(100%);
   }
 }
 
@@ -188,7 +224,30 @@
 }
 
 [data-demo='cinematic'] {
-  animation: demoCine 700ms ease both;
+  animation:
+    demoCine 700ms ease both,
+    demoDrift 2600ms linear 700ms both;
+}
+
+/* Планки плёнки сверху и снизу мини-кадра. */
+[data-demo='cinematic']::before,
+[data-demo='cinematic']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: #04050a;
+  animation: demoBarTop 460ms ease 180ms both;
+}
+
+[data-demo='cinematic']::before {
+  top: 0;
+}
+
+[data-demo='cinematic']::after {
+  bottom: 0;
+  animation-name: demoBarBottom;
 }
 
 [data-demo='cinematic'] .demoHead {

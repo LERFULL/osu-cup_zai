@@ -37,6 +37,10 @@ pub struct ShapeMatch {
     /// Сыгран технической победой: денег не приносит.
     pub walkover: bool,
     pub finished: bool,
+    /// Матч идёт прямо сейчас: у него есть обе стороны и счёт ещё открыт.
+    /// Живые выплаты движка «за карты» идут и по такому матчу — число на
+    /// экране растёт по ходу игры, а не появляется в конце.
+    pub running: bool,
     /// До скольких побед.
     pub target: i64,
     /// Карт, выигранных каждой стороной.
@@ -653,16 +657,22 @@ pub fn compute(input: &Input) -> PrizeView {
     }
 
     // Карты: победителю матча — T карт по двойной цене, проигравшему — свои
-    // по одинарной. Техническая победа карт не считает.
+    // по одинарной. Техническая победа карт не считает. Идущий матч платит
+    // по одинарной цене обеим сторонам: удвоение победных карт решается
+    // итогом матча, и в конце цифра подпрыгивает — это видно и честно.
     if map_unit.is_some() {
-        for m in matches.iter().filter(|m| m.finished && !m.walkover) {
+        for m in matches.iter().filter(|m| !m.walkover) {
             let per = map_price_of(m);
             for (seed, won) in [(m.seed_a, m.maps_a), (m.seed_b, m.maps_b)] {
                 let Some(seed) = seed else { continue };
                 let Some(p) = players.iter().find(|p| p.seed == Some(seed)) else {
                     continue;
                 };
-                let rate = if m.winner_seed == Some(seed) { 2.0 } else { 1.0 };
+                let rate = if m.finished && m.winner_seed == Some(seed) {
+                    2.0
+                } else {
+                    1.0
+                };
                 let row = &mut rows[by_id[&p.player_id]];
                 row.maps += floor_money(won as f64 * rate * per);
             }
@@ -676,6 +686,10 @@ pub fn compute(input: &Input) -> PrizeView {
             rows[idx].bounty += money;
         }
     }
+
+    // Живые ставки идущих матчей: что на кону и сколько уже взято. Считаем
+    // после баунти — головы на сейчас, с учётом переката.
+    let live = live_stakes(input, &engine_prices, &payment_prices, map_price_of, &heads);
 
     // Итоговые выплаты: места движка, гонка новичков, зрительский банк.
     if input.finished {
@@ -736,6 +750,7 @@ pub fn compute(input: &Input) -> PrizeView {
         rows,
         heads,
         last_bounty,
+        live,
         rookie_rows: rookie_rows(input),
         best_match: input
             .best_match
@@ -1088,6 +1103,53 @@ fn bounty_state(input: &Input) -> (Vec<BountyHead>, Vec<(i64, i64)>, Option<Boun
     (list, taken, last)
 }
 
+// ─────────────────────────────────────────────────────── живые ставки
+
+/// Деньги идущих матчей: цена победы, головы и взятые карты — по ходу игры.
+///
+/// Фонд не обязан молчать до конца матча: у движка «за карты» цифра растёт
+/// с каждой картой, у движка «за матчи» и матчевых выплат видна цена победы,
+/// у баунти — сколько висит на сопернике. Матчи без денег в кадр не попадают.
+fn live_stakes(
+    input: &Input,
+    engine_prices: &HashMap<i64, i64>,
+    payment_prices: &HashMap<i64, i64>,
+    map_price_of: impl Fn(&ShapeMatch) -> f64,
+    heads: &[BountyHead],
+) -> Vec<crate::model::LiveStake> {
+    let head_of = |seed: Option<i64>| -> i64 {
+        let Some(seed) = seed else { return 0 };
+        input
+            .players
+            .iter()
+            .find(|p| p.seed == Some(seed))
+            .and_then(|p| heads.iter().find(|h| h.player_id == p.player_id))
+            .map(|h| h.amount)
+            .unwrap_or(0)
+    };
+
+    let mut out = Vec::new();
+    for m in input.matches.iter().filter(|m| m.running && !m.walkover) {
+        let win_price = engine_prices.get(&m.id).copied().unwrap_or(0)
+            + payment_prices.get(&m.id).copied().unwrap_or(0);
+        let maps_price = map_price_of(m);
+        let stake = crate::model::LiveStake {
+            match_id: m.id,
+            seed_a: m.seed_a,
+            seed_b: m.seed_b,
+            win_price,
+            head_a: head_of(m.seed_a),
+            head_b: head_of(m.seed_b),
+            maps_a: floor_money(m.maps_a as f64 * maps_price),
+            maps_b: floor_money(m.maps_b as f64 * maps_price),
+        };
+        if stake.win_price > 0 || stake.head_a > 0 || stake.head_b > 0 || stake.maps_a > 0 || stake.maps_b > 0 {
+            out.push(stake);
+        }
+    }
+    out
+}
+
 // ───────────────────────────────────────── гонка новичков и зрительский банк
 
 /// Гонка новичков: живые выше выбывших, выбывшие — по местам.
@@ -1313,6 +1375,7 @@ mod tests {
                 winner_seed: None,
                 walkover: false,
                 finished: false,
+                running: false,
                 target: targets,
                 maps_a: 0,
                 maps_b: 0,
@@ -1520,6 +1583,7 @@ mod tests {
                     winner_seed: None,
                     walkover: false,
                     finished: false,
+                    running: false,
                     target: 4,
                     maps_a: 0,
                     maps_b: 0,
@@ -1726,5 +1790,48 @@ mod tests {
         let v = view(&matches, &players, &cfg);
         assert!(v.check.ok, "справка не запрещает: {}", v.check.text);
         assert!(v.note.is_some(), "надстройки переставляют места — это видно в справке");
+    }
+
+    /// Идущий матч платит за взятые карты сразу, по одинарной цене;
+    /// победные удваиваются, когда матч доигран.
+    #[test]
+    fn maps_engine_pays_live_during_the_match() {
+        let cfg = PrizeConfig {
+            fund: 10_000,
+            engine: PrizeEngineCfg::maps(),
+            ..Default::default()
+        };
+        let players: Vec<ShapePlayer> = (1..=4).map(|i| player(i, i, false)).collect();
+        let mut matches = shape(4, 4);
+        // Первый матч идёт прямо сейчас, счёт по картам 2:1.
+        matches[0].running = true;
+        matches[0].maps_a = 2;
+        matches[0].maps_b = 1;
+
+        let v = view(&matches, &players, &cfg);
+        let unit = v.map_price.as_ref().unwrap().loss as f64;
+        let seed_b = matches[0].seed_b.expect("в первом матче есть оба сида");
+        let live_a = v.rows.iter().find(|r| r.seed == Some(1)).unwrap().maps;
+        let live_b = v.rows.iter().find(|r| r.seed == Some(seed_b)).unwrap().maps;
+        assert!(
+            (live_a as f64 - 2.0 * unit).abs() < 1.5,
+            "живые карты по одинарной цене: {live_a} против {}",
+            2.0 * unit
+        );
+        assert!((live_b as f64 - unit).abs() < 1.5, "карта проигравшего: {live_b}");
+
+        // Живая ставка видна и в списке идущих матчей.
+        assert_eq!(v.live.len(), 1, "идущий матч с картами даёт живую ставку");
+        assert_eq!(v.live[0].maps_a, live_a);
+
+        // Матч доигран победой первого: его карты удвоились, у второго те же.
+        matches[0].running = false;
+        matches[0].finished = true;
+        matches[0].winner_seed = Some(1);
+        let v2 = view(&matches, &players, &cfg);
+        let done_a = v2.rows.iter().find(|r| r.seed == Some(1)).unwrap().maps;
+        let done_b = v2.rows.iter().find(|r| r.seed == Some(seed_b)).unwrap().maps;
+        assert!(done_a > live_a, "удвоение победных карт: {done_a} > {live_a}");
+        assert_eq!(done_b, live_b, "карты проигравшего не меняются");
     }
 }

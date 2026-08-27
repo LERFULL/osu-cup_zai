@@ -152,6 +152,116 @@
   font-weight: 700;
 }
 
+/* ── живой фонд в матче ──────────────────────────────────────────────
+   Что на кону и сколько каждый уже взял — по ходу игры, а не в конце.
+   Полоса стоит сразу под счётом: деньги — часть матча, а не报表. */
+
+.fund {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 208, 59, 0.05),
+    rgba(255, 208, 59, 0.13),
+    rgba(255, 208, 59, 0.05)
+  );
+  border: 1px solid rgba(255, 208, 59, 0.2);
+}
+
+.fundSide {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fundSideRight {
+  justify-content: flex-end;
+}
+
+.fundLabel {
+  color: var(--txt3);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fundSum {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Цифра выросла — глаз ловит движение, а не значение. */
+.fundBump {
+  animation: fundPop 560ms ease;
+}
+
+@keyframes fundPop {
+  0% {
+    transform: scale(1);
+  }
+
+  30% {
+    transform: scale(1.14);
+    color: var(--gold);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.fundMid {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.fundStake {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fundPer {
+  color: var(--txt3);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+/* Голова баунти: не заработок, а то, что соперник на тебя вешает. */
+.headChip {
+  padding: 2.5px 7px;
+  border-radius: 6px;
+  background: rgba(255, 107, 107, 0.14);
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Удвоение победных карт по итогу — подпись, откуда прыжок цифры. */
+.fundHint {
+  color: var(--txt3);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .setup {
   margin-bottom: 14px;
   padding: 14px 16px;

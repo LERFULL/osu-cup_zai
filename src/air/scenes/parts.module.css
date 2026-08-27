@@ -40,11 +40,19 @@
  * Стиль приходит атрибутом `data-anim` на контейнере слоя (см. `air.css`).
  * «Сдержанно» — поведение по умолчанию выше, отдельных правил не требует. */
 
-/* Собирается: элементы приезжают по очереди. Заголовок — первым и целиком,
-   строки маппула и плашки — за ним, каскадом по `--i`. */
+/* Собирается: элементы приезжают по очереди и с разных сторон. Заголовок
+   — первым и целиком, строки маппула слева, плашки справа: кадр монтируется
+   из частей, а не проявляется. */
 @keyframes comeIn {
   from {
     transform: translateX(-64px);
+    opacity: 0;
+  }
+}
+
+@keyframes comeInRight {
+  from {
+    transform: translateX(64px);
     opacity: 0;
   }
 }
@@ -65,15 +73,19 @@
 }
 
 [data-anim='assembled'] .statIn {
-  animation: comeIn 520ms var(--ease) both;
+  animation: comeInRight 520ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 75ms + 160ms);
 }
 
-/* Кинематограф: ключевой заголовок проявляется вместе со свечением в акцент.
-   Сам наезд с масштаба и размытия делает слой (см. `air.css`), здесь — свет. */
-@keyframes cineTitle {
+/* ── Кинематограф: глубина. Камера летит (обвязка слоя), и планы расходятся
+   по скорости: заголовок — дальний план, входит медленно, сверху и с
+   мягким размытием; строки и плашки — ближний, входят резче и крупнее.
+   Разница скоростей и даёт 2.5D: глаз меряет глубину по параллаксу. */
+@keyframes cineTitleIn {
   from {
     opacity: 0;
+    transform: translateY(-26px) scale(1.045);
+    filter: blur(10px);
     text-shadow: none;
   }
 
@@ -87,8 +99,30 @@
   }
 }
 
+@keyframes cineNearIn {
+  from {
+    opacity: 0;
+    transform: translateX(-54px) scale(0.966);
+    filter: blur(6px);
+  }
+}
+
 [data-anim='cinematic'] .title {
-  animation: cineTitle 1200ms var(--ease) both;
+  animation: cineTitleIn 1150ms var(--ease) both;
+}
+
+[data-anim='cinematic'] .note {
+  animation: cineTitleIn 1150ms var(--ease) 120ms both;
+}
+
+[data-anim='cinematic'] .lineIn {
+  animation: cineNearIn 660ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 46ms + 230ms);
+}
+
+[data-anim='cinematic'] .statIn {
+  animation: cineNearIn 660ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 60ms + 280ms);
 }
 
 

@@ -194,6 +194,8 @@ export interface MatchLivePayload {
   rows: AirRow[];
   turn: AirTurn;
   matchPoint: number[];
+  /** Живые деньги матча: цена победы, головы, счётчик карт. */
+  money: AirMoney | null;
 }
 
 export interface BanRevealPayload {
@@ -207,13 +209,18 @@ export interface PickRevealPayload {
   by: AirPlayer | null;
 }
 
-/** Живой счётчик движка «за карты»: кто сколько уже заработал. */
+/** Живые деньги матча: кто сколько уже заработал и что на кону. */
 export interface AirMoney {
   aEarned: number;
   bEarned: number;
   /** Цена карты в этом матче — победная и утешительная. */
   perWin: number;
   perLoss: number;
+  /** Цена победы в матче: движок «за матчи» и/или матчевые выплаты. */
+  winPrice: number;
+  /** Голова на игроке сейчас (баунти, с учётом переката). */
+  headA: number;
+  headB: number;
 }
 
 export interface MapProgressPayload {

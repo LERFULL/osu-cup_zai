@@ -227,17 +227,30 @@ export function underdogLabel(
   return null;
 }
 
-/** Живой счётчик движка «за карты» для матча. */
+/** Живые деньги матча: для движка «за карты» это счётчик, для остальных —
+ * цена победы и головы. Фонд в кадре не молчит до финального свистка. */
 function matchMoney(ctx: AirContext, m: MatchState): AirMoney | null {
   const cfg = ctx.prize?.config ?? null;
-  if (cfg === null || cfg.engine.kind !== 'maps') return null;
+  if (cfg === null) return null;
   const price = ctx.prize?.mapPrice ?? null;
-  if (price === null) return null;
+  const stake = ctx.prize?.live.find((l) => l.matchId === m.id) ?? null;
+  const heads = ctx.prize?.heads ?? [];
+  if (price === null && stake === null && heads.length === 0) return null;
+
+  const headOf = (pid: number | null): number => {
+    if (pid === null) return 0;
+    if (stake !== null) return m.playerA === pid ? stake.headA : stake.headB;
+    return heads.find((h) => h.playerId === pid)?.amount ?? 0;
+  };
+
   return {
     aEarned: earnedOf(ctx, m.playerA ?? -1),
     bEarned: earnedOf(ctx, m.playerB ?? -1),
-    perWin: price.win,
-    perLoss: price.loss,
+    perWin: price?.win ?? 0,
+    perLoss: price?.loss ?? 0,
+    winPrice: stake?.winPrice ?? 0,
+    headA: headOf(m.playerA),
+    headB: headOf(m.playerB),
   };
 }
 
@@ -287,6 +300,7 @@ export function matchLive(ctx: AirContext, m: MatchState): MatchLivePayload {
     rows: m.rows.map(airRow),
     turn: airTurn(m, namer(ctx)),
     matchPoint: m.matchPoint,
+    money: matchMoney(ctx, m),
   };
 }
 

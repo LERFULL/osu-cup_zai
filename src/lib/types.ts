@@ -936,6 +936,21 @@ export interface BestMatchView {
   bNick: string;
 }
 
+/** Деньги идущего матча: что на кону и сколько взято по ходу игры. */
+export interface LiveStake {
+  matchId: number;
+  seedA: number | null;
+  seedB: number | null;
+  /** Цена победы в этом матче: движок «за матчи» и/или матчевые выплаты. */
+  winPrice: number;
+  /** Голова на игроке сейчас (баунти, с учётом переката). */
+  headA: number;
+  headB: number;
+  /** Живые деньги за взятые карты (движок «за карты»), одинарная цена. */
+  mapsA: number;
+  mapsB: number;
+}
+
 /** Весь взгляд на фонд турнира: и для редактора, и для эфира, и для итогов. */
 export interface PrizeView {
   config: PrizeConfig;
@@ -953,6 +968,8 @@ export interface PrizeView {
   rows: PrizeRow[];
   heads: BountyHead[];
   lastBounty: BountyEvent | null;
+  /** Идущие матчи с их деньгами: что на кону и сколько взято по ходу игры. */
+  live: LiveStake[];
   rookieRows: RookieRow[];
   bestMatch: BestMatchView | null;
   /** Сколько фонда не выплачено на сейчас. */

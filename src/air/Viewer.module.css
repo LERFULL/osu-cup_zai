@@ -55,6 +55,113 @@
   z-index: 2;
 }
 
+/* ───────────────────────────────────── «Кинематограф»: камера и плёнка
+ *
+ * Стиль живёт в двух местах: обвязка слоя (здесь) и достройка сцен
+ * (модули сцен). Обвязка — про камеру: планки, полёт, блик, виньетка.
+ * Сцены — про глубину: планы входят с разной скоростью. */
+
+/* Полёт: медленный наезд длится весь кадр, а не только вход. Камера не
+   останавливается — отсюда ощущение, что кадр снят, а не нарисован.
+   Начало чуть больше единицы: старт с 1.0 показал бы тёмные края фона. */
+.cineFlight {
+  width: 100%;
+  height: 100%;
+  animation: cineFlight 26s linear both;
+}
+
+@keyframes cineFlight {
+  from {
+    transform: scale(1.006);
+  }
+
+  to {
+    transform: scale(1.052);
+  }
+}
+
+/* Планки письма-бокса: узкие полосы плёнки сверху и снизу. Ядро сплошное,
+   внутренний край тает — сцены с контентом у края не режутся жёстко. */
+.cineBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 4;
+  height: 58px;
+  background:
+    linear-gradient(to bottom, #04050a 32px, rgb(4 5 10 / 0)),
+    linear-gradient(to bottom, #04050a 0 32px);
+  pointer-events: none;
+  animation: cineBarTop 640ms var(--ease) both;
+}
+
+.cineBarBottom {
+  top: auto;
+  bottom: 0;
+  background:
+    linear-gradient(to top, #04050a 32px, rgb(4 5 10 / 0)),
+    linear-gradient(to top, #04050a 0 32px);
+  animation: cineBarBottom 640ms var(--ease) both;
+}
+
+@keyframes cineBarTop {
+  from {
+    transform: translateY(-100%);
+  }
+}
+
+@keyframes cineBarBottom {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+/* Блик: свет проходит по кадру один раз на входе — объектив «поймал» сцену. */
+.cineSweep {
+  position: absolute;
+  inset: -12% -34%;
+  z-index: 3;
+  background: linear-gradient(
+    104deg,
+    transparent 43%,
+    color-mix(in srgb, var(--accent) 13%, transparent) 50%,
+    transparent 57%
+  );
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: cineSweep 1500ms var(--ease) 240ms both;
+}
+
+@keyframes cineSweep {
+  from {
+    transform: translateX(-72%) skewX(-4deg);
+    opacity: 0;
+  }
+
+  30% {
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(72%) skewX(-4deg);
+    opacity: 0;
+  }
+}
+
+/* Виньетка: тёмные углы дают глубину — центр кадра ближе, края дальше. */
+.cineVignette {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: radial-gradient(
+    118% 92% at 50% 46%,
+    transparent 58%,
+    rgb(0 0 0 / 0.34) 100%
+  );
+  pointer-events: none;
+}
+
 .viewers {
   position: absolute;
   right: 40px;

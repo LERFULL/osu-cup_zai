@@ -81,6 +81,8 @@ const DEMO_LIVE: MatchLivePayload = {
   ],
   turn: { text: 'Ход NAGISA — пик', actor: 1 },
   matchPoint: [1],
+  // Пробному кадру деньги не нужны: он выставляет раскладку, а не фонд.
+  money: null,
 };
 
 /** Состояние пробного кадра: один слой и тема по умолчанию. */
@@ -252,6 +254,10 @@ export function Viewer() {
  * посреди сцены видит конечное положение, а не дёргающийся перезапуск. Стиль
  * анимации приходит в теме и ставится сюда атрибутом `data-anim` — по нему
  * сцены и достраивают свой вход (селекторы в `air.css` и в модулях сцен).
+ *
+ * «Кинематограф» — не вариант «Сдержанно» с наездом, а другой язык кадра:
+ * планки письма-бокса, камера, которая летит весь кадр (не только на входе),
+ * и планы с разной скоростью. Поэтому у него своя обвязка вокруг сцены.
  */
 function Layer({
   layer,
@@ -286,7 +292,26 @@ function Layer({
         .filter(Boolean)
         .join(' ')}
     >
-      <LayerProvider value={{ since: layer.since, until: layer.until }}>{content}</LayerProvider>
+      {style === 'cinematic' ? (
+        <>
+          {/* Планки, блик и виньетка — элементы фильма, а не сцены: сцена
+              про турнир, обвязка — про камеру. */}
+          <div className={s.cineBar} aria-hidden />
+          <div className={`${s.cineBar} ${s.cineBarBottom}`} aria-hidden />
+          <div className={s.cineSweep} aria-hidden />
+          <div className={s.cineVignette} aria-hidden />
+          {/* Полёт: медленный наезд длится весь кадр. Вход делает сам слой
+              (`cineIn` в `air.css`), полёт — обёртка: две анимации одного
+              transform на одном элементе перебивали бы друг друга. */}
+          <div className={s.cineFlight}>
+            <LayerProvider value={{ since: layer.since, until: layer.until }}>
+              {content}
+            </LayerProvider>
+          </div>
+        </>
+      ) : (
+        <LayerProvider value={{ since: layer.since, until: layer.until }}>{content}</LayerProvider>
+      )}
     </div>
   );
 }

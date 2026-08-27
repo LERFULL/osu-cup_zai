@@ -1433,6 +1433,28 @@ pub struct BestMatchView {
     pub b_nick: String,
 }
 
+/// Деньги идущего матча: что на кону и что уже взято, по ходу игры.
+///
+/// Живой фонд — не отдельная сцена и не отчет: цифра стоит в матче и
+/// растёт с каждой взятой картой, а не появляется после финального свистка.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveStake {
+    pub match_id: i64,
+    pub seed_a: Option<i64>,
+    pub seed_b: Option<i64>,
+    /// Цена победы в этом матче: движок «за матчи» и/или матчевые выплаты.
+    /// Без надстроек и движка матчей — ноль.
+    pub win_price: i64,
+    /// Голова на игроке сейчас (баунти, с учётом переката).
+    pub head_a: i64,
+    pub head_b: i64,
+    /// Живые деньги за взятые карты в этом матче (движок «за карты»):
+    /// победные удвоятся по итогу матча, сейчас — одинарная цена.
+    pub maps_a: i64,
+    pub maps_b: i64,
+}
+
 /// Весь взгляд на фонд турнира: и для редактора, и для эфира, и для итогов.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1458,6 +1480,8 @@ pub struct PrizeView {
     pub heads: Vec<BountyHead>,
     /// Последнее снятие — для сцены «Баунти снято».
     pub last_bounty: Option<BountyEvent>,
+    /// Идущие матчи с их деньгами: что на кону и сколько взято по ходу игры.
+    pub live: Vec<LiveStake>,
     pub rookie_rows: Vec<RookieRow>,
     pub best_match: Option<BestMatchView>,
     /// Сколько фонда не выплачено на сейчас.

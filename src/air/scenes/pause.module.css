@@ -23,11 +23,20 @@
  * Стиль приходит атрибутом `data-anim` на контейнере слоя (см. `air.css`).
  * «Сдержанно» — поведение по умолчанию выше, отдельных правил не требует. */
 
-/* Собирается: элементы приезжают по очереди — списки собираются на глазах,
-   а не появляются готовыми. Задержка — по `--i`, которую строка уже ставит. */
+/* Собирается: элементы приезжают по очереди и с разных сторон — списки
+   собираются на глазах, а не появляются готовыми. Задержка — по `--i`,
+   которую строка уже ставит. Направления смешаны: строки слева, крупные
+   суммы справа, пьедестал по местам — кадр монтируется. */
 @keyframes comeIn {
   from {
     transform: translateX(-64px);
+    opacity: 0;
+  }
+}
+
+@keyframes comeInRight {
+  from {
+    transform: translateX(64px);
     opacity: 0;
   }
 }
@@ -43,7 +52,7 @@
 [data-anim='assembled'] .then,
 [data-anim='assembled'] .creditsRow,
 [data-anim='assembled'] .creditsExtra {
-  animation: comeIn 520ms var(--ease) both;
+  animation: comeInRight 520ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 60ms + 260ms);
 }
 
@@ -85,11 +94,14 @@
   animation-delay: 120ms;
 }
 
-/* Кинематограф: ключевые надписи проявляются со свечением в акцент.
-   Сам наезд с масштаба и размытия делает слой (см. `air.css`), здесь — свет. */
+/* Кинематограф: глубина кадра. Камера летит (обвязка слоя в
+   `Viewer.module.css`), ключевые надписи — дальний план: медленно, сверху,
+   с размытием и свечением. Списки — ближний: резче, с боку. */
 @keyframes cineTitle {
   from {
     opacity: 0;
+    transform: translateY(-26px) scale(1.04);
+    filter: blur(9px);
     text-shadow: none;
   }
 
@@ -103,9 +115,44 @@
   }
 }
 
+@keyframes cineNear {
+  from {
+    opacity: 0;
+    transform: translateX(-54px) scale(0.968);
+    filter: blur(5px);
+  }
+}
+
 [data-anim='cinematic'] .idleName,
 [data-anim='cinematic'] .messageText {
   animation: cineTitle 1300ms var(--ease) both;
+}
+
+[data-anim='cinematic'] .person,
+[data-anim='cinematic'] .h2hRow,
+[data-anim='cinematic'] .step,
+[data-anim='cinematic'] .modRow,
+[data-anim='cinematic'] .then,
+[data-anim='cinematic'] .creditsRow,
+[data-anim='cinematic'] .fundRow,
+[data-anim='cinematic'] .fundWho {
+  animation: cineNear 660ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 48ms + 220ms);
+}
+
+/* Пьедестал в кино — герои выходят на свет: ступени поднимаются снизу
+   с свечением глубже, чем у строк. */
+@keyframes cinePodium {
+  from {
+    opacity: 0;
+    transform: translateY(64px) scale(0.94);
+    filter: blur(8px);
+  }
+}
+
+[data-anim='cinematic'] .podiumStep {
+  animation: cinePodium 900ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 260ms + 240ms);
 }
 
 

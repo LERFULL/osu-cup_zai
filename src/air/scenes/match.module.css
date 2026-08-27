@@ -30,8 +30,8 @@
 /* ────────────────────────────────────────────────────── стили анимации
  *
  * Стиль приходит атрибутом `data-anim` на контейнере слоя (см. `air.css`).
- * «Сдержанно» — поведение по умолчанию выше, отдельных правил не требует;
- * «Кинематограф» входит наездом целиком на уровне слоя и тут ничего не ждёт. */
+ * «Сдержанно» — поведение по умолчанию выше, отдельных правил не требует.
+ * «Кинематограф» — наезд слоя плюс планы ниже: игроки далеко, строки близко. */
 
 /* Собирается: верх «Хода матча» приезжает первым, очки — за ним по очереди.
    Соперники в представлении и так въезжают навстречу друг другу — им хватит. */
@@ -42,12 +42,21 @@
   }
 }
 
+@keyframes comeInRight {
+  from {
+    transform: translateX(64px);
+    opacity: 0;
+  }
+}
+
 [data-anim='assembled'] .liveTop {
   animation: comeIn 520ms var(--ease) both;
 }
 
+/* Строки скоров приезжают справа: таблица монтируется встречными
+   направлениями — сборка заметнее, когда части едут с разных сторон. */
 [data-anim='assembled'] .scoreRow {
-  animation: comeIn 520ms var(--ease) both;
+  animation: comeInRight 520ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 80ms + 180ms);
 }
 
@@ -57,6 +66,55 @@
 
 [data-anim='assembled'] .banHead {
   animation: comeIn 520ms var(--ease) both;
+}
+
+/* ── Кинематограф: планы матча. Игроки — дальний план (входят сверху,
+   медленно, с размытием), строки маппула и скоров — ближний (с боку,
+   резче). Камера летит — обвязка слоя, здесь только глубина сцен. */
+@keyframes cineFarIn {
+  from {
+    opacity: 0;
+    transform: translateY(-30px) scale(1.04);
+    filter: blur(9px);
+  }
+}
+
+@keyframes cineNearIn {
+  from {
+    opacity: 0;
+    transform: translateX(-56px) scale(0.964);
+    filter: blur(6px);
+  }
+}
+
+@keyframes cineNearRightIn {
+  from {
+    opacity: 0;
+    transform: translateX(56px) scale(0.964);
+    filter: blur(6px);
+  }
+}
+
+[data-anim='cinematic'] .liveTop {
+  animation: cineFarIn 950ms var(--ease) both;
+}
+
+[data-anim='cinematic'] .resultHead,
+[data-anim='cinematic'] .banHead {
+  animation: cineFarIn 950ms var(--ease) both;
+}
+
+[data-anim='cinematic'] .scoreRow {
+  animation: cineNearRightIn 660ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 52ms + 220ms);
+}
+
+/* Планки письма-бокса (обвязка слоя) отъедают верх и низ кадра: «Ходу
+   матча» добавляем внутренние отступы, чтобы головы игроков не ушли
+   под планку. Остальные сцены матча уже с запасом. */
+[data-anim='cinematic'] .live {
+  padding-top: 96px;
+  padding-bottom: 92px;
 }
 
 
@@ -336,6 +394,58 @@
   color: var(--accent);
   /* Строка меняется чаще всего в кадре — её смена должна быть заметна. */
   animation: turnIn 380ms var(--ease) both;
+}
+
+/* Живые деньги в «Ходе матча»: тонкая полоса между строкой хода и маппулом.
+   Деньги — часть матча, как счёт: они не событие и не отдельная сцена. */
+.liveMoney {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 2px 0 10px;
+  padding: 10px 22px;
+  border: 1px solid rgba(255, 208, 59, 0.25);
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 208, 59, 0.04),
+    rgba(255, 208, 59, 0.1),
+    rgba(255, 208, 59, 0.04)
+  );
+}
+
+.liveMoneySide {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 27px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.liveMoneyRight {
+  flex-direction: row-reverse;
+}
+
+.liveMoneyMid {
+  color: var(--txt3);
+  font-size: 16px;
+  text-align: center;
+}
+
+.liveMoneyHead {
+  padding: 3px 11px;
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--red);
+  font-family: var(--f);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 @keyframes turnIn {
@@ -905,6 +1015,9 @@
 }
 
 .moneySide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   font-family: var(--mono);
   font-size: 34px;
   font-weight: 800;
@@ -913,6 +1026,20 @@
 .moneyPer {
   color: var(--txt3);
   font-size: 16px;
+}
+
+/* Голова баунти рядом с заработком: не он заработал — на нём висит. */
+.moneyHead {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--red);
+  font-family: var(--f);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .underdogTag {
@@ -962,6 +1089,24 @@
 .progressMoneyHint {
   color: var(--txt3);
   font-size: 17px;
+}
+
+.progressMoneyHead {
+  margin-top: 6px;
+  padding: 3px 12px;
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--red);
+  font-family: var(--f);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.progressMoneySide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 /* ─────────────────────────────────────────────── головы и снятие */

@@ -31,6 +31,7 @@ import type {
   TournamentEdit,
   PrizeConfig,
   PrizeView,
+  LiveStake,
 } from './types';
 import { checkFeasible } from './feasible';
 import { freeColor } from './colors';
@@ -1355,6 +1356,51 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
             })
         : [];
 
+    // Головы считаются до строк: живые ставки ссылаются на них же.
+    const heads = (config.addons.bounty?.amounts ?? []).map((amount, i) => {
+      const seat = seats.find((x) => x.seed === i + 1);
+      return {
+        playerId: seat?.playerId ?? 0,
+        nickname: seat?.nickname ?? '—',
+        seed: i + 1,
+        amount,
+      };
+    });
+
+    // Живые деньги идущих матчей — та же форма, что отдаёт Rust: цена победы,
+    // головы и взятые карты по одинарной цене.
+    const ownMatches = matches.filter((m) => m.tournamentId === t.id);
+    const priceByKey = new Map(matchPrices.map((r) => [r.key, r.price]));
+    const paymentPer =
+      config.addons.matchPayments != null
+        ? Math.floor(payments / Math.max(1, ownMatches.length))
+        : 0;
+    const unit = config.engine.kind === 'maps' ? Math.floor(engineShare / 60) : 0;
+    const live: LiveStake[] = ownMatches
+      .filter((m) => m.status === 'running' && !m.isWalkover)
+      .map((m) => {
+        const seedOf = (pid: number | null) =>
+          seats.find((x) => x.playerId === pid)?.seed ?? null;
+        const headOf = (pid: number | null) =>
+          heads.find((h) => h.playerId === pid)?.amount ?? 0;
+        const [mapsA, mapsB] = score(m);
+        const per = m.bracket === 'lower' ? Math.floor(unit / 2) : unit;
+        return {
+          matchId: m.id,
+          seedA: seedOf(m.playerA),
+          seedB: seedOf(m.playerB),
+          winPrice: (priceByKey.get(`${m.bracket}:${m.round}`) ?? 0) + paymentPer,
+          headA: headOf(m.playerA),
+          headB: headOf(m.playerB),
+          mapsA: mapsA * per,
+          mapsB: mapsB * per,
+        };
+      })
+      .filter(
+        (st) =>
+          st.winPrice > 0 || st.headA > 0 || st.headB > 0 || st.mapsA > 0 || st.mapsB > 0,
+      );
+
     return {
       config,
       fundEffective: effective,
@@ -1374,16 +1420,9 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
           : null,
       spread: config.engine.kind === 'maps' ? { min: engineShare - 500, max: engineShare + 800 } : null,
       rows,
-      heads: (config.addons.bounty?.amounts ?? []).map((amount, i) => {
-        const seat = seats.find((x) => x.seed === i + 1);
-        return {
-          playerId: seat?.playerId ?? 0,
-          nickname: seat?.nickname ?? '—',
-          seed: i + 1,
-          amount,
-        };
-      }),
+      heads,
       lastBounty: null,
+      live,
       rookieRows: seats
         .filter((p) => p.isRookie)
         .map((p, i) => ({

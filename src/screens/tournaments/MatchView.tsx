@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Avatar, Button, Empty, MapRow, Menu, MenuItem, MenuSeparator, Switch } from '@/components';
 import type { MapRowEnd } from '@/components';
 import type {
@@ -7,6 +7,7 @@ import type {
   MatchState,
   ModTag,
   Pool,
+  PrizeView,
   TournamentPlayer,
 } from '@/lib/types';
 import { coverUrl } from '@/lib/format';
@@ -39,9 +40,107 @@ function turnLine(m: MatchState, name: (id: number | null) => string): string {
   }
 }
 
+/** Сумма, которая заметна, когда растёт: подмена цифры на месте глазом не ловится. */
+function Money({ value, className }: { value: number; className?: string | undefined }) {
+  const previous = useRef(value);
+  const [bump, setBump] = useState(false);
+
+  useEffect(() => {
+    if (previous.current === value) return;
+    previous.current = value;
+    setBump(true);
+    const t = window.setTimeout(() => setBump(false), 560);
+    return () => window.clearTimeout(t);
+  }, [value]);
+
+  return (
+    <span
+      className={[className, bump ? s.fundBump : null].filter(Boolean).join(' ')}
+    >
+      {value.toLocaleString('ru-RU')} ₽
+    </span>
+  );
+}
+
+/** Полоса живого фонда: что на кону и сколько каждый уже взял. */
+function FundBar({
+  m,
+  prize,
+  name,
+}: {
+  m: MatchState;
+  prize: PrizeView | null;
+  name: (id: number | null) => string;
+}) {
+  if (prize === null) return null;
+  const stake = prize.live.find((l) => l.matchId === m.id) ?? null;
+
+  const bank = (pid: number | null) =>
+    pid === null ? 0 : (prize.rows.find((r) => r.playerId === pid)?.total ?? 0);
+  const head = (pid: number | null) =>
+    pid === null
+      ? 0
+      : (stake === null
+          ? prize.heads.find((h) => h.playerId === pid)?.amount ?? 0
+          : m.playerA === pid
+            ? stake.headA
+            : stake.headB);
+
+  // Показываем, только если деньгам есть место в этом матче: цена победы,
+  // головы или живой счётчик карт. Движок мест без надстроек здесь молчит —
+  // его цифры появятся на пьедестале.
+  const mapPrice = prize.mapPrice;
+  const mapsLive =
+    mapPrice !== null &&
+    (stake?.mapsA ?? 0) + (stake?.mapsB ?? 0) > 0;
+  const winPrice = stake?.winPrice ?? 0;
+  const headsLive = head(m.playerA) > 0 || head(m.playerB) > 0;
+  if (winPrice <= 0 && !headsLive && !mapsLive) return null;
+
+  return (
+    <div className={s.fund}>
+      <div className={s.fundSide}>
+        <span className={s.fundLabel}>{name(m.playerA)} взял</span>
+        <Money value={bank(m.playerA)} className={s.fundSum} />
+        {head(m.playerA) > 0 ? (
+          <span className={s.headChip} title="Снимается победой над ним">
+            голова {head(m.playerA).toLocaleString('ru-RU')} ₽
+          </span>
+        ) : null}
+      </div>
+
+      <div className={s.fundMid}>
+        {winPrice > 0 ? (
+          <span className={s.fundStake}>победа {winPrice.toLocaleString('ru-RU')} ₽</span>
+        ) : null}
+        {mapPrice !== null ? (
+          <span className={s.fundPer}>
+            карта {mapPrice.loss.toLocaleString('ru-RU')} ₽ · победная{' '}
+            {mapPrice.win.toLocaleString('ru-RU')} ₽
+          </span>
+        ) : null}
+        {mapsLive && m.phase.kind !== 'finished' ? (
+          <span className={s.fundHint}>победные удвоятся по итогу матча</span>
+        ) : null}
+      </div>
+
+      <div className={`${s.fundSide} ${s.fundSideRight}`}>
+        {head(m.playerB) > 0 ? (
+          <span className={s.headChip} title="Снимается победой над ним">
+            голова {head(m.playerB).toLocaleString('ru-RU')} ₽
+          </span>
+        ) : null}
+        <Money value={bank(m.playerB)} className={s.fundSum} />
+        <span className={s.fundLabel}>взял {name(m.playerB)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function MatchView({ id, onClose }: Props) {
   const [m, setM] = useState<MatchState | null>(null);
   const [pools, setPools] = useState<Pool[]>([]);
+  const [prize, setPrize] = useState<PrizeView | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +177,13 @@ export function MatchView({ id, onClose }: Props) {
       setM(state);
       setPools(list);
       setError(null);
+      // Фонд не должен ронять экран матча: нет его или не читается — полосы
+      // просто не будет.
+      try {
+        setPrize(await ipc.prizeState(state.tournamentId));
+      } catch {
+        setPrize(null);
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -91,8 +197,15 @@ export function MatchView({ id, onClose }: Props) {
   const run = useCallback(async (work: () => Promise<MatchState>) => {
     setBusy(true);
     try {
-      setM(await work());
+      const next = await work();
+      setM(next);
       setError(null);
+      // Живой фонд обновляется вместе с матчем: взятая карта меняет цифру.
+      try {
+        setPrize(await ipc.prizeState(next.tournamentId));
+      } catch {
+        setPrize(null);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -331,6 +444,8 @@ export function MatchView({ id, onClose }: Props) {
           </div>
 
           <div className={s.turn}>{turnLine(state, name)}</div>
+
+          <FundBar m={state} prize={prize} name={name} />
 
           {state.poolId === null ? (
             <div className={s.setup}>
