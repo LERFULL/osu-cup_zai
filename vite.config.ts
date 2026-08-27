@@ -34,7 +34,9 @@ function downloadArtifacts(): Plugin {
                   ? 'портативная — распакуй в любую папку и запускай'
                   : f.name.includes('source')
                     ? 'исходники — для запуска нужен Node.js + pnpm + Rust'
-                    : '';
+                    : f.name.includes('bundle')
+                      ? 'вся git-история — clone и push на свой GitHub'
+                      : '';
               return `<tr><td><a href="/downloads/${encodeURIComponent(f.name)}">${f.name}</a></td><td>${mb(size)}</td><td>${note}</td></tr>`;
             })
             .join('\n');
@@ -99,7 +101,9 @@ export default defineConfig({
   server: {
     port: 5180,
     strictPort: true,
-    host: host || false,
+    // true → слушаем и 127.0.0.1, и [::1]: Next-прокси на :3000 ходит по
+    // IPv4, а Node Happy Eyeballs может выбрать любой из стеков localhost.
+    host: host || true,
     // Превью-панель проксирует приложение через Next.js на :3000 — внешний
     // Host не должен ломать dev-сервер (иначе vite отвечает 403).
     allowedHosts: true,
