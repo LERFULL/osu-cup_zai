@@ -21,12 +21,14 @@ import type {
   RookieRacePayload,
   SpectatorBankPayload,
   StandingsPayload,
+  StatsPayload,
   TrailerPlayersPayload,
   TrailerStakesPayload,
   TrailerTitlePayload,
 } from '@/lib/air/types';
 import { useLayer } from './env';
-import { big, Face, Frame, Head, Roll, Stat } from './parts';
+import { big, Face, Frame, Head, Hex, Roll, Stat, time } from './parts';
+import type { ModTag } from '@/lib/types';
 import s from './pause.module.css';
 
 // ─────────────────────────────────────────────────────────────── сетка
@@ -371,6 +373,61 @@ export function Records({ p }: { p: RecordsPayload }) {
             index={index}
           />
         ))}
+      </div>
+    </Frame>
+  );
+}
+
+/** Цифры турнира: подробная статистика — матчи, карты, моды, лучшие. */
+export function Stats({ p }: { p: StatsPayload }) {
+  const maxMod = Math.max(1, ...p.mods.map((m) => m.count));
+  return (
+    <Frame title="Цифры турнира" note="всё, что сыграли на сейчас">
+      <div className={s.stats}>
+        <div className={s.statsRow}>
+          <Stat name="Матчей" value={`${p.matches.played} / ${p.matches.total}`} note="сыграно из всех в сетке" index={0} />
+          <Stat name="Карт" value={p.maps} note="в рамках матчей" index={1} />
+          <Stat name="В среднем" value={p.avgMatch} index={2} />
+          {p.longest !== null ? (
+            <Stat name="Самая долгая" value={p.longest.title} note={`${p.longest.version} · ${time(p.longest.length)}`} index={3} />
+          ) : null}
+        </div>
+
+        {p.mods.length > 0 ? (
+          <div className={s.statsMods}>
+            <div className={s.statsModsTitle}>чем играли</div>
+            <div className={s.statsModsList}>
+              {p.mods.map((m, i) => (
+                <div key={m.mod} className={s.statsMod} style={{ '--i': i } as React.CSSProperties}>
+                  <Hex mod={m.mod as ModTag} label={m.mod} small />
+                  <span className={s.statsModBar} aria-hidden style={{ width: `${Math.max(4, (m.count / maxMod) * 100).toFixed(1)}%` }} />
+                  <span className={s.statsModCount}>{m.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {p.top.length > 0 ? (
+          <div className={s.statsTop}>
+            <div className={s.statsModsTitle}>по картам</div>
+            <div className={s.statsTopList}>
+              {p.top.map((row, i) => (
+                <div key={row.nick} className={s.statsTopRow} style={{ '--who': row.color, '--i': i } as React.CSSProperties}>
+                  <span className={s.statsTopPlace}>{i + 1}</span>
+                  <Face
+                    player={{ id: i, nick: row.nick, color: row.color, osuUserId: row.osuUserId, seed: null }}
+                    size={i === 0 ? 64 : 48}
+                  />
+                  <span className={s.statsTopNick}>{row.nick}</span>
+                  <span className={s.statsTopNums}>
+                    <b>{row.maps}</b> карт · {row.matches} матчей
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </Frame>
   );

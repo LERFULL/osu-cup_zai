@@ -346,7 +346,6 @@ function PrizeDialog({ ctx, config, view, apply, commit, onClose }: DialogProps)
         >
           Гонка новичков
         </Switch>
-
         {config.addons.rookieRace !== null ? (
           <div className={s.addonBody}>
             <label className={s.addonRow}>
@@ -373,17 +372,23 @@ function PrizeDialog({ ctx, config, view, apply, commit, onClose }: DialogProps)
           </div>
         ) : null}
 
-        <Switch
-          checked={config.addons.underdog}
-          onChange={(v) =>
-            apply((c) => {
-              c.addons.underdog = v;
-            })
-          }
-          note="Победа над более сильным сидом платит ступенью: ×1.5, ×2, ×3 — работает поверх движка «за победы» и надстройки выплат"
-        >
-          Множитель за андердога
-        </Switch>
+        {/* Множитель андердога имеет смысл только там, где платят за победы
+            в матчах: движок «за победы» или надстройка выплат. В остальных
+            конфигурациях он ничего не умножает — и прячется, а не висит
+            бессмысленной галочкой. */}
+        {config.engine.kind === 'matches' || config.addons.matchPayments !== null ? (
+          <Switch
+            checked={config.addons.underdog}
+            onChange={(v) =>
+              apply((c) => {
+                c.addons.underdog = v;
+              })
+            }
+            note="Победа над более сильным сидом платит ступенью: ×1.5, ×2, ×3 — умножает цену победы в матче"
+          >
+            Множитель за андердога
+          </Switch>
+        ) : null}
 
         <Switch
           checked={config.addons.spectator !== null}
@@ -483,53 +488,101 @@ interface EngineProps {
   commit: (raw: string, patch: (c: PrizeConfig, value: number) => void) => void;
 }
 
-/** Проценты мест с живыми суммами: видно и долю, и рубли. */
+/** Проценты мест с живыми суммами: видно и долю, и рубли.
+ *
+ * Два способа посмотреть одно и то же: таблица для правки (проценты и суммы
+ * в строках) и сетка для взгляда (лестница мест без участников — сразу видно,
+ * как деньги падают от чемпиона вниз). */
 function PlacesEditor({ config, view, apply, commit }: EngineProps) {
+  const [grid, setGrid] = useState(false);
   const shares = config.engine.shares;
   const share = view?.engineShare ?? 0;
   const sum = shares.reduce((a, b) => a + b, 0);
+  const amounts = shares.map(
+    (p, i) => view?.ladder[i]?.guarantee ?? Math.floor((share * p) / 100),
+  );
+  const maxAmount = Math.max(1, ...amounts);
 
   return (
     <section className={s.group}>
-      <h3 className={s.groupTitle}>Раскладка мест</h3>
-      <div className={s.rounds}>
-        {shares.map((sharePercent, i) => {
-          const amount = view?.ladder[i]?.guarantee ?? Math.floor((share * sharePercent) / 100);
-          return (
-            <div key={i} className={s.round}>
-              <span className={s.roundName}>{i + 1} место</span>
-              <input
-                className={s.cell}
-                type="number"
-                min={1}
-                max={100}
-                key={`share-${i}-${sharePercent}`}
-                defaultValue={sharePercent}
-                title="процент фонда"
-                onBlur={(e) =>
-                  commit(e.target.value, (c, v) => {
-                    c.engine.shares[i] = Math.max(1, Math.min(100, v));
-                    c.engine.shares = [...c.engine.shares];
-                  })
-                }
-              />
-              <span className={s.rowValue}>{money(amount)}</span>
-              <button
-                className={s.reset}
-                type="button"
-                title="Убрать место из раскладки"
-                onClick={() =>
-                  apply((c) => {
-                    c.engine.shares = c.engine.shares.filter((_, j) => j !== i);
-                  })
-                }
-              >
-                ✕
-              </button>
+      <h3 className={s.groupTitle}>
+        Раскладка мест
+        <span className={s.viewTabs}>
+          <button
+            type="button"
+            className={grid ? undefined : s.viewOn}
+            onClick={() => setGrid(false)}
+          >
+            таблица
+          </button>
+          <button
+            type="button"
+            className={grid ? s.viewOn : undefined}
+            onClick={() => setGrid(true)}
+          >
+            сетка
+          </button>
+        </span>
+      </h3>
+
+      {grid ? (
+        /* Сетка: лестница мест — ширина ступени это деньги, участник не
+           нужен, чтобы увидеть, как фонд ложится по местам. */
+        <div className={s.ladder}>
+          {shares.map((p, i) => (
+            <div key={i} className={s.ladderStep} style={{ '--i': i } as React.CSSProperties}>
+              <span className={s.ladderPlace}>{i + 1}</span>
+              <span className={s.ladderBar} aria-hidden>
+                <i style={{ width: `${Math.max(3, (amounts[i] ?? 0) / maxAmount * 100).toFixed(1)}%` }} />
+              </span>
+              <span className={s.ladderMoney}>{money(amounts[i] ?? 0)}</span>
+              <span className={s.ladderPct}>{p}%</span>
             </div>
-          );
-        })}
-      </div>
+          ))}
+          <div className={s.ladderNote}>
+            {shares.length} {pluralPlaces(shares.length)} · участников в кадре нет — только деньги по местам
+          </div>
+        </div>
+      ) : (
+        <div className={s.rounds}>
+          {shares.map((sharePercent, i) => {
+            const amount = amounts[i] ?? 0;
+            return (
+              <div key={i} className={s.round}>
+                <span className={s.roundName}>{i + 1} место</span>
+                <input
+                  className={s.cell}
+                  type="number"
+                  min={1}
+                  max={100}
+                  key={`share-${i}-${sharePercent}`}
+                  defaultValue={sharePercent}
+                  title="процент фонда"
+                  onBlur={(e) =>
+                    commit(e.target.value, (c, v) => {
+                      c.engine.shares[i] = Math.max(1, Math.min(100, v));
+                      c.engine.shares = [...c.engine.shares];
+                    })
+                  }
+                />
+                <span className={s.rowValue}>{money(amount)}</span>
+                <button
+                  className={s.reset}
+                  type="button"
+                  title="Убрать место из раскладки"
+                  onClick={() =>
+                    apply((c) => {
+                      c.engine.shares = c.engine.shares.filter((_, j) => j !== i);
+                    })
+                  }
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className={s.addonRow}>
         <span className={s.rowName}>сумма процентов</span>
@@ -551,6 +604,15 @@ function PlacesEditor({ config, view, apply, commit }: EngineProps) {
       </div>
     </section>
   );
+}
+
+/** «2 места / 5 мест» — подпись под сеткой. */
+function pluralPlaces(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'место';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'места';
+  return 'мест';
 }
 
 /** Форма матчевых выплат: рост, скидка и честная таблица цен. */
@@ -963,32 +1025,79 @@ function MoneyExample({ config, view }: { config: PrizeConfig; view: PrizeView |
 
   const champion = view.ladder[0];
 
+  /* Подсказки при нехватке: не «ошибка», а что сделать. Надстройки режут
+     долю движка — когда она уходит в минус, у организатора есть ровно
+     несколько разумных ходов, и они все перечислены. */
+  const shortfall = share < 0;
+  const hints: string[] = [];
+  if (shortfall) {
+    const overspend = Math.abs(share);
+    hints.push(`надстройки просят на ${money(overspend)} больше, чем есть в фонде`);
+    if (config.addons.matchPayments !== null) hints.push('уменьши долю «выплат за матчи» или сними надстройку');
+    if (config.addons.rookieRace !== null) hints.push('режь «гонку новичков» — её доля задаётся руками');
+    if (config.addons.spectator !== null) hints.push('уменьши «зрительский банк»');
+    if (config.addons.bounty !== null) hints.push('уменьши суммы на головах');
+    hints.push('или добавь в фонд — все доли пересчитаются сами');
+  }
+
   return (
     <section className={s.group}>
       <h3 className={s.groupTitle}>Как отыграются деньги</h3>
 
-      {/* Раскладка фонда: какая доля куда уходит — одним взглядом. */}
-      <div className={s.splitBar} role="img" aria-label="Раскладка фонда по источникам">
-        {parts.map((p) => (
-          <div
-            key={p.label}
-            className={s.splitPart}
-            style={{
-              width: `${Math.max(0, Math.min(100, (p.amount / fund) * 100)).toFixed(2)}%`,
-              background: p.color,
-            }}
-            title={`${p.label}: ${money(p.amount)}`}
-          />
-        ))}
+      {/* Водопад: фонд сверху, потоки под ним с долями, остаток — внизу.
+          Читается сверху вниз как рассказ: есть столько, уходит столько,
+          остаётся столько. */}
+      <div className={s.waterfall}>
+        <div className={s.wfFund}>
+          <span className={s.wfFundLabel}>фонд</span>
+          <b className={s.wfFundSum}>{money(fund)}</b>
+          {config.addons.jackpot && view.jackpotNow > 0 ? (
+            <span className={s.wfFundNote}>джекпот вкатан: {money(view.jackpotNow)}</span>
+          ) : null}
+        </div>
+
+        <div className={s.wfSplit} aria-hidden />
+
+        <div className={s.wfStreams}>
+          {parts.map((p) => (
+            <div key={p.label} className={s.wfStream}>
+              <span className={s.wfDot} style={{ background: p.color }} aria-hidden />
+              <span className={s.wfLabel}>{p.label}</span>
+              <span className={s.wfBar} aria-hidden>
+                <i
+                  style={{
+                    width: `${Math.max(2, Math.min(100, (p.amount / fund) * 100)).toFixed(1)}%`,
+                    background: p.color,
+                  }}
+                />
+              </span>
+              <b className={s.wfAmount}>{money(p.amount)}</b>
+              <span className={s.wfPct}>
+                {Math.round((Math.max(0, p.amount) / fund) * 100)}%
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {shortfall ? (
+          <div className={s.wfRest}>
+            движку не хватает {money(Math.abs(share))} — уменьши надстройки или добавь в фонд
+          </div>
+        ) : share > 0 ? (
+          <div className={s.wfRest}>
+            движку остаётся {money(share)}
+            {config.addons.jackpot ? ' · невыданный остаток уедет в джекпот' : ''}
+          </div>
+        ) : null}
       </div>
-      <div className={s.splitLegend}>
-        {parts.map((p) => (
-          <span key={p.label} className={s.splitKey}>
-            <i style={{ background: p.color }} aria-hidden />
-            {p.label} · {money(p.amount)}
-          </span>
-        ))}
-      </div>
+
+      {hints.length > 0 ? (
+        <div className={s.wfHints}>
+          {hints.map((h) => (
+            <div key={h}>→ {h}</div>
+          ))}
+        </div>
+      ) : null}
 
       <div className={s.example}>
         {lines.length === 0 ? (

@@ -57,6 +57,7 @@ import type {
   RookieRacePayload,
   SpectatorBankPayload,
   StandingsPayload,
+  StatsPayload,
   TrailerPlayersPayload,
   TrailerStakesPayload,
   TrailerTitlePayload,
@@ -607,14 +608,23 @@ const BAND_GAP = CARD_H * K;
  * не влезает: если её всё же вписать, ники станут нечитаемыми, поэтому камера
  * идёт по ней рядами и колонками. Соседние остановки делят колонку — иначе
  * связь между ними обрывается ровно на стыке.
+ *
+ * Пустые раунды камера не посещает: на старте турнира в полуфинале никого
+ * нет, и остановка на пустых карточках — поездка в никуда. Живой для камеры
+ * кусок — где есть игрок, идущий матч или сыгранный матч: к пустому она
+ * вернётся, когда туда кто-то дойдёт.
  */
 function cameraStops(cards: AirBracketCard[], width: number, height: number): AirBracketStop[] {
   const whole: AirBracketStop = { x: 0, y: 0, w: width, h: height, cards: [] };
   if (cards.length === 0) return [whole];
   if (Math.min(VIEW_W / width, VIEW_H / height) >= MIN_SCALE) return [whole];
 
+  // Живые карточки: в них есть игрок, они идут или уже сыграны.
+  const alive = cards.filter((c) => c.live || c.done || c.a !== null || c.b !== null);
+  if (alive.length === 0) return [whole];
+
   const stops: AirBracketStop[] = [];
-  for (const band of bands(cards)) {
+  for (const band of bands(alive)) {
     for (const chunk of columnChunks(band)) {
       const left = Math.min(...chunk.map((c) => c.x));
       const right = Math.max(...chunk.map((c) => c.x + c.w));
@@ -934,6 +944,62 @@ function span(from: string | null, to: string | null): number {
   if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
   return Math.round((b - a) / 1000);
 }
+
+/** Подробная статистика турнира — сцена «Цифры турнира».
+ *
+ * Отдельно от «Рекордов»: рекорды — про исключительное (самый быстрый, самый
+ * близкий), а здесь — про массу: сколько сыграли, чем играли, кто сейчас
+ * впереди по картам. Всё считается по журналам и standings — то, что
+ * подводка озвучила бы между матчами. */
+export function stats(ctx: AirContext): StatsPayload | null {
+  const finished = ctx.bracket.matches.filter((m) => m.status === 'finished');
+  if (finished.length === 0) return null;
+
+  // Карты — по журналам: строка «сыграна» это один игровой заход.
+  const mods = new Map<string, number>();
+  let maps = 0;
+  let longest: { title: string; version: string; length: number } | null = null;
+  for (const log of ctx.logs) {
+    for (const row of log.rows) {
+      if (row.state.kind !== 'played') continue;
+      maps += 1;
+      mods.set(row.mod, (mods.get(row.mod) ?? 0) + 1);
+      const m = rowMap(row);
+      if (m.length !== null && (longest === null || m.length > longest.length)) {
+        longest = { title: m.title, version: m.version, length: m.length };
+      }
+    }
+  }
+
+  // Средняя длина матча — в картах, а не в минутах: минута зависит от пауз
+  // и лагов лобби, а карта — единица игры.
+  const perMatch = maps / Math.max(1, finished.length);
+  const avgMatch = `${perMatch.toFixed(1)} ${plural(Math.round(perMatch), 'карта', 'карты', 'карт')} за матч`;
+
+  const top = [...ctx.bracket.standings]
+    .sort((x, y) => y.mapWins - x.mapWins || y.matchWins - x.matchWins)
+    .slice(0, 5)
+    .map((row) => ({
+      nick: row.nickname,
+      color: row.color,
+      osuUserId: ctx.players.find((p) => p.id === row.playerId)?.osuUserId ?? null,
+      maps: row.mapWins,
+      matches: row.matchWins,
+    }))
+    .filter((row) => row.maps > 0 || row.matches > 0);
+
+  return {
+    matches: { played: finished.length, total: ctx.bracket.matches.length },
+    maps,
+    avgMatch,
+    longest,
+    mods: [...mods.entries()]
+      .map(([mod, count]) => ({ mod, count }))
+      .sort((x, y) => y.count - x.count),
+    top,
+  };
+}
+
 
 export function champion(ctx: AirContext): ChampionPayload | null {
   const podium = ctx.bracket.standings.filter((s) => s.placement <= 3);

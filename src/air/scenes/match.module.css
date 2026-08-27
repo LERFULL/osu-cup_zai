@@ -49,22 +49,22 @@
   }
 }
 
-[data-anim='assembled'] .liveTop {
+[data-anim='show'] .liveTop {
   animation: comeIn 520ms var(--ease) both;
 }
 
 /* Строки скоров приезжают справа: таблица монтируется встречными
    направлениями — сборка заметнее, когда части едут с разных сторон. */
-[data-anim='assembled'] .scoreRow {
+[data-anim='show'] .scoreRow {
   animation: comeInRight 520ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 80ms + 180ms);
 }
 
-[data-anim='assembled'] .resultHead {
+[data-anim='show'] .resultHead {
   animation: comeIn 520ms var(--ease) both;
 }
 
-[data-anim='assembled'] .banHead {
+[data-anim='show'] .banHead {
   animation: comeIn 520ms var(--ease) both;
 }
 
@@ -95,19 +95,19 @@
   }
 }
 
-[data-anim='cinematic'] .liveTop {
+[data-anim='cinema'] .liveTop {
   animation: cineFarIn 950ms var(--ease) both;
   /* Ближний план: игроки выступают из кадра, когда камера летит. */
   transform: translateZ(120px);
 }
 
-[data-anim='cinematic'] .resultHead,
-[data-anim='cinematic'] .banHead {
+[data-anim='cinema'] .resultHead,
+[data-anim='cinema'] .banHead {
   animation: cineFarIn 950ms var(--ease) both;
   transform: translateZ(110px);
 }
 
-[data-anim='cinematic'] .scoreRow {
+[data-anim='cinema'] .scoreRow {
   animation: cineNearRightIn 660ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 52ms + 220ms);
   transform: translateZ(calc(80px - var(--i, 0) * 18px));
@@ -116,39 +116,39 @@
 /* Планки письма-бокса (обвязка слоя) отъедают верх и низ кадра: «Ходу
    матча» добавляем внутренние отступы, чтобы головы игроков не ушли
    под планку. Остальные сцены матча уже с запасом. */
-[data-anim='cinematic'] .live {
+[data-anim='cinema'] .live {
   padding-top: 96px;
   padding-bottom: 92px;
 }
 
 /* Глубина сцены: контейнеры держат 3D-контекст, элементы расходятся по
    планам — при движении камеры получается параллакс, а не плоский слайд. */
-[data-anim='cinematic'] .live,
-[data-anim='cinematic'] .versus,
-[data-anim='cinematic'] .livePool,
-[data-anim='cinematic'] .liveGroup,
-[data-anim='cinematic'] .frame,
-[data-anim='cinematic'] .overlay,
-[data-anim='cinematic'] .reveal,
-[data-anim='cinematic'] .final,
-[data-anim='cinematic'] .progress,
-[data-anim='cinematic'] .headsVs,
-[data-anim='cinematic'] .taken {
+[data-anim='cinema'] .live,
+[data-anim='cinema'] .versus,
+[data-anim='cinema'] .livePool,
+[data-anim='cinema'] .liveGroup,
+[data-anim='cinema'] .frame,
+[data-anim='cinema'] .overlay,
+[data-anim='cinema'] .reveal,
+[data-anim='cinema'] .final,
+[data-anim='cinema'] .progress,
+[data-anim='cinema'] .headsVs,
+[data-anim='cinema'] .taken {
   transform-style: preserve-3d;
 }
 
 /* Строка хода и деньги — передний план маппула. */
-[data-anim='cinematic'] .liveTurn {
+[data-anim='cinema'] .liveTurn {
   transform: translateZ(90px);
 }
 
-[data-anim='cinematic'] .liveMoney {
+[data-anim='cinema'] .liveMoney {
   transform: translateZ(70px);
 }
 
 /* Строки маппула уходят вглубь по очереди: список читается как ряд карт,
    разложенных в пространстве. Вход — разворотом, не подъёмом. */
-[data-anim='cinematic'] .liveLine {
+[data-anim='cinema'] .liveLine {
   transform: translateZ(calc(44px - var(--i, 0) * 5px));
   animation: cineLineIn 680ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 58ms + 240ms);
@@ -168,34 +168,34 @@
 }
 
 /* Окно врезки — самый ближний план: камера к нему и летит. */
-[data-anim='cinematic'] .revealCard {
+[data-anim='cinema'] .revealCard {
   transform: translateZ(160px);
 }
 
-[data-anim='cinematic'] .revealRow {
+[data-anim='cinema'] .revealRow {
   transform: translateZ(60px);
 }
 
 /* Соперники в представлении: каждый со своей глубиной — камера, облетающая
    кадр, честно меняет их масштаб. */
-[data-anim='cinematic'] .versusSide:first-child {
+[data-anim='cinema'] .versusSide:first-child {
   transform: translateZ(90px);
 }
 
-[data-anim='cinematic'] .versusGrid > .versusSide:last-child {
+[data-anim='cinema'] .versusGrid > .versusSide:last-child {
   transform: translateZ(50px);
 }
 
-[data-anim='cinematic'] .versusMiddle {
+[data-anim='cinema'] .versusMiddle {
   transform: translateZ(150px);
 }
 
 /* Победитель итога — ближе всех: он и есть событие. */
-[data-anim='cinematic'] .finalWinner {
+[data-anim='cinema'] .finalWinner {
   transform: translateZ(130px);
 }
 
-[data-anim='cinematic'] .afterMoney {
+[data-anim='cinema'] .afterMoney {
   transform: translateZ(80px);
 }
 
@@ -1294,7 +1294,7 @@
   border: 1px solid rgba(126, 217, 87, 0.45);
   border-radius: 999px;
   background: rgba(126, 217, 87, 0.1);
-  color: #7ed957;
+  color: var(--green);
   font-size: 18px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -1380,7 +1380,7 @@
   gap: 20px;
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--line);
 }
 
 .progressMoneySide {
@@ -1431,7 +1431,7 @@
 }
 
 .headsSum {
-  color: #ffd03b;
+  color: var(--gold);
   font-family: var(--mono);
   font-size: 64px;
   font-weight: 800;
@@ -1473,7 +1473,7 @@
 }
 
 .takenSum {
-  color: #ffd03b;
+  color: var(--gold);
   font-family: var(--mono);
   font-size: 54px;
   font-weight: 800;

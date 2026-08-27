@@ -37,14 +37,58 @@ export interface AirState {
   theme: AirTheme;
 }
 
-/** Стиль анимации эфира. Выбирается один на весь эфир, сцена может переопределить. */
-export type AirStyle = 'calm' | 'assembled' | 'cinematic';
+/**
+ * Стиль анимации эфира — как ведёт себя кадр: скорости входа, движение камеры,
+ * длина переходов. Выбирается один на весь эфир, сцена может переопределить.
+ *
+ * Три стиля — три философии показа:
+ * - `sport` — спортивный: быстро и ёмко, важна игра и результат, а не трюки;
+ * - `show` — зрительский: камера стоит, картинка складывается по кусочкам,
+ *   удерживает зрителя красивой сборкой;
+ * - `cinema` — кинематограф: камера летает в 3D, глубина, склейки, пафос
+ *   больших турниров.
+ */
+export type AirStyle = 'sport' | 'show' | 'cinema';
+
+/** Прежние имена стилей в старых настройках — переводим на новые при чтении. */
+const LEGACY_STYLES: Record<string, AirStyle> = {
+  calm: 'sport',
+  assembled: 'show',
+  cinematic: 'cinema',
+};
+
+/** Чужое значение стиля (в том числе старое) — в новый словарь. */
+export function normalizeStyle(value: string | undefined): AirStyle {
+  if (value === 'sport' || value === 'show' || value === 'cinema') return value;
+  const legacy = LEGACY_STYLES[value ?? ''];
+  return legacy ?? 'sport';
+}
 
 /** Человекочитаемые названия стилей — пульт и страница согласны на одни слова. */
 export const STYLE_TITLES: Record<AirStyle, string> = {
-  calm: 'Сдержанно',
-  assembled: 'Собирается',
-  cinematic: 'Кинематограф',
+  sport: 'Спортивный',
+  show: 'Зрительский',
+  cinema: 'Кинематограф',
+};
+
+/**
+ * Шаблон кадра — что именно анимируется: декорации, палитра, типографика.
+ *
+ * Стиль отвечает за движение, шаблон — за пространство, в котором оно
+ * происходит. Втроём они дают девять разных эфиров из одних и тех же сцен.
+ */
+export type AirTemplate = 'cup' | 'rome' | 'osu';
+
+/** Чужое значение шаблона — базовый. */
+export function normalizeTemplate(value: string | undefined): AirTemplate {
+  return value === 'rome' || value === 'osu' ? value : 'cup';
+}
+
+/** Названия шаблонов. */
+export const TEMPLATE_TITLES: Record<AirTemplate, string> = {
+  cup: 'osu!cup',
+  rome: 'Древний Рим',
+  osu: 'osu!',
 };
 
 /** Сообщение зрителю. */
@@ -149,6 +193,7 @@ export const PAUSE_SCENES = [
   'countdown',
   'playerCard',
   'records',
+  'stats',
   'champion',
   'credits',
   'fundBoard',
@@ -411,6 +456,22 @@ export interface RecordsPayload {
   items: { title: string; value: string; note: string | null }[];
 }
 
+/** Подробная статистика турнира — сцена «Цифры турнира». */
+export interface StatsPayload {
+  /** Сколько матчей уже сыграно из скольких. */
+  matches: { played: number; total: number };
+  /** Сколько карт сыграно. */
+  maps: number;
+  /** Средняя длина матча словами: «2 карты», «5 карт». */
+  avgMatch: string;
+  /** Самая долгая карта: название и длина. */
+  longest: { title: string; version: string; length: number } | null;
+  /** Разбивка по модам: сколько карт каждого мод-тега сыграли. */
+  mods: { mod: string; count: number }[];
+  /** Топ по выигранным картам. */
+  top: { nick: string; color: string; osuUserId: number | null; maps: number; matches: number }[];
+}
+
 /** Строка табло фонда: источник денег и сумма. */
 export interface FundBoardRow {
   title: string;
@@ -546,6 +607,7 @@ export type ScenePayload =
   | CountdownPayload
   | PlayerCardPayload
   | RecordsPayload
+  | StatsPayload
   | ChampionPayload
   | CreditsPayload
   | FundBoardPayload
@@ -581,6 +643,22 @@ export interface AirConfig {
   style: AirStyle;
   /** Переопределение стиля для отдельной сцены. Ключа нет — как у всех. */
   sceneStyle: Partial<Record<SceneId, AirStyle>>;
+  /**
+   * Шаблон кадра на весь эфир: декорации, палитра, типографика.
+   *
+   * Отдельно от стиля нарочно: стиль — это движение, шаблон — то, что
+   * движется. Менять шаблон посреди эфира можно, но обычно выбирают раз
+   * и навсегда под подачу турнира.
+   */
+  template: AirTemplate;
+  /**
+   * Темп заготовок: множитель длительности сцен. 1 — как задумано, 1.5 —
+   * быстрее, 0.5 — вдвое медленнее и величественнее.
+   *
+   * Одна ручка вместо правки каждой сцены: «эта долго висит, а эту не
+   * успеть разглядеть» — это про темп всего эфира, а не про одну сцену.
+   */
+  pace: number;
   /**
    * Тексты финала: организаторы, судьи, ссылки и соцсети. В модели турнира их
    * нет — их знает только эфир, поэтому лежат здесь, а не в редакторе.
@@ -621,10 +699,14 @@ export const DEFAULT_CONFIG: AirConfig = {
   // Включено всё: каждая сцена считается по самому турниру, и данных под них
   // не надо доносить руками.
   enabled: [...MATCH_SCENES, ...PAUSE_SCENES],
-  // Сдержанно: эфир говорит, а не показывает трюки. Два других стиля —
+  // Спортивный: эфир говорит, а не показывает трюки. Два других стиля —
   // осознанный выбор, а не настройка по умолчанию.
-  style: 'calm',
+  style: 'sport',
   sceneStyle: {},
+  // Шаблон — родной тёмный osu!cup: Рим и osu! включают под подачу турнира.
+  template: 'cup',
+  // Темп 1 — длительности из каталога, как задумано.
+  pace: 1,
   finalTexts: { organizers: '', judges: '', links: '', socials: '' },
   roundPlans: {},
   pauseBudget: 240,

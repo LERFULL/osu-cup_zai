@@ -38,9 +38,12 @@
 /* ────────────────────────────────────────────────────── стили анимации
  *
  * Стиль приходит атрибутом `data-anim` на контейнере слоя (см. `air.css`).
- * «Сдержанно» — поведение по умолчанию выше, отдельных правил не требует. */
+ * Токены темпа (--t-in, --t-step) стоят на слое: «Спортивный» собирает кадр
+ * почти мгновенно, «Зрительский» — неспешно, «Кинематограф» — величественно.
+ * Базовое поведение (rowIn выше) — спортивная подача: короткий подъём с
+ * малым шагом каскада, delays через токены. */
 
-/* Собирается: элементы приезжают по очереди и с разных сторон. Заголовок
+/* Зрительский: элементы приезжают по очереди и с разных сторон. Заголовок
    — первым и целиком, строки маппула слева, плашки справа: кадр монтируется
    из частей, а не проявляется. */
 @keyframes comeIn {
@@ -57,24 +60,36 @@
   }
 }
 
-[data-anim='assembled'] .title,
-[data-anim='assembled'] .note {
+[data-anim='show'] .title,
+[data-anim='show'] .note {
   /* Заголовок едет как одно целое — свои появления строкам не нужны. */
   animation: none;
 }
 
-[data-anim='assembled'] .head {
-  animation: comeIn 520ms var(--ease) both;
+[data-anim='show'] .head {
+  animation: comeIn 620ms var(--ease) both;
 }
 
-[data-anim='assembled'] .lineIn {
-  animation: comeIn 520ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 55ms + 130ms);
+[data-anim='show'] .lineIn {
+  animation: comeIn 620ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--t-step) + 140ms);
 }
 
-[data-anim='assembled'] .statIn {
-  animation: comeInRight 520ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 75ms + 160ms);
+[data-anim='show'] .statIn {
+  animation: comeInRight 620ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * calc(var(--t-step) * 1.2) + 170ms);
+}
+
+/* Спортивный: тот же монтаж, но в темпе игры — скорости из токенов, шаги
+   короткие. Кадр обязан собраться за долю секунды: дальше — игра. */
+[data-anim='sport'] .lineIn {
+  animation: comeIn var(--t-in) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--t-step));
+}
+
+[data-anim='sport'] .statIn {
+  animation: comeInRight var(--t-in) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--t-step));
 }
 
 /* ── Кинематограф: глубина. Камера летит (обвязка слоя), и планы расходятся
@@ -107,22 +122,22 @@
   }
 }
 
-[data-anim='cinematic'] .title {
+[data-anim='cinema'] .title {
   animation: cineTitleIn 1150ms var(--ease) both;
 }
 
-[data-anim='cinematic'] .note {
+[data-anim='cinema'] .note {
   animation: cineTitleIn 1150ms var(--ease) 120ms both;
 }
 
-[data-anim='cinematic'] .lineIn {
+[data-anim='cinema'] .lineIn {
   animation: cineNearIn 660ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 46ms + 230ms);
+  animation-delay: calc(var(--i, 0) * var(--t-step) + 230ms);
 }
 
-[data-anim='cinematic'] .statIn {
+[data-anim='cinema'] .statIn {
   animation: cineNearIn 660ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 60ms + 280ms);
+  animation-delay: calc(var(--i, 0) * calc(var(--t-step) * 1.2) + 280ms);
 }
 
 
@@ -141,6 +156,7 @@
 
 .title {
   margin: 0;
+  font-family: var(--disp);
   font-size: 62px;
   font-weight: 800;
   letter-spacing: -0.02em;

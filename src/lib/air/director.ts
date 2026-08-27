@@ -62,10 +62,13 @@ export function liveLayer(ctx: AirContext, m: MatchState): AirLayer {
   return layer('matchLive', build.matchLive(ctx, m));
 }
 
-/** Сколько секунд отвести сцене: свободный бюджет — берём максимум. */
-const secondsOf = (id: SceneId): number => {
+/** Сколько секунд отвести сцене: свободный бюджет — берём максимум.
+ *
+ * `pace` — темп эфира из настроек: 1 — как задумано, больше — быстрее. */
+const secondsOf = (id: SceneId, pace = 1): number => {
   const meta = sceneMeta(id);
-  return meta.timing === 'fixed' ? meta.max : 0;
+  if (meta.timing !== 'fixed') return 0;
+  return Math.max(0.5, meta.max / Math.max(0.25, pace));
 };
 
 /** Кадр из одной сцены. */
@@ -75,8 +78,9 @@ function single(
   label: string,
   after: After,
   objectKey = '',
+  pace = 1,
 ): Proposal {
-  const seconds = secondsOf(id);
+  const seconds = secondsOf(id, pace);
   return { id, objectKey, label, layers: [layer(id, payload, seconds)], seconds, after };
 }
 
@@ -87,8 +91,9 @@ function overlay(
   label: string,
   base: AirLayer,
   after: After,
+  pace = 1,
 ): Proposal {
-  const seconds = secondsOf(id);
+  const seconds = secondsOf(id, pace);
   return {
     id,
     objectKey: '',
@@ -114,6 +119,7 @@ export function planMatch(
   prev: MatchState | null,
   next: MatchState,
   lobby: LobbyGame | null,
+  pace = 1,
 ): Proposal[] {
   const out: Proposal[] = [];
   const base = liveLayer(ctx, next);
@@ -125,16 +131,16 @@ export function planMatch(
     // на кону, потом кто играет.
     const heads = build.bountyHeads(ctx, next);
     if (heads !== null) {
-      const intro = layer('matchIntro', build.matchIntro(ctx, next), secondsOf('matchIntro'));
+      const intro = layer('matchIntro', build.matchIntro(ctx, next), secondsOf('matchIntro', pace));
       out.push(
         single('bountyHeads', heads, `Головы — ${heads.a.nick} и ${heads.b.nick}`, {
           kind: 'layers',
           layers: [intro],
-        }),
+        }, '', pace),
       );
     }
     out.push(
-      single('matchIntro', build.matchIntro(ctx, next), representation(next, ctx), live),
+      single('matchIntro', build.matchIntro(ctx, next), representation(next, ctx), live, '', pace),
     );
     // Дальше по этому же состоянию сравнивать не с чем: остальные события
     // будут на следующих обновлениях.
@@ -152,6 +158,7 @@ export function planMatch(
           `Бан ${reveal.n} — ${reveal.map.slot} ${reveal.by === null ? '' : `от ${reveal.by.nick}`}`.trim(),
           base,
           live,
+          pace,
         ),
       );
     }
@@ -168,6 +175,7 @@ export function planMatch(
           `Пик ${reveal.map.slot}${reveal.by === null ? '' : ` — ${reveal.by.nick}`}`,
           base,
           { kind: 'progress' },
+          pace,
         ),
       );
     }
@@ -184,6 +192,7 @@ export function planMatch(
           `Результат ${result.map.slot}${result.winner === null ? '' : ` — взял ${result.winner.nick}`}`,
           base,
           live,
+          pace,
         ),
       );
     }
@@ -199,6 +208,8 @@ export function planMatch(
           result,
           `Итог матча — победил ${result.winner.nick}`,
           { kind: 'pause' },
+          '',
+          pace,
         ),
       );
     }
@@ -212,6 +223,8 @@ export function planMatch(
           bounty,
           `Баунти снято — ${bounty.killer.nick} забирает ${bounty.taken}`,
           { kind: 'pause' },
+          '',
+          pace,
         ),
       );
     }
@@ -230,7 +243,7 @@ function representation(m: MatchState, ctx: AirContext): string {
  * Турнир завершён: пьедестал, за ним титры. Отдельно от матчей, потому что
  * это событие турнира, а не матча.
  */
-export function planFinish(ctx: AirContext): Proposal[] {
+export function planFinish(ctx: AirContext, pace = 1): Proposal[] {
   const out: Proposal[] = [];
   const podium = build.champion(ctx);
   const titles = build.credits(ctx);
@@ -241,11 +254,13 @@ export function planFinish(ctx: AirContext): Proposal[] {
         'champion',
         podium,
         `Пьедестал — победитель ${podium.podium[0]?.nick ?? '—'}`,
-        { kind: 'layers', layers: [layer('credits', titles, secondsOf('credits'))] },
+        { kind: 'layers', layers: [layer('credits', titles, secondsOf('credits', pace))] },
+        '',
+        pace,
       ),
     );
   }
-  out.push(single('credits', titles, 'Титры', { kind: 'pause' }));
+  out.push(single('credits', titles, 'Титры', { kind: 'pause' }, '', pace));
   return out;
 }
 

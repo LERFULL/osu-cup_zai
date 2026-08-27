@@ -141,10 +141,10 @@
   }
 }
 
-[data-demo='calm'] .demoHead,
-[data-demo='calm'] .demoBar {
-  animation: demoRise 420ms ease both;
-  animation-delay: calc(var(--i, -1) * 40ms);
+[data-demo='sport'] .demoHead,
+[data-demo='sport'] .demoBar {
+  animation: demoRise 200ms ease both;
+  animation-delay: calc(var(--i, -1) * 30ms);
 }
 
 /* Собирается: части приезжают с разных сторон — в миниатюре видно,
@@ -163,16 +163,16 @@
   }
 }
 
-[data-demo='assembled'] .demoHead {
+[data-demo='show'] .demoHead {
   animation: demoLeft 480ms ease both;
 }
 
-[data-demo='assembled'] .demoBar {
+[data-demo='show'] .demoBar {
   animation: demoLeft 480ms ease both;
   animation-delay: calc(var(--i, -1) * 90ms + 160ms);
 }
 
-[data-demo='assembled'] .demoBar:nth-child(odd) {
+[data-demo='show'] .demoBar:nth-child(odd) {
   animation-name: demoRight;
 }
 
@@ -223,15 +223,15 @@
   }
 }
 
-[data-demo='cinematic'] {
+[data-demo='cinema'] {
   animation:
     demoCine 700ms ease both,
     demoDrift 2600ms linear 700ms both;
 }
 
 /* Планки плёнки сверху и снизу мини-кадра. */
-[data-demo='cinematic']::before,
-[data-demo='cinematic']::after {
+[data-demo='cinema']::before,
+[data-demo='cinema']::after {
   content: '';
   position: absolute;
   left: 0;
@@ -241,18 +241,179 @@
   animation: demoBarTop 460ms ease 180ms both;
 }
 
-[data-demo='cinematic']::before {
+[data-demo='cinema']::before {
   top: 0;
 }
 
-[data-demo='cinematic']::after {
+[data-demo='cinema']::after {
   bottom: 0;
   animation-name: demoBarBottom;
 }
 
-[data-demo='cinematic'] .demoHead {
+[data-demo='cinema'] .demoHead {
   animation: demoGlow 800ms ease both;
   background: var(--pink);
+}
+
+/* ───────────────────────────────────────────── мини-демо шаблонов */
+
+.tplDemo {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0c0e13;
+}
+
+.tplTitle {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #f4f5f8;
+}
+
+.tplLine {
+  position: relative;
+  z-index: 1;
+  width: 70%;
+  height: 6px;
+  border-radius: 3px;
+  background: #232838;
+}
+
+.tplLine:nth-of-type(2) {
+  width: 50%;
+}
+
+/* Колонны-декорации по краям мини-кадра. */
+.tplCol {
+  position: absolute;
+  top: 10%;
+  bottom: 10%;
+  width: 4px;
+  border-radius: 2px;
+}
+
+.tplCol:nth-child(1) {
+  left: 7%;
+}
+
+.tplCol:nth-child(2) {
+  left: 13%;
+  opacity: 0.6;
+}
+
+.tplCol:nth-child(3) {
+  right: 13%;
+  opacity: 0.6;
+}
+
+.tplCol:nth-child(4) {
+  right: 7%;
+}
+
+/* osu!cup: тёмное стекло и розовое свечение. */
+[data-tpl='cup'] {
+  background:
+    radial-gradient(70% 90% at 80% 0%, rgb(255 111 177 / 0.16), transparent 70%),
+    #0c0e13;
+}
+
+[data-tpl='cup'] .tplCol {
+  background: rgb(255 255 255 / 0.07);
+}
+
+[data-tpl='cup'] .tplTitle {
+  font-family: 'Manrope Variable', sans-serif;
+}
+
+/* Древний Рим: белое поле, золотые колонны и линии, serif-заголовок. */
+[data-tpl='rome'] {
+  background:
+    radial-gradient(90% 70% at 50% 0%, #fff, transparent 60%),
+    #f3efe5;
+}
+
+[data-tpl='rome'] .tplCol {
+  background: linear-gradient(to right, rgb(164 134 84 / 0.5), rgb(228 198 135 / 0.85));
+  box-shadow: 0 0 10px rgb(150 118 70 / 0.25);
+}
+
+[data-tpl='rome'] .tplCol:nth-child(2),
+[data-tpl='rome'] .tplCol:nth-child(3) {
+  opacity: 0.55;
+}
+
+[data-tpl='rome'] .tplTitle {
+  color: #2c2620;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 14px;
+}
+
+[data-tpl='rome'] .tplLine {
+  background: rgb(112 92 58 / 0.16);
+}
+
+/* osu!: фиолетовая ночь, розовый акцент, треугольники. */
+[data-tpl='osu'] {
+  background:
+    radial-gradient(70% 80% at 50% -10%, rgb(255 102 170 / 0.22), transparent 70%),
+    #16132a;
+}
+
+[data-tpl='osu'] .tplCol {
+  background: rgb(255 255 255 / 0.06);
+}
+
+[data-tpl='osu'] .tplTitle {
+  font-family: 'Exo 2', sans-serif;
+  color: #ff66aa;
+}
+
+[data-tpl='osu'] .tplLine {
+  background: #38315e;
+}
+
+/* ───────────────────────────────────────────────────── темп заготовок */
+
+.pace {
+  display: flex;
+  gap: 6px;
+}
+
+.paceStep {
+  flex: 1;
+  padding: 8px 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card2);
+  color: var(--txt2);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.paceStep:hover {
+  border-color: var(--txt3);
+}
+
+.paceOn {
+  border-color: var(--pink);
+  background: rgb(255 111 177 / 0.08);
+  color: var(--pink);
+}
+
+.paceNote {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--txt3);
 }
 
 /* ──────────────────────────────────────────────────────────── сцены */

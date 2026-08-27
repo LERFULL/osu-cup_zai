@@ -41,55 +41,55 @@
   }
 }
 
-[data-anim='assembled'] .person,
-[data-anim='assembled'] .h2hRow,
-[data-anim='assembled'] .step,
-[data-anim='assembled'] .modRow {
+[data-anim='show'] .person,
+[data-anim='show'] .h2hRow,
+[data-anim='show'] .step,
+[data-anim='show'] .modRow {
   animation: comeIn 520ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 60ms + 140ms);
 }
 
-[data-anim='assembled'] .then,
-[data-anim='assembled'] .creditsRow,
-[data-anim='assembled'] .creditsExtra {
+[data-anim='show'] .then,
+[data-anim='show'] .creditsRow,
+[data-anim='show'] .creditsExtra {
   animation: comeInRight 520ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 60ms + 260ms);
 }
 
-[data-anim='assembled'] .fundRow,
-[data-anim='assembled'] .fundWho {
+[data-anim='show'] .fundRow,
+[data-anim='show'] .fundWho {
   animation: comeIn 520ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 60ms + 120ms);
 }
 
 /* Сетка собирается колонками слева направо — карточки едут по очереди. */
-[data-anim='assembled'] .bracketCard {
+[data-anim='show'] .bracketCard {
   animation: comeIn 520ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 45ms);
 }
 
 /* Пьедестал собирается по местам: победитель приезжает последним. */
-[data-anim='assembled'] .podiumStep {
+[data-anim='show'] .podiumStep {
   animation: comeIn 560ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 300ms + 200ms);
 }
 
-[data-anim='assembled'] .bankSum {
+[data-anim='show'] .bankSum {
   animation: comeIn 560ms var(--ease) both;
 }
 
 /* Заставка тоже собирается: имя турнира — затем подпись. */
-[data-anim='assembled'] .idleName {
+[data-anim='show'] .idleName {
   animation: comeIn 560ms var(--ease) both;
   animation-delay: 80ms;
 }
 
-[data-anim='assembled'] .idleNote {
+[data-anim='show'] .idleNote {
   animation: comeIn 560ms var(--ease) both;
   animation-delay: 260ms;
 }
 
-[data-anim='assembled'] .messageText {
+[data-anim='show'] .messageText {
   animation: comeIn 560ms var(--ease) both;
   animation-delay: 120ms;
 }
@@ -123,19 +123,19 @@
   }
 }
 
-[data-anim='cinematic'] .idleName,
-[data-anim='cinematic'] .messageText {
+[data-anim='cinema'] .idleName,
+[data-anim='cinema'] .messageText {
   animation: cineTitle 1300ms var(--ease) both;
 }
 
-[data-anim='cinematic'] .person,
-[data-anim='cinematic'] .h2hRow,
-[data-anim='cinematic'] .step,
-[data-anim='cinematic'] .modRow,
-[data-anim='cinematic'] .then,
-[data-anim='cinematic'] .creditsRow,
-[data-anim='cinematic'] .fundRow,
-[data-anim='cinematic'] .fundWho {
+[data-anim='cinema'] .person,
+[data-anim='cinema'] .h2hRow,
+[data-anim='cinema'] .step,
+[data-anim='cinema'] .modRow,
+[data-anim='cinema'] .then,
+[data-anim='cinema'] .creditsRow,
+[data-anim='cinema'] .fundRow,
+[data-anim='cinema'] .fundWho {
   animation: cineNear 660ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 48ms + 220ms);
 }
@@ -150,7 +150,7 @@
   }
 }
 
-[data-anim='cinematic'] .podiumStep {
+[data-anim='cinema'] .podiumStep {
   animation: cinePodium 900ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 260ms + 240ms);
   transform: translateZ(90px);
@@ -158,76 +158,76 @@
 
 /* Глубина сцен паузы: заголовки ближе, списки уходят вглубь — камера,
    летящая над таблицей, получает настоящий параллакс. */
-[data-anim='cinematic'] .frame,
-[data-anim='cinematic'] .two,
-[data-anim='cinematic'] .list,
-[data-anim='cinematic'] .records,
-[data-anim='cinematic'] .credits,
-[data-anim='cinematic'] .podium,
-[data-anim='cinematic'] .fundBoard,
-[data-anim='cinematic'] .fundScheme,
-[data-anim='cinematic'] .fundEarned,
-[data-anim='cinematic'] .bank,
-[data-anim='cinematic'] .flow,
-[data-anim='cinematic'] .flowStreams,
-[data-anim='cinematic'] .earners,
-[data-anim='cinematic'] .trailer,
-[data-anim='cinematic'] .trailerPlayers,
-[data-anim='cinematic'] .stakesStreams {
+[data-anim='cinema'] .frame,
+[data-anim='cinema'] .two,
+[data-anim='cinema'] .list,
+[data-anim='cinema'] .records,
+[data-anim='cinema'] .credits,
+[data-anim='cinema'] .podium,
+[data-anim='cinema'] .fundBoard,
+[data-anim='cinema'] .fundScheme,
+[data-anim='cinema'] .fundEarned,
+[data-anim='cinema'] .bank,
+[data-anim='cinema'] .flow,
+[data-anim='cinema'] .flowStreams,
+[data-anim='cinema'] .earners,
+[data-anim='cinema'] .trailer,
+[data-anim='cinema'] .trailerPlayers,
+[data-anim='cinema'] .stakesStreams {
   transform-style: preserve-3d;
 }
 
 /* Заголовок сцены — передний план. */
-[data-anim='cinematic'] .title {
+[data-anim='cinema'] .title {
   transform: translateZ(110px);
 }
 
-[data-anim='cinematic'] .note {
+[data-anim='cinema'] .note {
   transform: translateZ(90px);
 }
 
 /* Строки списков — лесенка вглубь: чем ниже строка, тем дальше от камеры. */
-[data-anim='cinematic'] .person,
-[data-anim='cinematic'] .h2hRow,
-[data-anim='cinematic'] .step,
-[data-anim='cinematic'] .modRow,
-[data-anim='cinematic'] .then,
-[data-anim='cinematic'] .creditsRow,
-[data-anim='cinematic'] .fundRow,
-[data-anim='cinematic'] .fundWho {
+[data-anim='cinema'] .person,
+[data-anim='cinema'] .h2hRow,
+[data-anim='cinema'] .step,
+[data-anim='cinema'] .modRow,
+[data-anim='cinema'] .then,
+[data-anim='cinema'] .creditsRow,
+[data-anim='cinema'] .fundRow,
+[data-anim='cinema'] .fundWho {
   transform: translateZ(calc(70px - var(--i, 0) * 7px));
 }
 
 /* Крупные суммы — к камере: деньги и есть событие кадра. */
-[data-anim='cinematic'] .bankSum,
-[data-anim='cinematic'] .flowSum,
-[data-anim='cinematic'] .stakesSum {
+[data-anim='cinema'] .bankSum,
+[data-anim='cinema'] .flowSum,
+[data-anim='cinema'] .stakesSum {
   transform: translateZ(150px);
 }
 
 /* Трейлер-название: буквы и так прилетают по одной — добавляем глубину,
    чтобы облёт камеры разводил их по планам. */
-[data-anim='cinematic'] .trailerName {
+[data-anim='cinema'] .trailerName {
   transform: translateZ(100px);
 }
 
-[data-anim='cinematic'] .trailerFormat {
+[data-anim='cinema'] .trailerFormat {
   transform: translateZ(60px);
 }
 
-[data-anim='cinematic'] .trailerPlayer {
+[data-anim='cinema'] .trailerPlayer {
   transform: translateZ(calc(70px - var(--i, 0) * 5px));
 }
 
-[data-anim='cinematic'] .stakesStream {
+[data-anim='cinema'] .stakesStream {
   transform: translateZ(calc(80px - var(--i, 0) * 12px));
 }
 
-[data-anim='cinematic'] .flowRow {
+[data-anim='cinema'] .flowRow {
   transform: translateZ(calc(80px - var(--i, 0) * 12px));
 }
 
-[data-anim='cinematic'] .earner {
+[data-anim='cinema'] .earner {
   transform: translateZ(calc(100px - var(--i, 0) * 14px));
 }
 
@@ -777,6 +777,110 @@
   gap: 20px;
 }
 
+/* ── Цифры турнира: три блока — плашки, моды, топ. */
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  min-height: 0;
+}
+
+.statsRow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.statsMods,
+.statsTop {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.statsModsTitle {
+  color: var(--txt3);
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  animation: rowIn var(--move) var(--ease) both;
+}
+
+.statsModsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.statsMod {
+  display: grid;
+  grid-template-columns: 64px 1fr 70px;
+  align-items: center;
+  gap: 20px;
+}
+
+.statsModBar {
+  height: 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  transform-origin: left;
+  animation: streamGrow 700ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--t-step) + 240ms);
+}
+
+.statsModCount {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--txt2);
+  text-align: right;
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--t-step) + 240ms);
+}
+
+.statsTopList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.statsTopRow {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 10px 22px;
+  border-radius: 12px;
+  background: var(--wash);
+  border-left: 4px solid var(--who, var(--accent));
+  animation: rowIn var(--move) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--t-step) + 320ms);
+}
+
+.statsTopPlace {
+  width: 40px;
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--txt3);
+}
+
+.statsTopNick {
+  font-size: 27px;
+  font-weight: 800;
+}
+
+.statsTopNums {
+  margin-left: auto;
+  color: var(--txt2);
+  font-size: 23px;
+}
+
+.statsTopNums b {
+  color: var(--txt);
+  font-family: var(--mono);
+}
+
 .mods {
   display: flex;
   flex-direction: column;
@@ -1134,9 +1238,9 @@
   grid-template-columns: 1fr auto;
   gap: 2px 16px;
   padding: 12px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--wash);
   animation: rowIn 0.5s both;
   animation-delay: calc(var(--i) * 0.06s);
 }
@@ -1157,7 +1261,7 @@
   grid-row: 1 / span 2;
   grid-column: 2;
   align-self: center;
-  color: #ffd03b;
+  color: var(--gold);
   font-family: var(--mono);
   font-size: 26px;
   font-weight: 700;
@@ -1165,27 +1269,27 @@
 
 /* Места — золотом, матчевые — голубым, баунти — розовым, гонка — зелёным. */
 .fundPlaces .fundRowSum {
-  color: #ffd03b;
+  color: var(--gold);
 }
 
 .fundMatches .fundRowSum {
-  color: #5bc8f5;
+  color: var(--cyan);
 }
 
 .fundMaps .fundRowSum {
-  color: #7ed957;
+  color: var(--green);
 }
 
 .fundBounty .fundRowSum {
-  color: #ff6fb1;
+  color: var(--pink);
 }
 
 .fundRookie .fundRowSum {
-  color: #7ed957;
+  color: var(--green);
 }
 
 .fundSpectator .fundRowSum {
-  color: #c77dff;
+  color: var(--fm);
 }
 
 .fundJackpot .fundRowSum {
@@ -1210,7 +1314,7 @@
   gap: 14px;
   padding: 10px 16px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--wash);
   animation: rowIn 0.5s both;
   animation-delay: calc(var(--i) * 0.06s);
 }
@@ -1238,7 +1342,7 @@
 }
 
 .fundWhoSum {
-  color: #ffd03b;
+  color: var(--gold);
   font-family: var(--mono);
   font-size: 24px;
   font-weight: 700;
@@ -1254,7 +1358,7 @@
 }
 
 .bankSum {
-  color: #ffd03b;
+  color: var(--gold);
   font-family: var(--mono);
   font-size: 120px;
   font-weight: 800;
@@ -1412,7 +1516,7 @@
   padding: 10px 24px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--wash);
   color: var(--txt);
   font-size: 21px;
   font-weight: 700;
@@ -1590,7 +1694,7 @@
 .stakesStreamBar {
   height: 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--wash2, var(--wash));
   overflow: hidden;
 }
 
@@ -1694,10 +1798,10 @@
   display: grid;
   grid-template-columns: 330px 1fr auto;
   align-items: center;
-  gap: 20px;
+  gap: 8px 20px;
   padding: 12px 20px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--wash);
   animation: rowIn 520ms var(--ease) both;
   animation-delay: calc(var(--i) * 90ms + 420ms);
 }
@@ -1709,15 +1813,21 @@
   text-align: right;
 }
 
+/* Пояснение потока — под названием в первой колонке: полоса и сумма
+   занимают обе строки справа, и строка читается как строка, а не как
+   таблица с переносами. */
 .flowRowNote {
-  grid-column: 1 / -1;
-  margin-top: -4px;
+  grid-column: 1;
+  grid-row: 2;
   color: var(--txt3);
   font-size: 16px;
   text-align: right;
 }
 
 .flowBar {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  align-self: center;
   height: 10px;
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 65%, transparent);
@@ -1727,6 +1837,9 @@
 }
 
 .flowAmount {
+  grid-row: 1 / span 2;
+  grid-column: 3;
+  align-self: center;
   font-family: var(--mono);
   font-size: 24px;
   font-weight: 700;
@@ -1737,32 +1850,32 @@
 /* Цвета потоков — те же, что у табло фонда. */
 .fundPlaces .flowAmount,
 .fundPlaces .flowBar {
-  color: #ffd03b;
+  color: var(--gold);
 }
 
 .fundMatches .flowAmount,
 .fundMatches .flowBar {
-  color: #5bc8f5;
+  color: var(--cyan);
 }
 
 .fundMaps .flowAmount,
 .fundMaps .flowBar {
-  color: #7ed957;
+  color: var(--green);
 }
 
 .fundBounty .flowAmount,
 .fundBounty .flowBar {
-  color: #ff6fb1;
+  color: var(--pink);
 }
 
 .fundRookie .flowAmount,
 .fundRookie .flowBar {
-  color: #7ed957;
+  color: var(--green);
 }
 
 .fundSpectator .flowAmount,
 .fundSpectator .flowBar {
-  color: #c77dff;
+  color: var(--fm);
 }
 
 .fundJackpot .flowAmount,
@@ -1794,7 +1907,7 @@
   gap: 22px;
   padding: 12px 24px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--wash);
   animation: rowIn 520ms var(--ease) both;
   animation-delay: calc(var(--i) * 90ms);
 }

@@ -12,8 +12,8 @@ import { MATCH_LIST, PAUSE_LIST, type SceneMeta } from '@/lib/air/catalog';
 import { useAir } from '@/lib/air/store';
 import { isTauri } from '@/lib/host';
 import type { PrizeView } from '@/lib/types';
-import type { AirStyle, SceneId } from '@/lib/air/types';
-import { STYLE_TITLES } from '@/lib/air/types';
+import type { AirStyle, AirTemplate, SceneId } from '@/lib/air/types';
+import { STYLE_TITLES, TEMPLATE_TITLES } from '@/lib/air/types';
 import s from './Setup.module.css';
 
 /**
@@ -42,17 +42,53 @@ function moneySceneVisible(id: SceneId, prize: PrizeView | null): boolean {
   }
 }
 
-/** Три стиля по замыслу, а не по силе: подпись говорит, чем они отличаются. */
+/** Три стиля по замыслу, а не по силе: подпись говорит, чем они отличаются.
+ * Стиль — это движение: как кадр входит, как меняется, есть ли камера. */
 const STYLES: { id: AirStyle; about: string }[] = [
-  { id: 'calm', about: 'проявление и небольшой подъём — эфир говорит, а не показывает трюки' },
-  { id: 'assembled', about: 'кадр монтируется: части приезжают по очереди и с разных сторон' },
-  { id: 'cinematic', about: 'как фильм: планки, летящая камера, планы глубины и блик света' },
+  {
+    id: 'sport',
+    about: 'проф-подача: быстро и ёмко, без трюков — важно, как играют и что сыграли',
+  },
+  {
+    id: 'show',
+    about: 'камера стоит, картинка складывается по кусочкам — удерживает зрителя красотой сборки',
+  },
+  {
+    id: 'cinema',
+    about: 'камера летает в 3D между сценами — трепет больших турниров, каждый матч событие',
+  },
+];
+
+/** Три шаблона: пространство, в котором идёт анимация — декорации и палитра. */
+const TEMPLATES: { id: AirTemplate; about: string }[] = [
+  {
+    id: 'cup',
+    about: 'родной тёмный osu!cup: стекло, акцент турнира, техничная сетка',
+  },
+  {
+    id: 'rome',
+    about: 'белое пространство, колонны и золото: античность в геометрии, турнир как гладиаторский',
+  },
+  {
+    id: 'osu',
+    about: 'арена оригинальной игры: треугольники, кольца, фирменные розовый и жёлтый',
+  },
 ];
 
 /** Значения селекта стиля сцены: пустое — «как у всех». */
 const STYLE_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'как у всех' },
   ...STYLES.map((st) => ({ value: st.id, label: STYLE_TITLES[st.id] })),
+];
+
+/** Шаги темпа: от «величественно» до «максимум скорости». */
+const PACES: { value: number; label: string }[] = [
+  { value: 0.5, label: '0.5×' },
+  { value: 0.75, label: '0.75×' },
+  { value: 1, label: '1×' },
+  { value: 1.25, label: '1.25×' },
+  { value: 1.5, label: '1.5×' },
+  { value: 2, label: '2×' },
 ];
 
 /**
@@ -66,6 +102,22 @@ function StyleDemo({ kind, run }: { kind: AirStyle; run: number }) {
       <span className={s.demoBar} style={{ '--i': 0 } as React.CSSProperties} />
       <span className={s.demoBar} style={{ '--i': 1 } as React.CSSProperties} />
       <span className={s.demoBar} style={{ '--i': 2 } as React.CSSProperties} />
+    </div>
+  );
+}
+
+/** Мини-демо шаблона: маленький кадр в стиле выбранного шаблона — палитра
+ * и фактура читаются без запуска эфира. */
+function TemplateDemo({ kind }: { kind: AirTemplate }) {
+  return (
+    <div className={s.tplDemo} data-tpl={kind}>
+      <i className={s.tplCol} style={{ '--c': 0 } as React.CSSProperties} />
+      <i className={s.tplCol} style={{ '--c': 1 } as React.CSSProperties} />
+      <i className={s.tplCol} style={{ '--c': 2 } as React.CSSProperties} />
+      <i className={s.tplCol} style={{ '--c': 3 } as React.CSSProperties} />
+      <span className={s.tplTitle}>Финал</span>
+      <span className={s.tplLine} />
+      <span className={s.tplLine} />
     </div>
   );
 }
@@ -229,7 +281,7 @@ export function Setup({ onStarted }: Props) {
 
       <Card
         title="Стиль анимации"
-        note="один на весь эфир; отдельную сцену можно переопределить в списке заготовок"
+        note="как ведёт себя кадр: скорости входа, камера, переходы. Отдельную сцену можно переопределить в списке заготовок"
       >
         <div className={s.styles}>
           {STYLES.map((st) => (
@@ -253,6 +305,52 @@ export function Setup({ onStarted }: Props) {
               <StyleDemo kind={st.id} run={showing === st.id ? play + 1 : 0} />
             </button>
           ))}
+        </div>
+      </Card>
+
+      <Card
+        title="Шаблон кадра"
+        note="что в кадре: декорации, палитра, типографика. Один на весь эфир — задают подачу турнира"
+      >
+        <div className={s.styles}>
+          {TEMPLATES.map((tpl) => (
+            <button
+              key={tpl.id}
+              type="button"
+              className={[s.style, config.template === tpl.id ? s.styleOn : null]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => void patchConfig({ template: tpl.id })}
+            >
+              <span className={s.styleTitle}>{TEMPLATE_TITLES[tpl.id]}</span>
+              <span className={s.styleAbout}>{tpl.about}</span>
+              <TemplateDemo kind={tpl.id} />
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <Card title="Темп заготовок" note="одна ручка на все сцены: долгие ужимаются, короткие растягиваются">
+        <div className={s.pace}>
+          {PACES.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              className={[s.paceStep, config.pace === p.value ? s.paceOn : null]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => void patchConfig({ pace: p.value })}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className={s.paceNote}>
+          {config.pace < 0.9
+            ? 'сцены идут дольше — в эфире больше воздуха'
+            : config.pace > 1.1
+              ? `сцены быстрее в ${config.pace}× — темп плотный`
+              : 'длительности из каталога, как задумано'}
         </div>
       </Card>
 

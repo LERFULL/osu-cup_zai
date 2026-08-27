@@ -332,3 +332,25 @@ describe('таймер кадра', () => {
     expect(expired(l, at)).toBe(true);
   });
 });
+
+describe('темп эфира', () => {
+  it('темп ужимает длительности заготовок, не трогая бессрочные', () => {
+    const slow = planMatch(context(), null, state(), null, 0.5);
+    const fast = planMatch(context(), null, state(), null, 2);
+    const base = planMatch(context(), null, state(), null, 1);
+
+    const secs = (p: { seconds: number }[]) => p[0]?.seconds ?? 0;
+    expect(secs(base)).toBeGreaterThan(0);
+    // Медленный эфир держит заготовку дольше, быстрый — меньше.
+    expect(secs(slow)).toBeGreaterThan(secs(base));
+    expect(secs(fast)).toBeLessThan(secs(base));
+    // Темп не может сжать сцену до нуля.
+    expect(secs(fast)).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it('темп не ломает бессрочные слои — там таймера нет', () => {
+    const out = planMatch(context(), state(), state({ actions: [action(1, 'ban', 'NM1')] }), null, 2);
+    // Нет новых событий — нет и кадров, темп ни на что не влияет.
+    expect(out).toEqual([]);
+  });
+});

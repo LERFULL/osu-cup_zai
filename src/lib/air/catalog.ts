@@ -269,6 +269,18 @@ export const SCENES: SceneMeta[] = [
     overlay: false,
   }),
   meta({
+    id: 'stats',
+    kind: 'pause',
+    title: 'Цифры турнира',
+    about: 'Подробная статистика: матчи, карты, моды, лучшие игроки',
+    timing: 'fixed',
+    min: 14,
+    max: 18,
+    repeatable: true,
+    byObject: false,
+    overlay: false,
+  }),
+  meta({
     id: 'champion',
     kind: 'pause',
     title: 'Пьедестал',

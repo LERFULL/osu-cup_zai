@@ -59,7 +59,10 @@ impl AirState {
                 until: None,
                 payload: Value::Object(serde_json::Map::new()),
             }],
-            theme: serde_json::json!({ "accent": "#ff6fb1" }),
+            // Тема — свободный JSON: страница сама разбирает акцент, стиль
+            // анимации и шаблон кадра. Хост пришлёт полную тему с первым
+            // кадром; это значение стоит только до него.
+            theme: serde_json::json!({ "accent": "#ff6fb1", "style": "sport", "template": "cup" }),
         }
     }
 }

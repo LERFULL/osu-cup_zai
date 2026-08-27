@@ -32,6 +32,7 @@ const REGISTRY: Partial<Record<SceneId, Renderer>> = {
   countdown: pause.Countdown as Renderer,
   playerCard: pause.PlayerCard as Renderer,
   records: pause.Records as Renderer,
+  stats: pause.Stats as Renderer,
   champion: pause.Champion as Renderer,
   credits: pause.Credits as Renderer,
   fundBoard: pause.FundBoard as Renderer,

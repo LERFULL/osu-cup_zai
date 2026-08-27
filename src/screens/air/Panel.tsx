@@ -1,18 +1,13 @@
 // Панель эфира: единственное место, откуда им управляют.
 //
-// Раньше управление жило в двух местах — полный пульт в разделе «Эфир» и
-// плавающий док поверх любого экрана. Два пульта обязаны совпадать, а
-// плавающий вдобавок можно свернуть в ноль — ровно в тот момент, когда он
-// нужен. Поэтому панель одна и стоит колонкой в разметке: рядом с судейством
-// на экране матча и рядом с сеткой на экране турнира.
-//
-// Во время матча здесь нет выбора сцен, потому что выбирать не из чего: у
-// каждого состояния матча есть один правильный кадр. Есть только исключения —
-// замереть, выпустить придержанный пик, своя надпись. Выбор появляется в
-// паузе, и там же он к месту.
+// Управление построено вокруг очереди: хост видит, что в эфире, что выйдет
+// следующим и что за этим — и может менять порядок, не дожидаясь момента.
+// Раньше очередь была невидима, и ведущий узнавал о том, что эфир собирался
+// показать, только по самой смене кадра.
 //
 // Миниатюра — та же страница зрителя в маленьком размере, а не отдельный
-// рисунок: два кадра однажды разошлись бы.
+// рисунок: два кадра однажды разошлись бы. Ключ пересоздания — старт эфира:
+// перезагрузить страницу после рестарта сервера она обязана сама.
 
 import { useState } from 'react';
 import { Button, Field } from '@/components';
@@ -28,12 +23,14 @@ const inTauri = isTauri();
 
 export function Panel() {
   const air = useAir();
-  const { status, airing, frozen, standby, playlist, error, watching, ctx } = air;
+  const { status, airing, frozen, standby, playlist, playlistAt, error, watching, ctx } = air;
   const frame = useFrame();
 
   const [minutes, setMinutes] = useState(6);
   const [text, setText] = useState('');
   const [copied, setCopied] = useState(false);
+  /** Развёрнутый выбор сцен: вся сетка заготовок, а не пять частых. */
+  const [picker, setPicker] = useState(false);
 
   if (status?.live !== true) return null;
 
@@ -96,7 +93,14 @@ export function Panel() {
           <div className={s.barFill} style={{ width: `${(frame.part * 100).toFixed(1)}%` }} />
         </div>
         <div className={s.preview}>
-          <iframe className={s.frame} src={previewSrc} title="Кадр эфира" />
+          {/* Ключ — старт эфира: после рестарта сервера страница зрителя
+              пересоздаётся, а не висит с оборванным соединением. */}
+          <iframe
+            key={status.startedAt ?? 'air'}
+            className={s.frame}
+            src={previewSrc}
+            title="Кадр эфира"
+          />
         </div>
       </div>
 
@@ -114,8 +118,70 @@ export function Panel() {
         </div>
       ) : null}
 
-      {/* ── что дальше. Без этого хост не знает, что произойдёт, и потому
-             смотрит в панель вместо матча. */}
+      {/* ── очередь кадров: что выйдет и что за ним, с правкой на месте.
+             Ведущий видит план эфира целиком — не только ближайший кадр. */}
+      {air.proposals.length > 0 ? (
+        <div className={s.block}>
+          <div className={s.label}>
+            Очередь
+            <span className={s.quiet}>
+              {air.proposals.length} {air.proposals.length === 1 ? 'кадр' : 'кадров'}
+            </span>
+          </div>
+          <div className={s.queue}>
+            {air.proposals.map((p, i) => (
+              <div key={`${p.id}-${i}`} className={s.queueRow}>
+                <span className={s.queueNum}>{i + 1}</span>
+                <span className={s.queueLabel} title={p.label}>
+                  {p.label}
+                </span>
+                <span className={s.queueTime}>{p.seconds > 0 ? `${Math.round(p.seconds)} с` : '—'}</span>
+                <button
+                  className={s.queueBtn}
+                  type="button"
+                  aria-label="Выше"
+                  disabled={i === 0}
+                  onClick={() => air.moveProposal(i, i - 1)}
+                >
+                  ↑
+                </button>
+                <button
+                  className={s.queueBtn}
+                  type="button"
+                  aria-label="Ниже"
+                  disabled={i === air.proposals.length - 1}
+                  onClick={() => air.moveProposal(i, i + 1)}
+                >
+                  ↓
+                </button>
+                <button
+                  className={s.queueBtn}
+                  type="button"
+                  aria-label="Показать сейчас"
+                  title="Показать сейчас"
+                  onClick={() => void air.playProposal(i)}
+                >
+                  ▸
+                </button>
+                <button
+                  className={s.queueBtn}
+                  type="button"
+                  aria-label="Убрать"
+                  title="Убрать из очереди"
+                  onClick={() => air.dropProposal(i)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className={s.note}>
+            {plan.automatic ? 'кадры выходят сами, по мере отыгрыша' : 'первый ждёт кнопки — придержан или заморожено'}
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── что дальше */}
       <div className={s.block}>
         <div className={s.label}>
           Дальше
@@ -144,30 +210,84 @@ export function Panel() {
         </div>
       </div>
 
-      {/* ── пауза: единственное место, где есть настоящий выбор */}
-      {inPause ? (
-        <div className={s.block}>
-          <div className={s.label}>
-            Пауза
-            <span className={s.quiet}>
-              {playlist === null ? 'соберётся к паузе' : playlistSummary(playlist)}
-            </span>
-          </div>
+      {/* ── сцены руками: быстрые и полная сетка. Во время матча эфир идёт
+             сам, но хост — хозяин: показать «кто при деньгах» посреди матча
+             законно, и искать эту кнопку не должно приходиться. */}
+      <div className={s.block}>
+        <div className={s.label}>
+          Сцены
+          {inPause && playlist !== null ? (
+            <span className={s.quiet}>{playlistSummary(playlist)}</span>
+          ) : null}
+        </div>
 
-          <div className={s.chips}>
-            {QUICK.map((q) => (
-              <button
-                key={q.id}
-                className={s.chip}
-                type="button"
-                title={sceneMeta(q.id).about}
-                onClick={() => void air.pick(q.id)}
+        {/* Плейлист паузы: что эфир покажет до следующего матча */}
+        {inPause && playlist !== null && playlist.items.length > 0 ? (
+          <div className={s.playlist}>
+            {playlist.items.map((item, i) => (
+              <div
+                key={`${item.id}-${i}`}
+                className={[s.playlistRow, i === playlistAt ? s.playlistNow : null]
+                  .filter(Boolean)
+                  .join(' ')}
               >
-                {q.label}
+                <span className={s.playlistNum}>{i < playlistAt ? '✓' : i + 1}</span>
+                <span className={s.playlistTitle}>{sceneMeta(item.id).title}</span>
+                <span className={s.playlistSecs}>{Math.round(item.seconds)} с</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className={s.chips}>
+          {QUICK.map((q) => (
+            <button
+              key={q.id}
+              className={s.chip}
+              type="button"
+              title={sceneMeta(q.id).about}
+              onClick={() => void air.pick(q.id)}
+            >
+              {q.label}
+            </button>
+          ))}
+          <button
+            className={[s.chip, s.chipMore].filter(Boolean).join(' ')}
+            type="button"
+            onClick={() => setPicker((v) => !v)}
+          >
+            {picker ? '×' : '≡'} Все сцены
+          </button>
+        </div>
+
+        {/* Выбор всех сцен: сетка заготовок с поводами. Заготовка, под
+              которую нет данных, выключена и объясняет, почему. */}
+        {picker ? (
+          <div className={s.picker}>
+            {air.manual().map((c) => (
+              <button
+                key={`${c.id}-${c.objectKey}`}
+                className={[s.pick, c.available ? null : s.pickOff]
+                  .filter(Boolean)
+                  .join(' ')}
+                type="button"
+                disabled={!c.available}
+                title={c.available ? sceneMeta(c.id).about : (c.reason ?? '')}
+                onClick={() => {
+                  setPicker(false);
+                  if (c.available) void air.pick(c.id, c.objectKey);
+                }}
+              >
+                <span className={s.pickTitle}>{sceneMeta(c.id).title}</span>
+                {c.objectName !== null ? <span className={s.pickObj}>{c.objectName}</span> : null}
+                {c.available ? null : <span className={s.pickWhy}>{c.reason}</span>}
               </button>
             ))}
           </div>
+        ) : null}
 
+        {/* Отсчёт — только в паузе: во время матча он не считает ничего. */}
+        {inPause ? (
           <div className={s.countdown}>
             <Field
               label="Следующий матч через, минуты"
@@ -186,8 +306,8 @@ export function Panel() {
               </Button>
             ) : null}
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {/* ── своя надпись: единственное, чего состояние турнира знать не может */}
       <div className={s.block}>

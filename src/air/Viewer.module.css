@@ -213,7 +213,7 @@
 
 /* Уходящий кадр в «кинематографе» улетает с разворотом, а не тает: смена
    планов читается как склейка, а не как морф. */
-[data-anim='cinematic'].layerOut {
+[data-anim='cinema'].layerOut {
   animation: cineLeave 480ms var(--ease) both;
 }
 

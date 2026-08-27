@@ -21,6 +21,8 @@ import type { AirContext } from './payload';
 import { buildPlaylist, type Candidate, type Playlist } from './playlist';
 import {
   DEFAULT_CONFIG,
+  normalizeStyle,
+  normalizeTemplate,
   type AirConfig,
   type AirLayer,
   type AirStatus,
@@ -161,6 +163,16 @@ interface AirStore {
   /** Что выйдет следующим. */
   plan: () => Plan;
 
+  // ── правка очереди: хост видит порядок кадров целиком и может его менять
+  /** Поднять кадр в очереди. */
+  moveProposal: (from: number, to: number) => void;
+  /** Убрать кадр из очереди. */
+  dropProposal: (index: number) => void;
+  /** Показать кадр из очереди сейчас, не дожидаясь своей очереди. */
+  playProposal: (index: number) => Promise<void>;
+  /** Добавить заготовку в конец очереди. */
+  pushScene: (id: SceneId, objectKey?: string) => void;
+
   clearShows: () => Promise<void>;
   /**
    * Турнир правят аварийно. Эфир на это время уходит в заставку: зрителю не
@@ -216,11 +228,26 @@ export const useAir = create<AirStore>((set, get) => ({
       ]);
 
       // Настройки прошлых версий могут не знать новых полей — добираем их
-      // значениями по умолчанию, а не падаем на чужой форме.
+      // значениями по умолчанию, а не падаем на чужой форме. Стили и шаблон
+      // прогоняем через нормализацию: прежние имена («Сдержанно» и другие)
+      // переводятся на новые, чтобы смена словаря не ломала сохранённое.
       const saved = raw === null ? {} : (JSON.parse(raw) as Partial<AirConfig>);
+      const merged: AirConfig = {
+        ...DEFAULT_CONFIG,
+        ...saved,
+        style: normalizeStyle(saved.style),
+        template: normalizeTemplate(saved.template),
+        pace:
+          typeof saved.pace === 'number' && Number.isFinite(saved.pace)
+            ? Math.min(2, Math.max(0.5, saved.pace))
+            : 1,
+        sceneStyle: Object.fromEntries(
+          Object.entries(saved.sceneStyle ?? {}).map(([id, style]) => [id, normalizeStyle(style)]),
+        ),
+      };
       set({
         tournamentId,
-        config: { ...DEFAULT_CONFIG, ...saved },
+        config: merged,
         shows,
         status,
         error: null,
@@ -397,7 +424,7 @@ export const useAir = create<AirStore>((set, get) => ({
       return {
         label: first.label,
         source: 'match',
-        note: held ? `придержан — выпусти кнопкой${tail}` : `выйдет сам${tail}`,
+        note: held ? `придержан — выпусти кнопкой${tail}` : `выйдет, когда кадр отыграет${tail}`,
         automatic: !held,
       };
     }
@@ -442,6 +469,43 @@ export const useAir = create<AirStore>((set, get) => ({
         : 'плейлист паузы соберётся, когда матч закроется',
       automatic: false,
     };
+  },
+
+  // ── правка очереди: хост видит порядок кадров и меняет его без мыши в матче
+
+  moveProposal(from, to) {
+    const proposals = [...get().proposals];
+    if (from < 0 || from >= proposals.length) return;
+    const to2 = Math.min(proposals.length - 1, Math.max(0, to));
+    if (from === to2) return;
+    const [item] = proposals.splice(from, 1);
+    if (item === undefined) return;
+    proposals.splice(to2, 0, item);
+    set({ proposals });
+  },
+
+  dropProposal(index) {
+    const proposals = get().proposals;
+    if (index < 0 || index >= proposals.length) return;
+    set({ proposals: proposals.filter((_, at) => at !== index) });
+  },
+
+  async playProposal(index) {
+    const state = get();
+    const proposal = state.proposals[index];
+    if (proposal === undefined) return;
+    set({ proposals: state.proposals.filter((_, at) => at !== index), hold: false });
+    await state.air(proposal);
+  },
+
+  pushScene(id, objectKey = '') {
+    const state = get();
+    const proposal = buildScene(state, id, objectKey);
+    if (proposal === null) {
+      set({ error: `Сцену «${sceneMeta(id).title}» сейчас показать нечем` });
+      return;
+    }
+    set({ proposals: [...state.proposals, proposal], pauseDone: false });
   },
 
   async clearShows() {
@@ -497,14 +561,19 @@ export const useAir = create<AirStore>((set, get) => ({
 // ──────────────────────────────────────────────────── доменные данные
 
 /**
- * Тема, уходящая на страницу вместе с кадром: акцент и стиль анимации.
+ * Тема, уходящая на страницу вместе с кадром: акцент, стиль анимации и шаблон.
  *
- * Стиль лежит в теме, а не в каждом слое, потому что тема уже доходит до
+ * Всё это лежит в теме, а не в каждом слое, потому что тема уже доходит до
  * страницы как есть — Rust её не разбирает и не должен. Ключ `style` — стиль
- * на весь эфир, `style:<sceneId>` — переопределение для одной сцены.
+ * на весь эфир, `style:<sceneId>` — переопределение для одной сцены,
+ * `template` — шаблон кадра (декорации и палитра).
  */
 function themeOf(state: AirStore): AirTheme {
-  const theme: AirTheme = { accent: '#ff6fb1', style: state.config.style };
+  const theme: AirTheme = {
+    accent: '#ff6fb1',
+    style: state.config.style,
+    template: state.config.template,
+  };
   for (const [id, style] of Object.entries(state.config.sceneStyle)) {
     if (style !== undefined) theme[`style:${id}`] = style;
   }
@@ -634,7 +703,7 @@ async function watchMatch(get: Get, set: Set) {
 
   if (prev !== null && sameLog(prev, next)) return;
 
-  const fresh = director.planMatch(ctx, prev, next, currentGame(state.lobby, next));
+  const fresh = director.planMatch(ctx, prev, next, currentGame(state.lobby, next), state.config.pace);
   if (fresh.length === 0) {
     // Ничего нового не показываем, но основа кадра могла устареть: например
     // судья отменил действие. Обновляем её на месте, без перехода.
@@ -701,6 +770,11 @@ function currentGame(lobby: LobbyState | null, m: MatchState): LobbyGame | null 
  * Сам — потому что режима управления один: у каждого состояния матча есть
  * ровно один правильный кадр, и спрашивать про него не за что. Не сам эфир
  * не выходит только в двух случаях: хост замер или придерживает пик.
+ *
+ * Кадры не рвут друг друга: если сейчас играет сцена с таймером — бан, пик,
+ * результат — новое событие встанет за ней в очередь и выйдет, когда текущая
+ * отыграет. Прервать идущий кадр может только начало матча: игру ждать
+ * нельзя, и сцена паузы доигрывает не больше двух секунд.
  */
 function enqueue(get: Get, set: Set, fresh: Proposal[]) {
   const state = get();
@@ -725,19 +799,20 @@ function enqueue(get: Get, set: Set, fresh: Proposal[]) {
   // ждёт тоже — иначе результат карты вышел бы раньше её вскрытия.
   if (heldPick(get())) return;
 
-  // Началась игра, а в эфире сцена паузы. Ждать её конца нельзя, но и рубить
-  // кадр в тот же миг плохо: смена без перехода читается как сбой. Поэтому
-  // сцена доигрывает не больше двух секунд — и уходит.
   const airing = state.airing;
-  if (airing !== null && !isMatchScene(airing.id) && opensMatch) {
-    const top = airing.layers[airing.layers.length - 1];
-    if (top !== undefined && !director.expired(top)) {
-      const cut = [...airing.layers.slice(0, -1), director.cutShort(top)];
-      set({ airing: { ...airing, layers: cut }, playlist: null, playlistAt: 0, hold: false });
-      // Слой тот же, поменялся только срок: анимация входа не перезапустится.
-      void ipc.airScene(cut, themeOf(get()));
-      return;
-    }
+  const top = airing?.layers[airing.layers.length - 1] ?? null;
+
+  // В эфире сцена с таймером, и она ещё не отыграла: очередь подождёт её
+  // конца — выпускайهم будет runTimers. Исключение — начало игры поверх
+  // сцены паузы: пауза доигрывает две секунды и уходит.
+  if (airing !== null && top !== null && top.until !== null && !director.expired(top)) {
+    if (isMatchScene(airing.id) || !opensMatch) return;
+
+    const cut = [...airing.layers.slice(0, -1), director.cutShort(top)];
+    set({ airing: { ...airing, layers: cut }, playlist: null, playlistAt: 0, hold: false });
+    // Слой тот же, поменялся только срок: анимация входа не перезапустится.
+    void ipc.airScene(cut, themeOf(get()));
+    return;
   }
 
   void get().next();
@@ -795,29 +870,37 @@ async function runTimers(get: Get, set: Set) {
 
   const top = airing.layers[airing.layers.length - 1];
   const done = top === undefined || director.expired(top);
+  const forever = top !== undefined && top.until === null;
+
+  // Очередь — прежде всего: она выходит и поверх бессрочного кадра («Ход
+  // матча», заставка), и сразу за отыгранной врезкой. Врезка бана не должна
+  // закрывать собой следующий бан: каждый кадр отыгрывает свой срок до конца,
+  // а очередь ждёт под ним. Придержанный пик, заморозка и ожидание OBS не
+  // трогаются: они ждут решения хоста, а не таймера.
+  if (
+    state.proposals.length > 0 &&
+    !heldPick(state) &&
+    !state.frozen &&
+    !state.standby &&
+    (forever || done)
+  ) {
+    const first = state.proposals[0];
+    if (first !== undefined) {
+      // Очередь важнее ручной постановки: событие матча выходит, даже если
+      // хост держал перед ним свою сцену.
+      set({ proposals: state.proposals.slice(1), hold: false });
+      await get().air(first);
+      return;
+    }
+  }
 
   if (airing.after.kind === 'pause') {
     // Кадр без срока — заставка или надпись. Он стоит бесконечно, и раньше
     // это и ломало автопоказ: эфир запускался заставкой, а плейлист паузы
     // ждал события, которого не бывает. Теперь такой кадр сам и есть повод
     // взять следующую сцену — если хост не держит его нарочно.
-    const forever = top !== undefined && top.until === null;
     if ((done || forever) && canRollPause(state)) await advancePause(get, set);
     return;
-  }
-
-  // В очереди ждут кадры — обычно после снятия показа с ожидания: события
-  // матча копились, пока хост поднимал OBS. Если текущий кадр стоит без
-  // таймера («Ход матча»), очередь двигается сама — иначе врезки висели бы
-  // до конца матча. Придержанный пик и заморозка не трогаются: они ждут
-  // решения хоста, а не таймера.
-  if (!done && top !== undefined && top.until === null && state.proposals.length > 0 && !heldPick(state) && !state.frozen) {
-    const first = state.proposals[0];
-    if (first !== undefined) {
-      set({ proposals: state.proposals.slice(1) });
-      await get().air(first);
-      return;
-    }
   }
 
   if (!done) return;
@@ -936,6 +1019,7 @@ function rebuildPlaylist(get: Get, set: Set): Playlist {
     candidates: state.candidates(),
     shows: state.shows,
     hasCountdown: until !== null,
+    pace: state.config.pace,
     order: planFor(state),
   });
   set({ playlist: list, playlistAt: 0 });
@@ -1035,7 +1119,12 @@ function buildScene(
   if (ctx === null) return null;
 
   const meta = sceneMeta(id);
-  const secs = seconds ?? (meta.timing === 'fixed' ? meta.max : 0);
+  // Темп эфира ужимает и растягивает заготовки: одна ручка вместо правки
+  // каждой сцены отдельно. Плейлист паузы зовёт с готовыми секундами — они
+  // уже посчитаны под бюджет, темп их не трогает.
+  const pace = state.config.pace;
+  const secs =
+    seconds ?? (meta.timing === 'fixed' ? Math.max(0.5, meta.max / Math.max(0.25, pace)) : 0);
   const label = meta.title;
   const done = (payload: object | null): Proposal | null =>
     payload === null
@@ -1075,6 +1164,10 @@ function buildScene(
     case 'records': {
       const tally = build.buildTally(ctx);
       return tally.records.length === 0 ? null : done({ items: tally.records });
+    }
+    case 'stats': {
+      const stats = build.stats(ctx);
+      return stats === null ? null : done(stats);
     }
     case 'champion':
       return done(build.champion(ctx));
@@ -1198,6 +1291,8 @@ function reasonFor(state: AirStore, id: SceneId): string {
     case 'playerCard':
       return 'нет статистики по игроку';
     case 'records':
+      return 'сыграно слишком мало';
+    case 'stats':
       return 'сыграно слишком мало';
     case 'bracket':
       return 'сетки ещё нет';

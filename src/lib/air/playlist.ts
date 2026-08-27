@@ -76,6 +76,8 @@ export interface PlaylistInput {
   shows: SceneShow[];
   /** Хост поставил «следующий матч через N минут» — тогда хвост это отсчёт. */
   hasCountdown: boolean;
+  /** Темп эфира: длительности сцен делятся на него. 1 — как в каталоге. */
+  pace?: number;
   /**
    * Порядок сцен, заданный хостом на этот раунд.
    *
@@ -181,6 +183,11 @@ export function buildPlaylist(input: PlaylistInput): Playlist {
   const dropped: Dropped[] = [];
   /** По плану порядок задал хост — считать его заново незачем. */
   const planned = order !== undefined && order.length > 0;
+  /** Темп: длительности из каталога делятся на него. Меньше единицы —
+   * медленнее и величественнее, больше — быстрее. */
+  const pace = Math.max(0.25, input.pace ?? 1);
+  const secs = (id: SceneId): number => Math.max(0.5, sceneMeta(id).min / pace);
+  const secsMax = (id: SceneId): number => Math.max(secs(id), sceneMeta(id).max / pace);
 
   const usable = Math.max(0, budget - RESERVE);
 
@@ -196,8 +203,7 @@ export function buildPlaylist(input: PlaylistInput): Playlist {
 
   // У отсчёта длительность своя — остаток до начала матча, — поэтому места
   // под него в бюджете не занимаем.
-  const tailSeconds =
-    tail === null || sceneMeta(tail.id).timing !== 'fixed' ? 0 : sceneMeta(tail.id).min;
+  const tailSeconds = tail === null || sceneMeta(tail.id).timing !== 'fixed' ? 0 : secs(tail.id);
 
   const body = planned
     ? byPlan(order, candidates)
@@ -241,6 +247,7 @@ export function buildPlaylist(input: PlaylistInput): Playlist {
       continue;
     }
 
+    void m;
     // Одна заготовка не занимает всю паузу, даже если объектов у неё много.
     // По плану предел не действует: порядок задал хост, и спорить с ним
     // программе не за что.
@@ -253,7 +260,7 @@ export function buildPlaylist(input: PlaylistInput): Playlist {
       continue;
     }
 
-    if (taken + m.min > usable - tailSeconds) {
+    if (taken + secs(candidate.id) > usable - tailSeconds) {
       dropped.push({
         id: candidate.id,
         objectKey: candidate.objectKey,
@@ -262,9 +269,9 @@ export function buildPlaylist(input: PlaylistInput): Playlist {
       continue;
     }
 
-    items.push({ id: candidate.id, objectKey: candidate.objectKey, seconds: m.min });
+    items.push({ id: candidate.id, objectKey: candidate.objectKey, seconds: secs(candidate.id) });
     times.set(candidate.id, (times.get(candidate.id) ?? 0) + 1);
-    taken += m.min;
+    taken += secs(candidate.id);
   }
 
   // Две одинаковые сцены подряд читаются как зависший эфир, даже если объекты
@@ -276,8 +283,7 @@ export function buildPlaylist(input: PlaylistInput): Playlist {
   let slack = usable - tailSeconds - taken;
   for (const item of items) {
     if (slack <= 0) break;
-    const m = sceneMeta(item.id);
-    const add = Math.min(slack, m.max - m.min);
+    const add = Math.min(slack, secsMax(item.id) - item.seconds);
     item.seconds += add;
     slack -= add;
   }

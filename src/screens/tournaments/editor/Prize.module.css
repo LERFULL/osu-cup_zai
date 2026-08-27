@@ -411,3 +411,241 @@
   color: var(--txt3);
   font-size: 11.5px;
 }
+
+/* ── переключатель вида: таблица / сетка */
+
+.viewTabs {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.viewTabs button {
+  padding: 3px 10px;
+  border: none;
+  background: transparent;
+  color: var(--txt3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.viewTabs button:hover {
+  color: var(--txt);
+}
+
+.viewOn {
+  background: var(--card2);
+  color: var(--txt);
+  font-weight: 700;
+}
+
+/* ── сетка мест: лестница без участников — только деньги по местам */
+
+.ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.ladderStep {
+  display: grid;
+  grid-template-columns: 26px 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  animation: ladderIn 300ms ease both;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+
+@keyframes ladderIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+.ladderPlace {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--card2);
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--txt2);
+}
+
+.ladderStep:first-child .ladderPlace {
+  background: rgb(255 208 59 / 0.14);
+  border-color: var(--gold, #ffd03b);
+  color: var(--gold, #ffd03b);
+}
+
+.ladderBar {
+  height: 14px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.04);
+  overflow: hidden;
+}
+
+.ladderBar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(to right, var(--gold, #ffd03b), rgb(255 208 59 / 0.5));
+}
+
+.ladderStep:first-child .ladderBar i {
+  background: linear-gradient(to right, var(--gold, #ffd03b), rgb(255 208 59 / 0.75));
+}
+
+.ladderMoney {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ladderPct {
+  width: 34px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt3);
+  text-align: right;
+}
+
+.ladderNote {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--txt3);
+}
+
+/* ── водопад: фонд → потоки → остаток */
+
+.waterfall {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.wfFund {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.wfFundLabel {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--txt3);
+}
+
+.wfFundSum {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.wfFundNote {
+  font-size: 10.5px;
+  color: var(--txt3);
+}
+
+.wfSplit {
+  height: 14px;
+  background:
+    linear-gradient(to bottom, var(--line), transparent) center / 1px 100% no-repeat,
+    radial-gradient(50% 100% at 50% 0%, transparent 60%, transparent);
+  opacity: 0.6;
+}
+
+.wfStreams {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wfStream {
+  display: grid;
+  grid-template-columns: 10px 130px 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.wfDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.wfLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--txt2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wfBar {
+  height: 10px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.04);
+  overflow: hidden;
+}
+
+.wfBar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  opacity: 0.8;
+}
+
+.wfAmount {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.wfPct {
+  width: 34px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt3);
+  text-align: right;
+}
+
+.wfRest {
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 11.5px;
+  color: var(--txt2);
+}
+
+.wfHints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgb(255 208 59 / 0.07);
+  border: 1px solid rgb(255 208 59 / 0.3);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--txt2);
+}
