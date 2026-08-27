@@ -1283,6 +1283,7 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
    * настоящий расчёт живёт в Rust и покрыт тестами. */
   const mockPrizeView = (t: Tournament, config: PrizeConfig): PrizeView => {
     const seats = roster(t);
+    const bountyEngine = config.engine.kind === 'bounty';
     const bountyTotal = config.addons.bounty?.amounts.reduce((a, b) => a + b, 0) ?? 0;
     const payments = config.addons.matchPayments?.amount ?? 0;
     const rookie = config.addons.rookieRace ?? 0;
@@ -1301,6 +1302,18 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
         problems.push('проценты мест должны убывать');
       }
     }
+    if (bountyEngine) {
+      const shares = config.engine.shares;
+      if (shares.reduce((a, b) => a + b, 0) !== 100) {
+        problems.push('проценты голов должны давать в сумме сто');
+      }
+      if (shares.slice(1).some((v, i) => v >= (shares[i] ?? 0))) {
+        problems.push('проценты голов должны убывать');
+      }
+      if (config.addons.bounty !== null) {
+        problems.push('надстройка «деньги на голове» не нужна: движок охоты уже платит за головы');
+      }
+    }
 
     const amounts: number[] =
       config.engine.kind === 'places'
@@ -1315,7 +1328,9 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
       place: i + 1,
       guarantee: amounts[i] ?? 0,
       engineMax: amounts[i] ?? 0,
-      maxTotal: (amounts[i] ?? 0) + (i > 0 ? bountyTotal : 0),
+      maxTotal: bountyEngine
+        ? engineShare
+        : (amounts[i] ?? 0) + (i > 0 ? bountyTotal : 0),
       group: i + 1,
     }));
 
@@ -1356,8 +1371,12 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
             })
         : [];
 
-    // Головы считаются до строк: живые ставки ссылаются на них же.
-    const heads = (config.addons.bounty?.amounts ?? []).map((amount, i) => {
+    // Головы считаются до строк: живые ставки ссылаются на них же. У движка
+    // охоты головы — раскладка доли движка по сидам, у надстройки — фиксированные.
+    const headAmounts = bountyEngine
+      ? config.engine.shares.map((share) => Math.floor((engineShare * share) / 100))
+      : (config.addons.bounty?.amounts ?? []);
+    const heads = headAmounts.map((amount, i) => {
       const seat = seats.find((x) => x.seed === i + 1);
       return {
         playerId: seat?.playerId ?? 0,
@@ -1408,7 +1427,9 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
       ladder,
       check: problems.length > 0
         ? { ok: false, brokenAt: null, text: problems[0] ?? 'фонд не сходится' }
-        : { ok: true, brokenAt: null, text: 'места убывают по всей лестнице' },
+        : bountyEngine
+          ? { ok: true, brokenAt: null, text: 'охота за головами: деньги идут за головы, места не сравниваются' }
+          : { ok: true, brokenAt: null, text: 'места убывают по всей лестнице' },
       note: bountyTotal > 0 && ladder.length > 3
         ? `4-е место может унести до ${bountyTotal + (amounts[3] ?? 0)} ₽ при гарантированных ${amounts[2] ?? 0} ₽ за 3-е — это работа надстройки, а не ошибка`
         : null,
@@ -1514,7 +1535,7 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
         finishedAt: null,
         prize: {
           fund: 10000,
-          engine: { kind: 'places', shares: [50, 30, 20], growth: 200, lowerDiscount: 50 },
+          engine: { kind: 'places', shares: [50, 30, 20], growth: 200, lowerDiscount: 50, rollover: false },
           addons: {
             bounty: null,
             matchPayments: null,

@@ -1,0 +1,413 @@
+/* Призовой фонд: сводка в секции редактора и компактный диалог настройки.
+   Компактный — значит без лишних слов: подпись, значение, всё в один экран
+   диалога с прокруткой. */
+
+.sub {
+  color: var(--txt3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ─────────────────────────────────────────────── сводка в секции */
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card2);
+}
+
+.sumRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sumLabel {
+  color: var(--txt3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sumValue {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
+}
+
+.sumNote {
+  color: var(--txt2);
+  font-size: 11.5px;
+  text-align: right;
+}
+
+/* ──────────────────────────────────────────────────────── диалог */
+
+.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.fundNote {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 18px;
+  color: var(--txt3);
+  font-size: 11.5px;
+}
+
+.fundNote b {
+  font-family: var(--mono);
+  font-size: 20px;
+  color: var(--txt);
+}
+
+.fundNote span:first-child {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.group {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.groupTitle {
+  margin: 0 0 10px;
+  color: var(--txt3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chip,
+.chipOn {
+  padding: 7px 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--txt2);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.13s, color 0.13s, background 0.13s;
+}
+
+.chip:hover {
+  border-color: var(--pink);
+  color: var(--txt);
+}
+
+.chipOn {
+  border-color: var(--pink);
+  background: color-mix(in srgb, var(--pink) 14%, transparent);
+  color: var(--txt);
+}
+
+.engineNote {
+  margin-top: 9px;
+  color: var(--txt3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+/* ── строки параметров */
+
+.addonBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card2);
+}
+
+.addonRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rowName {
+  color: var(--txt2);
+  font-size: 12px;
+}
+
+.rowValue {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--txt);
+}
+
+.cell {
+  width: 110px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  text-align: center;
+  transition: border-color 0.13s;
+}
+
+.cell:hover {
+  border-color: var(--line);
+}
+
+.cell:focus {
+  border-color: rgba(255, 111, 177, 0.5);
+  outline: none;
+}
+
+.percentWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.percentSign {
+  position: absolute;
+  right: 9px;
+  color: var(--txt3);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+/* ── таблицы раундов */
+
+.rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.roundHead,
+.round {
+  display: grid;
+  grid-template-columns: 1fr 64px 96px 24px;
+  align-items: center;
+  gap: 8px;
+}
+
+.roundHead {
+  padding: 0 0 4px;
+  color: var(--txt3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.roundName {
+  overflow: hidden;
+  color: var(--txt2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roundNo {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+}
+
+.reset {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--txt3);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.reset:hover {
+  background: var(--card2);
+  color: var(--pink);
+}
+
+.hint {
+  margin-top: 6px;
+  color: var(--txt3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* ── проверки */
+
+.ok {
+  padding: 8px 10px;
+  border: 1px solid rgba(126, 217, 87, 0.3);
+  border-radius: 9px;
+  background: rgba(126, 217, 87, 0.07);
+  color: var(--green);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.err {
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 107, 107, 0.32);
+  border-radius: 9px;
+  background: rgba(255, 107, 107, 0.08);
+  color: var(--txt2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.warn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 208, 59, 0.3);
+  border-radius: 9px;
+  background: rgba(255, 208, 59, 0.08);
+  color: var(--txt2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bad {
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/* ───────────────────────────────────────── пример: поведение денег */
+
+.splitBar {
+  display: flex;
+  height: 14px;
+  gap: 3px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--card2);
+}
+
+.splitPart {
+  min-width: 4px;
+  border-radius: 3px;
+  opacity: 0.92;
+}
+
+.splitLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 9px;
+}
+
+.splitKey {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--txt2);
+  font-size: 11.5px;
+}
+
+.splitKey i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.example {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.exampleRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card2);
+  animation: exampleIn 320ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+@keyframes exampleIn {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+
+.exampleText {
+  color: var(--txt);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.exampleNote {
+  color: var(--txt3);
+  font-size: 11.5px;
+  text-align: right;
+}
+
+.exampleChamp {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--gold) 36%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold) 7%, transparent);
+  color: var(--txt);
+  font-size: 15px;
+}
+
+.exampleChamp b {
+  font-family: var(--mono);
+  color: var(--gold);
+  font-size: 17px;
+}
+
+.exampleChamp span {
+  color: var(--txt3);
+  font-size: 11.5px;
+}

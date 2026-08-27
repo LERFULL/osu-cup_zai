@@ -24,10 +24,13 @@ import s from './Setup.module.css';
 function moneySceneVisible(id: SceneId, prize: PrizeView | null): boolean {
   switch (id) {
     case 'fundBoard':
+    case 'fundFlow':
+      return prize !== null;
+    case 'topEarners':
       return prize !== null;
     case 'bountyHeads':
     case 'bountyTaken':
-      return prize?.config.addons.bounty != null;
+      return prize?.config.addons.bounty != null || prize?.config.engine.kind === 'bounty';
     case 'rookieRace':
       return prize?.config.addons.rookieRace != null;
     case 'spectatorBank':
@@ -108,9 +111,10 @@ interface Props {
 }
 
 export function Setup({ onStarted }: Props) {
-  const { config, patchConfig, start, ctx, error, status } = useAir();
+  const { config, patchConfig, start, ctx, error, status, standby, beginShow } = useAir();
   const live = status?.live === true;
   const prize = ctx?.prize ?? null;
+  const waiting = live && standby;
 
   const visible = (meta: SceneMeta): boolean => moneySceneVisible(meta.id, prize);
 
@@ -305,47 +309,78 @@ export function Setup({ onStarted }: Props) {
         </div>
       </Card>
 
-      <Card title="Куда идёт кадр">
+      <Card title="Куда идёт кадр" note="браузерный источник в OBS, размер 1920×1080">
         <div className={s.obs}>
-          <div className={s.obsWhat}>Браузерный источник в OBS</div>
           {live ? (
             <>
               <div className={s.obsAddr}>{status?.localUrl}</div>
-              <Button size="sm" onClick={() => void copy(status?.localUrl ?? '')}>
-                Скопировать адрес
-              </Button>
+              <div className={s.obsRow}>
+                <Button
+                  size="sm"
+                  variant={waiting ? 'primary' : 'ghost'}
+                  onClick={() => void copy(status?.localUrl ?? '')}
+                >
+                  Скопировать адрес
+                </Button>
+                <Button size="sm" onClick={() => void openDemoFrame()}>
+                  Пробный кадр
+                </Button>
+              </div>
+              <div className={s.obsHow}>
+                {waiting
+                  ? 'Скопируй адрес, добавь его в OBS как браузерный источник и выровняй по размеру — показ начнётся по кнопке внизу, эфир не убежит. '
+                  : ''}
+                Размер источника и канвы — 1920×1080: на других размерах кадр масштабируется, и текст плывёт.
+              </div>
             </>
-          ) : null}
-          <div className={s.obsHow}>
-            {live ? '' : 'Адрес появится после запуска. '}
-            Размер источника и канвы — 1920×1080: на других размерах кадр масштабируется,
-            и текст плывёт.
-          </div>
+          ) : (
+            <div className={s.obsWhat}>Браузерный источник в OBS</div>
+          )}
         </div>
       </Card>
 
       <div className={s.go}>
-        <Button
-          variant="primary"
-          disabled={ctx === null || live}
-          onClick={() =>
-            void (async () => {
-              await start();
-              // Ушёл — значит подготовка кончилась. Не ушёл — повод виден строкой
-              // ошибки, и уводить хоста с экрана, где он её прочтёт, нельзя.
-              if (useAir.getState().status?.live === true) onStarted?.();
-            })()
-          }
-        >
-          Запустить эфир
-        </Button>
-        <span className={s.goNote}>
-          {ctx === null
-            ? 'Сначала собери сетку'
-            : live
-              ? 'Эфир уже идёт — управление на экране турнира'
-              : 'Дальше эфир идёт сам: кадр следует за матчем'}
-        </span>
+        {waiting ? (
+          <>
+            <Button
+              variant="primary"
+              onClick={() => {
+                beginShow();
+                onStarted?.();
+              }}
+            >
+              Начать показ
+            </Button>
+            <span className={s.goNote}>
+              Эфир поднят и ждёт: адрес выше, кадр стоит на заставке. Показ начнётся
+              с трейлеров турнира — успей включить OBS
+            </span>
+          </>
+        ) : (
+          <>
+            <Button
+              variant="primary"
+              disabled={ctx === null || live}
+              onClick={() =>
+                void (async () => {
+                  await start();
+                  // Ушёл — значит подготовка кончилась. Не ушёл — повод виден строкой
+                  // ошибки, и уводить хоста с экрана, где он её прочтёт, нельзя.
+                  if (useAir.getState().status?.live === true) onStarted?.();
+                })()
+              }
+            >
+              Запустить эфир
+            </Button>
+            <span className={s.goNote}>
+              {ctx === null
+                ? 'Сначала собери сетку'
+                : live
+                  ? 'Эфир уже идёт — управление на экране турнира'
+                  : 'После запуска эфир подождёт: скопируешь адрес и поднимешь OBS — потом начнёшь показ'}
+            </span>
+          </>
+        )}
       </div>
     </div>
   );

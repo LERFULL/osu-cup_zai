@@ -39,5 +39,7 @@ export type { SwitchProps } from './Switch';
 export { Tabs } from './Tabs';
 export type { TabsProps } from './Tabs';
 
+export { Modal } from './Modal';
+
 export { SlotLine } from './SlotLine';
 export type { SlotLineProps } from './SlotLine';

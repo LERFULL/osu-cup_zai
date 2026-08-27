@@ -1,0 +1,102 @@
+/* Диалог поверх экрана: фон затемняет приложение, карточка — компактная, но
+   не узкая: фон настраивают полями, и им нужна ширина. */
+
+.back {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(6 8 12 / 0.66);
+  backdrop-filter: blur(3px);
+  animation: backIn 200ms var(--ease, ease) both;
+}
+
+@keyframes backIn {
+  from {
+    opacity: 0;
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  border: 1px solid var(--line, #232838);
+  border-radius: 16px;
+  background: var(--card, #161922);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.5);
+  animation: cardIn 240ms var(--ease, ease) both;
+}
+
+.cardWide {
+  width: min(880px, 100%);
+}
+
+@keyframes cardIn {
+  from {
+    transform: translateY(14px) scale(0.985);
+    opacity: 0;
+  }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--line, #232838);
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.note {
+  margin: 5px 0 0;
+  color: var(--txt3, #7f8799);
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: 56ch;
+}
+
+.close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line, #232838);
+  border-radius: 8px;
+  background: none;
+  color: var(--txt3, #7f8799);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.13s, border-color 0.13s;
+}
+
+.close:hover {
+  color: var(--txt, #f4f5f8);
+  border-color: var(--pink, #ff6fb1);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 18px 22px;
+  overflow-y: auto;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--line, #232838);
+}

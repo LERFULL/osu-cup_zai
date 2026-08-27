@@ -140,6 +140,9 @@ export const MATCH_SCENES = [
 ] as const;
 
 export const PAUSE_SCENES = [
+  'trailerTitle',
+  'trailerPlayers',
+  'trailerStakes',
   'bracket',
   'standings',
   'nextUp',
@@ -149,6 +152,8 @@ export const PAUSE_SCENES = [
   'champion',
   'credits',
   'fundBoard',
+  'fundFlow',
+  'topEarners',
   'rookieRace',
   'spectatorBank',
   'jackpotScene',
@@ -252,6 +257,22 @@ export interface MapResultPayload {
   underdog: string | null;
 }
 
+/** Деньги, которые каждый унесёт из закрывшегося матча. */
+export interface MatchMoneyAfter {
+  /** Итог победителя: победа, победные карты и снятая голова. */
+  winnerTake: number;
+  /** Утешительные карты проигравшего (движок «за карты»). */
+  loserTake: number;
+  /** Из них — цена победы в матче (движок «за матчи» и/или выплаты). */
+  winPrice: number;
+  /** Из них — снятая голова. */
+  headTaken: number;
+  /** Победные карты победителя, рублями. */
+  winnerMaps: number;
+  /** Утешительные карты проигравшего, рублями. */
+  loserMaps: number;
+}
+
 export interface MatchResultPayload {
   a: AirPlayer;
   b: AirPlayer;
@@ -265,8 +286,8 @@ export interface MatchResultPayload {
   round: string;
   /** Ступень андердога — «андердог ×3», а не коэффициент. */
   underdog: string | null;
-  /** Заработок за этот матч, если движок платит за победы. */
-  matchMoney: number | null;
+  /** Что по деньгам будет после матча. `null` — матч ничего не принёс. */
+  after: MatchMoneyAfter | null;
 }
 
 /** Сторона матча в сетке. */
@@ -446,6 +467,42 @@ export interface JackpotPayload {
   current: number;
 }
 
+// ───────────────────────────────────────────────── трейлеры турнира
+
+/** Первый показ — не то же самое, что эфир по ходу игры. Трейлеры выходят
+ * до первого матча и рассказывают, что за турнир сейчас начнётся. */
+
+export interface TrailerTitlePayload {
+  tournament: string;
+  /** «двойная выбывание · 8 участников · 33 матча». */
+  format: string;
+  /** Названия маппулов, разложенных по раундам. */
+  pools: string[];
+  /** Сколько карт всего лежит в этих маппулах. */
+  maps: number;
+}
+
+export interface TrailerPlayersPayload {
+  tournament: string;
+  rows: {
+    nick: string;
+    color: string;
+    osuUserId: number | null;
+    seed: number | null;
+    rookie: boolean;
+  }[];
+}
+
+export interface TrailerStakesPayload {
+  tournament: string;
+  /** `null` — турнир без фонда: сцена покажет формат. */
+  fund: number | null;
+  /** Движок и надстройки — по строке на источник денег. */
+  scheme: { title: string; note: string | null; amount: number }[];
+  /** «двойная выбывание · до 4 побед в матче». */
+  format: string;
+}
+
 export interface ChampionPayload {
   podium: {
     place: number;
@@ -495,6 +552,9 @@ export type ScenePayload =
   | RookieRacePayload
   | SpectatorBankPayload
   | JackpotPayload
+  | TrailerTitlePayload
+  | TrailerPlayersPayload
+  | TrailerStakesPayload
   | Record<string, never>;
 
 // ──────────────────────────────────────────────── пульт: что знает хост

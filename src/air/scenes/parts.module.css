@@ -353,6 +353,30 @@
   font-size: 27px;
 }
 
+/* Плотная и узкая — для маппула в две колонки. */
+.lineDense {
+  gap: 14px;
+  padding: 0 14px 0 22px;
+}
+
+.lineDense .lineTitle {
+  font-size: 23px;
+}
+
+.lineDense .lineVersion {
+  margin-left: 10px;
+  font-size: 18px;
+}
+
+.lineDense .lineEnd {
+  font-size: 21px;
+}
+
+.lineDense .lineNums {
+  gap: 12px;
+  font-size: 21px;
+}
+
 .lineVersion {
   margin-left: 14px;
   font-size: 21px;

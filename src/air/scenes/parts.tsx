@@ -167,6 +167,7 @@ export function MapLine({
   glow,
   stripe,
   compact,
+  dense,
   className,
   index,
 }: {
@@ -182,6 +183,8 @@ export function MapLine({
    * бывает на двенадцать карт плюс тайбрейк, и в две строки они не встают.
    */
   compact?: boolean;
+  /** Ещё плотнее — для двух колонок: шрифты меньше, отступы уже. */
+  dense?: boolean;
   className?: string | undefined;
   /** Место в списке: по нему считается задержка появления. */
   index?: number;
@@ -199,6 +202,7 @@ export function MapLine({
         s.line,
         index != null ? s.lineIn : null,
         compact === true ? s.lineCompact : null,
+        dense === true ? s.lineDense : null,
         dim === true ? s.lineDim : null,
         glow === true ? s.lineGlow : null,
         stripe != null ? s.lineStripe : null,
@@ -236,7 +240,7 @@ export function MapLine({
         )}
       </div>
 
-      <Hex mod={map.mod} label={map.slot} />
+      <Hex mod={map.mod} label={map.slot} small={dense === true} />
     </div>
   );
 }

@@ -532,6 +532,33 @@ pub fn compute(input: &Input) -> PrizeView {
             problems.push("оплачиваемых мест больше, чем игроков".into());
         }
     }
+    if cfg.engine.kind == "bounty" {
+        let shares = &cfg.engine.shares;
+        if shares.iter().sum::<i64>() != 100 {
+            problems.push("проценты голов должны давать в сумме сто".into());
+        }
+        if shares.windows(2).any(|w| w[0] <= w[1]) {
+            problems.push("проценты голов должны убывать".into());
+        }
+        if shares.len() as i64 > players.len() as i64 {
+            problems.push("голов больше, чем игроков".into());
+        }
+        if cfg.addons.bounty.is_some() {
+            problems.push(
+                "надстройка «деньги на голове» не нужна: движок охоты уже платит за головы".into(),
+            );
+        }
+    }
+
+    // ── движок охоты: вся доля движка раскладывается на головы по сидам.
+    // Отдельно от надстройки баунти: там суммы фиксированные и уже вычтены
+    // из фонда, здесь деньги — это ровно то, что осталось движку.
+    let engine_bounty: Option<(Vec<i64>, bool)> = if cfg.engine.kind == "bounty" {
+        let weights: Vec<f64> = cfg.engine.shares.iter().map(|s| *s as f64).collect();
+        Some((apportion(engine_share, &weights), cfg.engine.rollover))
+    } else {
+        None
+    };
 
     // ── цены движка и надстройки
     let engine_prices = if cfg.engine.kind == "matches" {
@@ -679,8 +706,8 @@ pub fn compute(input: &Input) -> PrizeView {
         }
     }
 
-    // Баунти: головы висят на первых сидах и снимаются победой.
-    let (heads, taken_money, last_bounty) = bounty_state(input);
+    // Баунти: головы движка охоты или надстройки снимаются победой.
+    let (heads, taken_money, last_bounty) = bounty_state(input, engine_bounty);
     for (player_id, money) in &taken_money {
         if let Some(&idx) = by_id.get(player_id) {
             rows[idx].bounty += money;
@@ -833,6 +860,43 @@ fn ladder_view(
     // группа. Внутри группы порядок мест условен, проверяется только стык
     // групп.
     let group_of = elimination_groups(&matches);
+
+    // Движок охоты: лестница мест не имеет смысла — деньги идут за головы, а
+    // не за места. Максимум любого места — все головы, гарантия — ноль, и
+    // сравнивать ступени не с чем: кто с кого какую голову снимет, сетка
+    // знать не может.
+    if cfg.engine.kind == "bounty" {
+        let heads_total = engine_share
+            + cfg
+                .addons
+                .bounty
+                .as_ref()
+                .map(|b| b.amounts.iter().sum())
+                .unwrap_or(0);
+        let n = source
+            .iter()
+            .filter(|m| m.next_lose.is_none() && m.bracket != "upper")
+            .count()
+            .max(1) as i64
+            + 1;
+        let rows: Vec<PlaceLadder> = (1..=n)
+            .map(|place| PlaceLadder {
+                place,
+                guarantee: 0,
+                engine_max: 0,
+                max_total: heads_total,
+                group: group_of.get(&place).copied().unwrap_or(place),
+            })
+            .collect();
+        return (
+            rows,
+            LadderCheck {
+                ok: true,
+                broken_at: None,
+                text: "охота за головами: деньги идут за головы, места не сравниваются".into(),
+            },
+        );
+    }
 
     // Движок мест платит по местам напрямую; матчевые и карты — по пути.
     let use_places = cfg.engine.kind == "places";
@@ -1031,14 +1095,24 @@ fn played_in_order<'a>(input: &'a Input<'a>) -> Vec<&'a ShapeMatch> {
 }
 
 /// Головы на сейчас, снятые деньги по игрокам и последнее снятие.
-fn bounty_state(input: &Input) -> (Vec<BountyHead>, Vec<(i64, i64)>, Option<BountyEvent>) {
-    let Some(b) = input.config.addons.bounty.clone() else {
-        return (Vec::new(), Vec::new(), None);
+///
+/// Источник голов один: движок охоты (вся доля движка по сидам) или надстройка
+/// баунти (фиксированные суммы). Правила снятия одни и те же.
+fn bounty_state(
+    input: &Input,
+    engine_bounty: Option<(Vec<i64>, bool)>,
+) -> (Vec<BountyHead>, Vec<(i64, i64)>, Option<BountyEvent>) {
+    let (amounts, rollover) = match engine_bounty {
+        Some((amounts, rollover)) => (amounts, rollover),
+        None => match input.config.addons.bounty.clone() {
+            Some(b) => (b.amounts, b.rollover),
+            None => return (Vec::new(), Vec::new(), None),
+        },
     };
     let players = input.players;
 
     let mut heads: HashMap<i64, i64> = HashMap::new();
-    for (i, amount) in b.amounts.iter().enumerate() {
+    for (i, amount) in amounts.iter().enumerate() {
         let seed = (i + 1) as i64;
         if let Some(p) = players.iter().find(|p| p.seed == Some(seed)) {
             heads.insert(p.player_id, *amount);
@@ -1061,7 +1135,7 @@ fn bounty_state(input: &Input) -> (Vec<BountyHead>, Vec<(i64, i64)>, Option<Boun
             continue;
         };
 
-        let (money, moved) = if b.rollover {
+        let (money, moved) = if rollover {
             let half = amount / 2;
             (half, amount - half)
         } else {
@@ -1084,6 +1158,17 @@ fn bounty_state(input: &Input) -> (Vec<BountyHead>, Vec<(i64, i64)>, Option<Boun
             moved,
             at: String::new(),
         });
+    }
+
+    // Чемпион забирает неснятую голову сам: свою голову он защитил. Головы
+    // после технических побед остаются висеть — их заберёт джекпот.
+    if input.finished {
+        if let Some(champ) = players.iter().find(|p| p.place == Some(1)) {
+            if let Some(&amount) = heads.get(&champ.player_id) {
+                taken.push((champ.player_id, amount));
+                heads.remove(&champ.player_id);
+            }
+        }
     }
 
     let list = heads
@@ -1833,5 +1918,109 @@ mod tests {
         let done_b = v2.rows.iter().find(|r| r.seed == Some(seed_b)).unwrap().maps;
         assert!(done_a > live_a, "удвоение победных карт: {done_a} > {live_a}");
         assert_eq!(done_b, live_b, "карты проигравшего не меняются");
+    }
+
+    /// Движок охоты: вся доля движка — на головах, победа снимает голову,
+    /// неснятую голову чемпиона забирает он сам.
+    #[test]
+    fn bounty_engine_pays_for_heads() {
+        let cfg = PrizeConfig {
+            fund: 10_000,
+            engine: PrizeEngineCfg::bounty(vec![30, 25, 20, 15, 10], false),
+            ..Default::default()
+        };
+        let players: Vec<ShapePlayer> = (1..=8).map(|i| player(i, i, false)).collect();
+        let mut matches = shape(8, 4);
+
+        // Сид 8 выбивает сида 1: голова первого (30% фонда) уходит убийце.
+        matches[0].finished = true;
+        matches[0].winner_seed = Some(8);
+
+        let v = view(&matches, &players, &cfg);
+        assert!(v.problems.is_empty(), "конфиг валиден: {:?}", v.problems);
+        let head1 = 10_000 * 30 / 100;
+        let killer = v.rows.iter().find(|r| r.seed == Some(8)).unwrap();
+        assert_eq!(killer.bounty, head1, "голова первого сида снимается победой");
+
+        // Головы на сейчас: первой уже нет, остальные висят.
+        assert!(v.heads.iter().all(|h| h.seed != Some(1)), "снятой головы нет");
+        assert_eq!(v.heads.len(), 4, "остальные головы на месте");
+
+        // Лестница для охоты не сравнивается, но и не запрещает старт.
+        assert!(v.check.ok, "{}", v.check.text);
+        assert!(v.check.text.contains("голов"));
+
+        // Чемпион (сид 2) доигрывает без поражений и забирает свою голову сам.
+        let mut finished = matches.clone();
+        let mut champ_place = players.clone();
+        champ_place[1].place = Some(1);
+        for m in finished.iter_mut() {
+            if m.bracket != "grand" {
+                continue;
+            }
+            m.finished = true;
+            m.winner_seed = Some(2);
+        }
+        let v2 = compute(&Input {
+            matches: &finished,
+            ladder_matches: &matches,
+            players: &champ_place,
+            config: &cfg,
+            jackpot_now: 0,
+            finished: true,
+            best_match: None,
+        });
+        let head2 = 10_000 * 25 / 100;
+        let champ = v2.rows.iter().find(|r| r.seed == Some(2)).unwrap();
+        assert_eq!(champ.bounty, head2, "неснятую голову забирает сам чемпион");
+    }
+
+    /// Движок охоты с перекатом: половина убийце, половина ему на голову.
+    #[test]
+    fn bounty_engine_rollover_moves_half_to_killer() {
+        let cfg = PrizeConfig {
+            fund: 10_000,
+            engine: PrizeEngineCfg::bounty(vec![40, 30, 20, 10], true),
+            ..Default::default()
+        };
+        let players: Vec<ShapePlayer> = (1..=8).map(|i| player(i, i, false)).collect();
+        let mut matches = shape(8, 4);
+        matches[0].finished = true;
+        matches[0].winner_seed = Some(7);
+
+        let v = view(&matches, &players, &cfg);
+        let head1 = 10_000 * 40 / 100;
+        let killer = v.rows.iter().find(|r| r.seed == Some(7)).unwrap();
+        assert_eq!(killer.bounty, head1 / 2, "убийце — половина");
+
+        // Вторая половина переехала на голову убийцы и ждёт следующего.
+        let moved = v
+            .heads
+            .iter()
+            .find(|h| h.seed == Some(7))
+            .expect("голова переехала убийце");
+        assert_eq!(moved.amount, head1 - head1 / 2);
+    }
+
+    /// Движок охоты несовместим с надстройкой баунти: платить за одно и то же
+    /// дважды — ошибка конфигурации, а не воля организатора.
+    #[test]
+    fn bounty_engine_rejects_bounty_addon() {
+        let cfg = PrizeConfig {
+            fund: 10_000,
+            engine: PrizeEngineCfg::bounty(vec![50, 30, 20], false),
+            addons: crate::model::PrizeAddonsCfg {
+                bounty: Some(crate::model::BountyCfg {
+                    amounts: vec![700],
+                    rollover: false,
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let players: Vec<ShapePlayer> = (1..=8).map(|i| player(i, i, false)).collect();
+        let matches = shape(8, 4);
+        let v = view(&matches, &players, &cfg);
+        assert!(v.problems.iter().any(|p| p.contains("не нужна")));
     }
 }

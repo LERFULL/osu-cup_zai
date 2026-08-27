@@ -18,6 +18,7 @@ import type {
 import { connect, isObs, type Link } from './transport';
 import { EnvProvider, LayerProvider } from './scenes/env';
 import { renderScene } from './scenes/registry';
+import type { SceneId } from '@/lib/air/types';
 import s from './Viewer.module.css';
 
 /** Кадр строится под этот размер и масштабируется целиком. */
@@ -99,6 +100,51 @@ function demoState(): AirState {
 function styleOf(theme: AirTheme | null, id: string): AirStyle {
   return (theme?.[`style:${id}`] ?? theme?.style ?? 'calm') as AirStyle;
 }
+
+/**
+ * Тип траектории камеры — по сцене.
+ *
+ * Кинематограф — это не «наезд на всё», а разные планы: у «Хода матча» камера
+ * скользит вдоль маппула, у представления — облетает соперников, у врезок —
+ * резкий короткий наезд, у финалов — медленный подъём. Скорости тоже свои:
+ * короткая сцена летит быстрее, длинная — тянется.
+ */
+function camOf(id: SceneId): 'live' | 'intro' | 'overlay' | 'progress' | 'pause' | 'final' | 'trailer' {
+  switch (id) {
+    case 'matchLive':
+      return 'live';
+    case 'matchIntro':
+      return 'intro';
+    case 'banReveal':
+    case 'pickReveal':
+    case 'mapResult':
+    case 'bountyHeads':
+      return 'overlay';
+    case 'mapProgress':
+      return 'progress';
+    case 'matchResult':
+    case 'bountyTaken':
+    case 'champion':
+    case 'credits':
+      return 'final';
+    case 'trailerTitle':
+    case 'trailerPlayers':
+    case 'trailerStakes':
+      return 'trailer';
+    default:
+      return 'pause';
+  }
+}
+
+const CAM_CLASS: Record<ReturnType<typeof camOf>, string | undefined> = {
+  live: s.camLive,
+  intro: s.camIntro,
+  overlay: s.camOverlay,
+  progress: s.camProgress,
+  pause: s.camPause,
+  final: s.camFinal,
+  trailer: s.camTrailer,
+};
 
 /**
  * Сколько уходящий кадр ещё висит под новым.
@@ -255,9 +301,10 @@ export function Viewer() {
  * анимации приходит в теме и ставится сюда атрибутом `data-anim` — по нему
  * сцены и достраивают свой вход (селекторы в `air.css` и в модулях сцен).
  *
- * «Кинематограф» — не вариант «Сдержанно» с наездом, а другой язык кадра:
- * планки письма-бокса, камера, которая летит весь кадр (не только на входе),
- * и планы с разной скоростью. Поэтому у него своя обвязка вокруг сцены.
+ * «Кинематограф» — другой язык кадра, а не вариант «Сдержанно» с наездом:
+ * планки письма-бокса, летающая камера с траекторией по сцене и глубина у
+ * объектов — заголовки ближе, списки дальше. Камера летит весь кадр, а не
+ * только на входе.
  */
 function Layer({
   layer,
@@ -283,6 +330,7 @@ function Layer({
   return (
     <div
       data-anim={style}
+      data-scene={layer.id}
       {...freshAttr}
       className={[
         s.layer,
@@ -300,13 +348,15 @@ function Layer({
           <div className={`${s.cineBar} ${s.cineBarBottom}`} aria-hidden />
           <div className={s.cineSweep} aria-hidden />
           <div className={s.cineVignette} aria-hidden />
-          {/* Полёт: медленный наезд длится весь кадр. Вход делает сам слой
-              (`cineIn` в `air.css`), полёт — обёртка: две анимации одного
-              transform на одном элементе перебивали бы друг друга. */}
-          <div className={s.cineFlight}>
-            <LayerProvider value={{ since: layer.since, until: layer.until }}>
-              {content}
-            </LayerProvider>
+          {/* Мир и камера. Мир даёт перспективу, камера летит по своей
+              траектории всю сцену — у каждой сцены она своя. Вход делает сам
+              слой (`cineIn` в `air.css`). */}
+          <div className={s.cineWorld}>
+            <div className={`${s.cineCam} ${CAM_CLASS[camOf(layer.id)] ?? ''}`}>
+              <LayerProvider value={{ since: layer.since, until: layer.until }}>
+                {content}
+              </LayerProvider>
+            </div>
           </div>
         </>
       ) : (

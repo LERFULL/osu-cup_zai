@@ -798,16 +798,19 @@ export interface Tournament {
 
 // ─────────────────────────────────────────────────────── призовой фонд
 
-export type PrizeEngineKind = 'places' | 'matches' | 'maps';
+export type PrizeEngineKind = 'places' | 'matches' | 'maps' | 'bounty';
 
 export interface PrizeEngine {
   kind: PrizeEngineKind;
-  /** places: проценты по местам, убывающие, в сумме сто. */
+  /** places: проценты по местам, убывающие, в сумме сто.
+   *  bounty: проценты на голове каждого сида, в сумме сто. */
   shares: number[];
   /** matches: во сколько раз дороже следующий раунд верхней, проценты. */
   growth: number;
   /** matches/maps: скидка нижней сетки, проценты. */
   lowerDiscount: number;
+  /** bounty: режим переката — половина убийце, половина ему на голову. */
+  rollover: boolean;
 }
 
 export interface BountyConfig {

@@ -1,54 +1,73 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Field, Switch } from '@/components';
+import { Button, Field, Modal, Switch } from '@/components';
 import { money } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import type { PrizeConfig, PrizeEngine, PrizeView } from '@/lib/types';
 import type { EditorCtx } from './Editor';
-import s from './Editor.module.css';
+import s from './Prize.module.css';
 
-/** Пресеты из ТЗ: одна кнопка — готовое устройство фонда. */
-const PRESETS: { kind: string; title: string; note: string }[] = [
-  { kind: 'pro', title: 'Про', note: 'равные силы: места и зрительский банк' },
-  { kind: 'local', title: 'Локальный смешанный', note: 'профи и новички вперемешку' },
-  { kind: 'rookie', title: 'Новичковый', note: 'платят почти всем, две гонки' },
-  { kind: 'show', title: 'Шоу', note: 'всё ради картинки' },
-];
-
+/** Движки фонда: ровно один, переключателем. */
 const ENGINES: { kind: PrizeEngine['kind']; shares: number[]; title: string; note: string }[] = [
   {
     kind: 'places',
-    shares: [50, 30, 20],
-    title: 'Только за места',
-    note: 'платят трое — за статус',
-  },
-  {
-    kind: 'places',
     shares: [34, 24, 17, 11, 8, 6],
-    title: 'За места, но шире',
-    note: 'платит каждый третий — по умолчанию',
+    title: 'За места',
+    note: 'платят первые N мест по процентам',
   },
   {
     kind: 'matches',
     shares: [],
     title: 'За победы в матчах',
-    note: 'чем ближе к финалу, тем дороже',
+    note: 'чем ближе к финалу, тем дороже победа',
   },
   {
     kind: 'maps',
     shares: [],
     title: 'За карты',
-    note: 'живой счётчик на протяжении матча',
+    note: 'живой счётчик: каждая взятая карта платит',
+  },
+  {
+    kind: 'bounty',
+    shares: [30, 22, 16, 12, 9, 6, 5],
+    title: 'Охота за головами',
+    note: 'весь фонд — на головах сидов: выбил — забрал',
   },
 ];
 
-/** Движок с нуля под кнопку пресета: скидка нижней сетки на четверых не нужна. */
+const ENGINE_TITLE: Record<PrizeEngine['kind'], string> = {
+  places: 'за места',
+  matches: 'за победы в матчах',
+  maps: 'за карты',
+  bounty: 'охота за головами',
+};
+
+/** Движок под кнопку: свежий, с дефолтами под свой вид. */
 function engineOf(kind: PrizeEngine['kind'], shares: number[], players: number): PrizeEngine {
+  if (kind === 'bounty') {
+    // Голов столько, сколько игроков: лишние сиды — пустая трата процентов.
+    const fit = shares.slice(0, Math.max(2, players));
+    const sum = fit.reduce((a, b) => a + b, 0);
+    const fixed = sum === 100 ? fit : renormalize(fit);
+    return { kind, shares: fixed, growth: 200, lowerDiscount: 50, rollover: false };
+  }
   return {
     kind,
     shares: shares.length > 0 ? [...shares] : [],
     growth: 200,
     lowerDiscount: players <= 4 ? 100 : 50,
+    rollover: false,
   };
+}
+
+/** Подогнать проценты к сотне, сохраняя пропорции. */
+function renormalize(shares: number[]): number[] {
+  if (shares.length === 0) return [100];
+  const sum = shares.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return shares.map(() => Math.round(100 / shares.length));
+  const scaled = shares.map((x) => Math.max(1, Math.round((x * 100) / sum)));
+  const left = 100 - scaled.reduce((a, b) => a + b, 0);
+  scaled[0] = Math.max(1, (scaled[0] ?? 1) + left);
+  return scaled;
 }
 
 function emptyConfig(players: number): PrizeConfig {
@@ -71,16 +90,28 @@ function emptyConfig(players: number): PrizeConfig {
 
 const clone = (c: PrizeConfig): PrizeConfig => JSON.parse(JSON.stringify(c)) as PrizeConfig;
 
+/** Краткая сводка надстроек — строчкой в секции. */
+function addonsBrief(c: PrizeConfig): string {
+  const parts: string[] = [];
+  if (c.addons.bounty !== null) parts.push('деньги на голове');
+  if (c.addons.matchPayments !== null) parts.push('выплаты за матчи');
+  if (c.addons.rookieRace !== null) parts.push('гонка новичков');
+  if (c.addons.underdog) parts.push('андердог');
+  if (c.addons.spectator !== null) parts.push('зрительский банк');
+  if (c.addons.jackpot) parts.push('джекпот');
+  return parts.length === 0 ? 'без надстроек' : parts.join(' · ');
+}
+
 /**
- * Призовой фонд: пресет одной кнопкой, потом сумма, потом движок — ровно
- * один, переключателем, — и под ним надстройки галочками.
- *
- * Каждая правка сразу уходит в турнир и пересчитывает проверку лестницы:
- * считать её руками организатор не должен.
+ * Призовой фонд. В секции редактора — только сводка и кнопка: настраивают
+ * фонд редко, а места он занимает много. Вся настройка — в компактном
+ * диалоге, который открывается кнопкой и закрывается кнопкой.
  */
-export function Prize({ id, t, emergency, run }: EditorCtx) {
+export function Prize(ctx: EditorCtx) {
+  const { id, t, emergency, run } = ctx;
   const [config, setConfig] = useState<PrizeConfig>(() => t.prize ?? emptyConfig(t.players.length));
   const [view, setView] = useState<PrizeView | null>(null);
+  const [open, setOpen] = useState(false);
   const timer = useRef<number | null>(null);
 
   // Турнир перечитали после чужой правки — подхватываем сохранённое.
@@ -114,19 +145,27 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
     timer.current = window.setTimeout(() => apply((c) => patch(c, value)), 500);
   }
 
-  const share = view?.engineShare ?? 0;
-  const bountyTotal = config.addons.bounty?.amounts.reduce((a, b) => a + b, 0) ?? 0;
-
-  const underdogPossible = config.engine.kind === 'matches' || config.addons.matchPayments !== null;
-
   if (!has) {
     return (
       <>
         <div className={s.sub}>
-          Необязательный: без фонда всё работает как раньше. Фонд считается сам и виден в эфире.
+          Необязательный: без фонда всё работает как раньше. Деньги считаются
+          сами и видны в эфире.
         </div>
         <div className={s.buttons}>
-          <Button size="sm" variant="primary" onClick={() => apply(() => undefined)}>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              const fresh = emptyConfig(t.players.length);
+              setConfig(fresh);
+              setOpen(true);
+              run(async () => {
+                const v = await ipc.setTournamentPrize(id, fresh, emergency);
+                setView(v);
+              });
+            }}
+          >
             + Призовой фонд
           </Button>
         </div>
@@ -134,81 +173,85 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
     );
   }
 
+  const problems = view?.problems ?? [];
+
   return (
     <>
-      <div className={s.sub}>
-        Сначала пресет одной кнопкой, потом сумма фонда, потом движок — ровно
-        один, переключателем, — и под ним надстройки галочками.
-      </div>
-
-      <div className={s.group}>
-        <div className={s.groupTitle}>Пресеты</div>
-        <div className={s.chips}>
-          {PRESETS.map((p) => (
-            <button
-              key={p.kind}
-              className={s.chip}
-              type="button"
-              title={p.note}
-              onClick={() => {
-                // Пресет собирается тем же кодом, что и Rust.
-                const fund = config.fund;
-                const players = t.players.length;
-                const shareOf = (part: number) => Math.round((fund * part) / 100);
-                const next = clone(config);
-                next.fund = fund;
-                next.engine =
-                  p.kind === 'pro'
-                    ? engineOf('places', [50, 30, 20], players)
-                    : p.kind === 'local'
-                      ? engineOf('places', [34, 24, 17, 11, 8, 6], players)
-                      : p.kind === 'rookie'
-                        ? engineOf('matches', [], players)
-                        : engineOf('maps', [], players);
-                next.addons =
-                  p.kind === 'pro'
-                    ? { ...emptyConfig(players).addons, spectator: shareOf(10) }
-                    : p.kind === 'local'
-                      ? {
-                          ...emptyConfig(players).addons,
-                          matchPayments: {
-                            amount: shareOf(25),
-                            growth: 200,
-                            lowerDiscount: players <= 4 ? 100 : 50,
-                          },
-                          bounty: {
-                            amounts: [
-                              Math.round((shareOf(10) * 467) / 1000),
-                              Math.round((shareOf(10) * 30) / 100),
-                              Math.round((shareOf(10) * 233) / 1000),
-                            ],
-                            rollover: false,
-                          },
-                          spectator: shareOf(10),
-                        }
-                      : p.kind === 'rookie'
-                        ? { ...emptyConfig(players).addons, rookieRace: shareOf(30), underdog: true }
-                        : {
-                            ...emptyConfig(players).addons,
-                            bounty: { amounts: [shareOf(12), shareOf(8), shareOf(5)], rollover: true },
-                            spectator: shareOf(10),
-                            jackpot: true,
-                          };
-                next.bestMatchId = null;
-                const withFund = next;
-                setConfig(withFund);
-                run(async () => {
-                  const v = await ipc.setTournamentPrize(id, withFund, emergency);
-                  setView(v);
-                });
-              }}
-            >
-              {p.title}
-            </button>
-          ))}
+      <div className={s.summary}>
+        <div className={s.sumRow}>
+          <span className={s.sumLabel}>фонд</span>
+          <span className={s.sumValue}>{money(config.fund)}</span>
         </div>
+        <div className={s.sumRow}>
+          <span className={s.sumLabel}>движок</span>
+          <span className={s.sumValue}>{ENGINE_TITLE[config.engine.kind]}</span>
+        </div>
+        <div className={s.sumRow}>
+          <span className={s.sumLabel}>надстройки</span>
+          <span className={s.sumNote}>{addonsBrief(config)}</span>
+        </div>
+        {view !== null ? (
+          <div className={view.check.ok && problems.length === 0 ? s.ok : s.bad}>
+            {view.check.ok && problems.length === 0 ? '✓ ' : '⚠ '}
+            {problems.length > 0 ? problems[0] : view.check.text}
+          </div>
+        ) : null}
       </div>
 
+      <div className={s.buttons}>
+        <Button size="sm" variant="primary" onClick={() => setOpen(true)}>
+          Настроить фонд
+        </Button>
+      </div>
+
+      {open ? (
+        <PrizeDialog
+          ctx={ctx}
+          config={config}
+          view={view}
+          apply={apply}
+          commit={commitNumber}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+// ───────────────────────────────────────────────────────────── диалог
+
+interface DialogProps {
+  ctx: EditorCtx;
+  config: PrizeConfig;
+  view: PrizeView | null;
+  apply: (patch: (c: PrizeConfig) => void) => void;
+  commit: (raw: string, patch: (c: PrizeConfig, value: number) => void) => void;
+  onClose: () => void;
+}
+
+/** Компактный диалог: сумма, движок, надстройки и пример внизу. */
+function PrizeDialog({ ctx, config, view, apply, commit, onClose }: DialogProps) {
+  const t = ctx.t;
+  const bountyEngine = config.engine.kind === 'bounty';
+
+  return (
+    <Modal
+      wide
+      title="Призовой фонд"
+      note="Каждая правка сразу сохраняется и пересчитывает проверку. Внизу — пример того, как деньги себя поведут в турнире."
+      onClose={onClose}
+      footer={
+        <>
+          <Button size="sm" variant="ghost" onClick={() => apply((c) => (c.fund = 0))}>
+            Снять фонд
+          </Button>
+          <Button size="sm" variant="primary" onClick={onClose}>
+            Готово
+          </Button>
+        </>
+      }
+    >
+      {/* ── сумма */}
       <div className={s.two}>
         <Field
           label="Фонд, ₽"
@@ -218,34 +261,39 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
           key={`fund-${config.fund}`}
           defaultValue={config.fund}
           hint="остаток округления идёт первому месту"
-          onBlur={(e) => commitNumber(e.target.value, (c, v) => (c.fund = v))}
+          onBlur={(e) => commitNumberBlur(e, commit)}
         />
         <div className={s.fundNote}>
-          <span>движку остаётся</span>
-          <b className={share < 0 ? s.bad : undefined}>{money(share)}</b>
+          <span>{bountyEngine ? 'на головах' : 'движку остаётся'}</span>
+          <b className={(view?.engineShare ?? 0) < 0 ? s.bad : undefined}>
+            {money(view?.engineShare ?? 0)}
+          </b>
           {config.addons.jackpot && view !== null ? (
             <span>джекпот вкатан: {money(config.jackpotIn)}</span>
           ) : null}
         </div>
       </div>
 
-      <div className={s.group}>
-        <div className={s.groupTitle}>Движок</div>
+      {/* ── движок */}
+      <section className={s.group}>
+        <h3 className={s.groupTitle}>Движок — ровно один</h3>
         <div className={s.chips}>
-          {ENGINES.map((e, i) => {
+          {ENGINES.map((e) => {
             const on =
               config.engine.kind === e.kind &&
-              (e.kind !== 'places' ||
-                config.engine.shares.join(',') === e.shares.join(','));
+              (e.kind !== 'places' || config.engine.shares.join(',') === e.shares.join(',')) &&
+              (e.kind !== 'bounty' || config.engine.shares.join(',') === e.shares.join(','));
             return (
               <button
-                key={i}
+                key={e.title}
                 className={on ? s.chipOn : s.chip}
                 type="button"
                 title={e.note}
                 onClick={() =>
                   apply((c) => {
                     c.engine = engineOf(e.kind, e.shares, t.players.length);
+                    // Охота уже платит за головы: надстройка баунти ей не нужна.
+                    if (e.kind === 'bounty') c.addons.bounty = null;
                   })
                 }
               >
@@ -254,10 +302,13 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
             );
           })}
         </div>
-      </div>
+        <div className={s.engineNote}>
+          {ENGINES.find((e) => e.kind === config.engine.kind)?.note}
+        </div>
+      </section>
 
       {config.engine.kind === 'places' ? (
-        <PlacesEditor config={config} view={view} apply={apply} commit={commitNumber} />
+        <PlacesEditor config={config} view={view} apply={apply} commit={commit} />
       ) : null}
 
       {config.engine.kind === 'matches' ? (
@@ -266,119 +317,23 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
 
       {config.engine.kind === 'maps' ? <MapsEditor config={config} view={view} apply={apply} /> : null}
 
-      <div className={s.group}>
-        <div className={s.groupTitle}>Надстройки</div>
+      {bountyEngine ? (
+        <BountyEngineEditor config={config} view={view} apply={apply} commit={commit} />
+      ) : null}
 
-        <Switch
-          checked={config.addons.bounty !== null}
-          onChange={(v) =>
-            apply((c) => {
-              c.addons.bounty = v
-                ? { amounts: [700, 450, 350].map((x) => Math.min(x, c.fund)), rollover: false }
-                : null;
-            })
-          }
-          note="Сумма на первых сидах. Выбил — забрал сразу; с перекатом половина переезжает на голову убийцы"
-        >
-          Деньги на голове
-        </Switch>
+      {/* ── надстройки */}
+      <section className={s.group}>
+        <h3 className={s.groupTitle}>Надстройки</h3>
 
-        {config.addons.bounty !== null ? (
-          <div className={s.addonBody}>
-            {config.addons.bounty.amounts.map((amount, i) => (
-              <label key={i} className={s.addonRow}>
-                <span className={s.rowName}>{i + 1} сид</span>
-                <input
-                  className={s.cell}
-                  type="number"
-                  min={0}
-                  key={`bounty-${i}-${amount}`}
-                  defaultValue={amount}
-                  onBlur={(e) =>
-                    commitNumber(e.target.value, (c, v) => {
-                      const arr = c.addons.bounty?.amounts ?? [];
-                      arr[i] = v;
-                      if (c.addons.bounty) c.addons.bounty.amounts = arr;
-                    })
-                  }
-                />
-              </label>
-            ))}
-            <div className={s.addonRow}>
-              <span className={s.rowName}>всего на головах</span>
-              <span className={s.rowValue}>{money(bountyTotal)}</span>
-            </div>
-            <Switch
-              checked={config.addons.bounty.rollover}
-              onChange={(v) =>
-                apply((c) => {
-                  if (c.addons.bounty) c.addons.bounty.rollover = v;
-                })
-              }
-              note="Половина уходит убийце, половина переезжает ему на голову — к финалу на лидере висит заметная сумма"
-            >
-              Режим переката
-            </Switch>
+        {bountyEngine ? (
+          <div className={s.engineNote}>
+            Движок охоты уже платит за головы — надстройка «деньги на голове» ему не нужна.
           </div>
-        ) : null}
+        ) : (
+          <BountyAddon config={config} view={view} apply={apply} commit={commit} />
+        )}
 
-        <Switch
-          checked={config.addons.matchPayments !== null}
-          onChange={(v) =>
-            apply((c) => {
-              c.addons.matchPayments = v
-                ? {
-                    amount: Math.round(c.fund * 0.25),
-                    growth: 200,
-                    lowerDiscount: t.players.length <= 4 ? 100 : 50,
-                  }
-                : null;
-              if (!v) c.addons.underdog = false;
-            })
-          }
-          note="Доля фонда за победы в матчах поверх движка мест: чем ближе к финалу, тем дороже"
-        >
-          Выплаты за матчи
-        </Switch>
-
-        {config.addons.matchPayments !== null ? (
-          <div className={s.addonBody}>
-            <label className={s.addonRow}>
-              <span className={s.rowName}>доля, ₽</span>
-              <input
-                className={s.cell}
-                type="number"
-                min={0}
-                key={`mp-${config.addons.matchPayments.amount}`}
-                defaultValue={config.addons.matchPayments.amount}
-                onBlur={(e) =>
-                  commitNumber(e.target.value, (c, v) => {
-                    if (c.addons.matchPayments) c.addons.matchPayments.amount = v;
-                  })
-                }
-              />
-            </label>
-            <PercentRow
-              label="рост к финалу"
-              value={config.addons.matchPayments.growth}
-              onCommit={(v) =>
-                apply((c) => {
-                  if (c.addons.matchPayments) c.addons.matchPayments.growth = v;
-                })
-              }
-            />
-            <PercentRow
-              label="скидка нижней сетки"
-              value={config.addons.matchPayments.lowerDiscount}
-              onCommit={(v) =>
-                apply((c) => {
-                  if (c.addons.matchPayments) c.addons.matchPayments.lowerDiscount = v;
-                })
-              }
-            />
-            <PriceTable prices={view?.paymentPrices ?? []} />
-          </div>
-        ) : null}
+        <MatchPaymentsAddon config={config} view={view} apply={apply} commit={commit} />
 
         <Switch
           checked={config.addons.rookieRace !== null}
@@ -403,7 +358,9 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
                 key={`rr-${config.addons.rookieRace}`}
                 defaultValue={config.addons.rookieRace}
                 onBlur={(e) =>
-                  commitNumber(e.target.value, (c, v) => (c.addons.rookieRace = v))
+                  commit(e.target.value, (c, v) => {
+                    c.addons.rookieRace = v;
+                  })
                 }
               />
             </label>
@@ -423,11 +380,7 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
               c.addons.underdog = v;
             })
           }
-          note={
-            underdogPossible
-              ? 'Победа над более сильным сидом платит ступенью: ×1.5, ×2, ×3 — показывается ступенью, а не коэффициентом'
-              : 'работает поверх выплат за матчи — включи движок «за победы» или надстройку выплат'
-          }
+          note="Победа над более сильным сидом платит ступенью: ×1.5, ×2, ×3 — работает поверх движка «за победы» и надстройки выплат"
         >
           Множитель за андердога
         </Switch>
@@ -456,7 +409,9 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
                 key={`sp-${config.addons.spectator}`}
                 defaultValue={config.addons.spectator}
                 onBlur={(e) =>
-                  commitNumber(e.target.value, (c, v) => (c.addons.spectator = v))
+                  commit(e.target.value, (c, v) => {
+                    c.addons.spectator = v;
+                  })
                 }
               />
             </label>
@@ -484,33 +439,42 @@ export function Prize({ id, t, emergency, run }: EditorCtx) {
         >
           Переходящий джекпот
         </Switch>
-      </div>
+      </section>
 
-      {/* Проверка лестницы: пересчитывается на каждую правку. */}
+      {/* ── пример: как поведут себя деньги */}
+      <MoneyExample config={config} view={view} />
+
+      {/* ── проверки */}
       {view !== null ? (
-        <>
+        <section className={s.group}>
+          <h3 className={s.groupTitle}>Проверка</h3>
           {view.problems.map((p) => (
             <div key={p} className={s.err}>
               {p}
             </div>
           ))}
-          <div className={view.check.ok ? s.ladderOk : s.err}>
+          <div className={view.check.ok ? s.ok : s.err}>
             {view.check.ok ? '✓ ' : '⚠ '}
             {view.check.text}
           </div>
           {view.note !== null ? <div className={s.warn}>{view.note}</div> : null}
-          <div className={s.buttons}>
-            <Button size="sm" onClick={() => apply((c) => (c.fund = 0))} variant="ghost">
-              Снять фонд
-            </Button>
-          </div>
-        </>
+        </section>
       ) : null}
-    </>
+    </Modal>
   );
 }
 
-// ───────────────────────────────────────────────────── параметры движков
+/** Коммит числа из поля суммы фонда. */
+function commitNumberBlur(
+  e: React.FocusEvent<HTMLInputElement>,
+  commit: (raw: string, patch: (c: PrizeConfig, value: number) => void) => void,
+) {
+  commit(e.target.value, (c, v) => {
+    c.fund = v;
+  });
+}
+
+// ─────────────────────────────────────────────────── параметры движков
 
 interface EngineProps {
   config: PrizeConfig;
@@ -526,8 +490,8 @@ function PlacesEditor({ config, view, apply, commit }: EngineProps) {
   const sum = shares.reduce((a, b) => a + b, 0);
 
   return (
-    <div className={s.group}>
-      <div className={s.groupTitle}>Раскладка мест</div>
+    <section className={s.group}>
+      <h3 className={s.groupTitle}>Раскладка мест</h3>
       <div className={s.rounds}>
         {shares.map((sharePercent, i) => {
           const amount = view?.ladder[i]?.guarantee ?? Math.floor((share * sharePercent) / 100);
@@ -585,15 +549,15 @@ function PlacesEditor({ config, view, apply, commit }: EngineProps) {
           + Оплачиваемое место
         </Button>
       </div>
-    </div>
+    </section>
   );
 }
 
 /** Форма матчевых выплат: рост, скидка и честная таблица цен. */
 function MatchesEditor({ config, view, apply }: Omit<EngineProps, 'commit'>) {
   return (
-    <div className={s.group}>
-      <div className={s.groupTitle}>Форма выплат</div>
+    <section className={s.group}>
+      <h3 className={s.groupTitle}>Форма выплат</h3>
       <PercentRow
         label="рост к финалу"
         value={config.engine.growth}
@@ -614,10 +578,9 @@ function MatchesEditor({ config, view, apply }: Omit<EngineProps, 'commit'>) {
       />
       <PriceTable prices={view?.matchPrices ?? []} />
       <div className={s.hint}>
-        Приложение нормирует форму так, чтобы сумма по всем матчам сошлась с долей
-        движка ровно.
+        Приложение нормирует форму так, чтобы сумма по всем матчам сошлась с долей движка ровно.
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -625,8 +588,8 @@ function MatchesEditor({ config, view, apply }: Omit<EngineProps, 'commit'>) {
 function MapsEditor({ config, view, apply }: Omit<EngineProps, 'commit'>) {
   const price = view?.mapPrice ?? null;
   return (
-    <div className={s.group}>
-      <div className={s.groupTitle}>Цена карты</div>
+    <section className={s.group}>
+      <h3 className={s.groupTitle}>Цена карты</h3>
       <PercentRow
         label="скидка нижней сетки"
         value={config.engine.lowerDiscount}
@@ -652,11 +615,410 @@ function MapsEditor({ config, view, apply }: Omit<EngineProps, 'commit'>) {
       )}
       {view?.spread != null ? (
         <div className={s.hint}>
-          Разброс фонда: от {money(view.spread.min)} до {money(view.spread.max)} — итог гуляет
-          в пределах числа сыгранных карт.
+          Разброс фонда: от {money(view.spread.min)} до {money(view.spread.max)} — итог гуляет в
+          пределах числа сыгранных карт.
         </div>
       ) : null}
-    </div>
+    </section>
+  );
+}
+
+/** Движок охоты: проценты на голове каждого сида и режим переката. */
+function BountyEngineEditor({ config, view, apply, commit }: EngineProps) {
+  const shares = config.engine.shares;
+  const share = view?.engineShare ?? 0;
+  const sum = shares.reduce((a, b) => a + b, 0);
+
+  return (
+    <section className={s.group}>
+      <h3 className={s.groupTitle}>Головы по сидам</h3>
+      <div className={s.rounds}>
+        {shares.map((sharePercent, i) => {
+          const amount = Math.floor((share * sharePercent) / 100);
+          return (
+            <div key={i} className={s.round}>
+              <span className={s.roundName}>{i + 1} сид</span>
+              <input
+                className={s.cell}
+                type="number"
+                min={1}
+                max={100}
+                key={`bshare-${i}-${sharePercent}`}
+                defaultValue={sharePercent}
+                title="процент фонда на голове"
+                onBlur={(e) =>
+                  commit(e.target.value, (c, v) => {
+                    c.engine.shares[i] = Math.max(1, Math.min(100, v));
+                    c.engine.shares = [...c.engine.shares];
+                  })
+                }
+              />
+              <span className={s.rowValue}>{money(amount)}</span>
+              <button
+                className={s.reset}
+                type="button"
+                title="Убрать голову"
+                onClick={() =>
+                  apply((c) => {
+                    c.engine.shares = c.engine.shares.filter((_, j) => j !== i);
+                  })
+                }
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className={s.addonRow}>
+        <span className={s.rowName}>сумма процентов</span>
+        <span className={sum === 100 ? s.rowValue : s.bad}>{sum}%</span>
+      </div>
+
+      <div className={s.buttons}>
+        <Button
+          size="sm"
+          onClick={() =>
+            apply((c) => {
+              const last = c.engine.shares[c.engine.shares.length - 1] ?? 10;
+              c.engine.shares = [...c.engine.shares, Math.max(1, Math.floor(last / 2))];
+            })
+          }
+        >
+          + Голова на следующий сид
+        </Button>
+      </div>
+
+      <Switch
+        checked={config.engine.rollover}
+        onChange={(v) =>
+          apply((c) => {
+            c.engine.rollover = v;
+          })
+        }
+        note="Половина уходит убийце, половина переезжает ему на голову — к финалу на лидере висит заметная сумма"
+      >
+        Режим переката
+      </Switch>
+    </section>
+  );
+}
+
+// ───────────────────────────────────────────────────────── надстройки
+
+/** Надстройка «деньги на голове»: фиксированные суммы на первых сидах. */
+function BountyAddon({ config, view, apply, commit }: EngineProps) {
+  void view;
+  const bountyTotal = config.addons.bounty?.amounts.reduce((a, b) => a + b, 0) ?? 0;
+  return (
+    <>
+      <Switch
+        checked={config.addons.bounty !== null}
+        onChange={(v) =>
+          apply((c) => {
+            c.addons.bounty = v
+              ? { amounts: [700, 450, 350].map((x) => Math.min(x, c.fund)), rollover: false }
+              : null;
+          })
+        }
+        note="Сумма на первых сидах. Выбил — забрал сразу; с перекатом половина переезжает на голову убийцы"
+      >
+        Деньги на голове
+      </Switch>
+
+      {config.addons.bounty !== null ? (
+        <div className={s.addonBody}>
+          {config.addons.bounty.amounts.map((amount, i) => (
+            <label key={i} className={s.addonRow}>
+              <span className={s.rowName}>{i + 1} сид</span>
+              <input
+                className={s.cell}
+                type="number"
+                min={0}
+                key={`bounty-${i}-${amount}`}
+                defaultValue={amount}
+                onBlur={(e) =>
+                  commit(e.target.value, (c, v) => {
+                    const arr = c.addons.bounty?.amounts ?? [];
+                    arr[i] = v;
+                    if (c.addons.bounty) c.addons.bounty.amounts = arr;
+                  })
+                }
+              />
+            </label>
+          ))}
+          <div className={s.addonRow}>
+            <span className={s.rowName}>всего на головах</span>
+            <span className={s.rowValue}>{money(bountyTotal)}</span>
+          </div>
+          <Switch
+            checked={config.addons.bounty.rollover}
+            onChange={(v) =>
+              apply((c) => {
+                if (c.addons.bounty) c.addons.bounty.rollover = v;
+              })
+            }
+            note="Половина уходит убийце, половина переезжает ему на голову"
+          >
+            Режим переката
+          </Switch>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** Надстройка «выплаты за матчи»: доля фонда поверх движка мест. */
+function MatchPaymentsAddon({ config, view, apply, commit }: EngineProps) {
+  return (
+    <>
+      <Switch
+        checked={config.addons.matchPayments !== null}
+        onChange={(v) =>
+          apply((c) => {
+            c.addons.matchPayments = v
+              ? {
+                  amount: Math.round(c.fund * 0.25),
+                  growth: 200,
+                  lowerDiscount: c.engine.kind === 'matches' ? c.engine.lowerDiscount : 50,
+                }
+              : null;
+            if (!v) c.addons.underdog = false;
+          })
+        }
+        note="Доля фонда за победы в матчах поверх движка: чем ближе к финалу, тем дороже"
+      >
+        Выплаты за матчи
+      </Switch>
+
+      {config.addons.matchPayments !== null ? (
+        <div className={s.addonBody}>
+          <label className={s.addonRow}>
+            <span className={s.rowName}>доля, ₽</span>
+            <input
+              className={s.cell}
+              type="number"
+              min={0}
+              key={`mp-${config.addons.matchPayments.amount}`}
+              defaultValue={config.addons.matchPayments.amount}
+              onBlur={(e) =>
+                commit(e.target.value, (c, v) => {
+                  if (c.addons.matchPayments) c.addons.matchPayments.amount = v;
+                })
+              }
+            />
+          </label>
+          <PercentRow
+            label="рост к финалу"
+            value={config.addons.matchPayments.growth}
+            onCommit={(v) =>
+              apply((c) => {
+                if (c.addons.matchPayments) c.addons.matchPayments.growth = v;
+              })
+            }
+          />
+          <PercentRow
+            label="скидка нижней сетки"
+            value={config.addons.matchPayments.lowerDiscount}
+            onCommit={(v) =>
+              apply((c) => {
+                if (c.addons.matchPayments) c.addons.matchPayments.lowerDiscount = v;
+              })
+            }
+          />
+          <PriceTable prices={view?.paymentPrices ?? []} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+// ─────────────────────────────────────────── пример: как ведут себя деньги
+
+/**
+ * Простой пример того, что собрал организатор: какая доля куда уходит и что
+ * из этого увидят игроки. Считается из того же вида, что и эфир, — цифры
+ * совпадают с кадром.
+ */
+function MoneyExample({ config, view }: { config: PrizeConfig; view: PrizeView | null }) {
+  if (view === null) {
+    return (
+      <section className={s.group}>
+        <h3 className={s.groupTitle}>Как отыграются деньги</h3>
+        <div className={s.hint}>Пример появится, когда фонд пересчитается.</div>
+      </section>
+    );
+  }
+
+  const fund = Math.max(1, view.fundEffective);
+  const share = view.engineShare;
+  const parts: { label: string; amount: number; color: string }[] = [
+    {
+      label: ENGINE_TITLE[config.engine.kind],
+      amount: share,
+      color: 'var(--gold, #ffd03b)',
+    },
+  ];
+  if (config.addons.bounty !== null) {
+    parts.push({
+      label: 'головы',
+      amount: config.addons.bounty.amounts.reduce((a, b) => a + b, 0),
+      color: 'var(--red, #ff6b6b)',
+    });
+  }
+  if (config.addons.matchPayments !== null) {
+    parts.push({ label: 'выплаты за матчи', amount: config.addons.matchPayments.amount, color: 'var(--cyan, #5bc8f5)' });
+  }
+  if (config.addons.rookieRace !== null) {
+    parts.push({ label: 'гонка новичков', amount: config.addons.rookieRace, color: 'var(--green, #7ed957)' });
+  }
+  if (config.addons.spectator !== null) {
+    parts.push({ label: 'зрительский банк', amount: config.addons.spectator, color: 'var(--pink, #ff6fb1)' });
+  }
+
+  // Строки-примеры: по движку и по надстройкам. Каждая — одна мысль.
+  const lines: { text: string; note?: string | undefined }[] = [];
+  switch (config.engine.kind) {
+    case 'places':
+      for (const row of view.ladder.slice(0, 3)) {
+        lines.push({
+          text: `${row.place} место — ${money(row.guarantee)}`,
+          note: row.maxTotal > row.guarantee ? `с надстройками до ${money(row.maxTotal)}` : undefined,
+        });
+      }
+      break;
+    case 'matches':
+      for (const row of view.matchPrices.slice(0, 3)) {
+        lines.push({
+          text: `${row.title} — победа ${money(row.price)}`,
+          note: `${row.matches} ${row.matches === 1 ? 'матч' : 'матчей'}`,
+        });
+      }
+      break;
+    case 'maps':
+      if (view.mapPrice !== null) {
+        lines.push({
+          text: `карта — ${money(view.mapPrice.loss)} · победная ${money(view.mapPrice.win)}`,
+          note: 'счётчик растёт по ходу матча',
+        });
+      }
+      if (view.spread != null) {
+        lines.push({
+          text: `итог от ${money(view.spread.min)} до ${money(view.spread.max)}`,
+          note: 'зависит от числа взятых карт',
+        });
+      }
+      break;
+    case 'bounty':
+      for (const [i, percent] of config.engine.shares.slice(0, 3).entries()) {
+        lines.push({
+          text: `голова ${i + 1} сида — ${money(Math.floor((share * percent) / 100))}`,
+          note: i === 0 ? 'снимает победитель матча' : undefined,
+        });
+      }
+      if (config.engine.rollover) {
+        lines.push({
+          text: 'перекат: половина убийце, половина — ему на голову',
+          note: 'к финалу голова лидера растёт',
+        });
+      }
+      break;
+  }
+
+  if (config.addons.matchPayments !== null && view.paymentPrices.length > 0) {
+    const first = view.paymentPrices[0];
+    if (first !== undefined) {
+      lines.push({
+        text: `+ победа в ${first.title.toLowerCase()} — ${money(first.price)}`,
+        note: 'надстройка поверх движка',
+      });
+    }
+  }
+  if (config.addons.bounty !== null) {
+    const head = config.addons.bounty.amounts[0] ?? 0;
+    lines.push({
+      text: `+ голова 1 сида — ${money(head)}`,
+      note: 'снимается победой над ним',
+    });
+  }
+  if (config.addons.rookieRace !== null) {
+    lines.push({
+      text: `+ новички делят ${money(config.addons.rookieRace)}`,
+      note: 'отдельный зачёт в той же сетке',
+    });
+  }
+  if (config.addons.spectator !== null) {
+    lines.push({
+      text: `+ лучший матч — ${money(config.addons.spectator)}`,
+      note: 'отмечает хост после турнира',
+    });
+  }
+  if (config.addons.jackpot) {
+    lines.push({
+      text: 'невыданный остаток переедет в следующий турнир',
+      note: view.jackpotNow > 0 ? `сейчас в джекпоте ${money(view.jackpotNow)}` : undefined,
+    });
+  }
+
+  const champion = view.ladder[0];
+
+  return (
+    <section className={s.group}>
+      <h3 className={s.groupTitle}>Как отыграются деньги</h3>
+
+      {/* Раскладка фонда: какая доля куда уходит — одним взглядом. */}
+      <div className={s.splitBar} role="img" aria-label="Раскладка фонда по источникам">
+        {parts.map((p) => (
+          <div
+            key={p.label}
+            className={s.splitPart}
+            style={{
+              width: `${Math.max(0, Math.min(100, (p.amount / fund) * 100)).toFixed(2)}%`,
+              background: p.color,
+            }}
+            title={`${p.label}: ${money(p.amount)}`}
+          />
+        ))}
+      </div>
+      <div className={s.splitLegend}>
+        {parts.map((p) => (
+          <span key={p.label} className={s.splitKey}>
+            <i style={{ background: p.color }} aria-hidden />
+            {p.label} · {money(p.amount)}
+          </span>
+        ))}
+      </div>
+
+      <div className={s.example}>
+        {lines.length === 0 ? (
+          <div className={s.hint}>Добавь движок или надстройки — пример соберётся сам.</div>
+        ) : (
+          lines.map((line, i) => (
+            <div key={i} className={s.exampleRow} style={{ '--i': i } as React.CSSProperties}>
+              <span className={s.exampleText}>{line.text}</span>
+              {line.note !== undefined ? <span className={s.exampleNote}>{line.note}</span> : null}
+            </div>
+          ))
+        )}
+        {champion !== undefined && config.engine.kind !== 'bounty' ? (
+          <div className={s.exampleChamp}>
+            чемпион унесёт до <b>{money(champion.maxTotal)}</b>
+            <span>
+              {champion.guarantee > 0
+                ? `гарантия ${money(champion.guarantee)} · потолок с надстройками ${money(champion.maxTotal)}`
+                : 'потолок зависит от пути по сетке'}
+            </span>
+          </div>
+        ) : null}
+        {config.engine.kind === 'bounty' ? (
+          <div className={s.exampleChamp}>
+            весь фонд — <b>{money(share)}</b> на головах
+            <span>неснятую голову чемпиона он забирает сам</span>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

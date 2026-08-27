@@ -57,6 +57,9 @@ import type {
   RookieRacePayload,
   SpectatorBankPayload,
   StandingsPayload,
+  TrailerPlayersPayload,
+  TrailerStakesPayload,
+  TrailerTitlePayload,
 } from './types';
 
 /**
@@ -214,6 +217,16 @@ function seedGroup(seed: number | null): number {
   return 4;
 }
 
+/** Ступень множителя за андердога числом — для расчёта денег после матча. */
+function underdogStep(winnerSeed: number | null, loserSeed: number | null): number {
+  if (winnerSeed === null || loserSeed === null) return 1;
+  const diff = seedGroup(winnerSeed) - seedGroup(loserSeed);
+  if (diff === 1) return 1.5;
+  if (diff === 2) return 2;
+  if (diff >= 3) return 3;
+  return 1;
+}
+
 /** Ступень андердога словами — «андердог ×3», а не коэффициент. */
 export function underdogLabel(
   winnerSeed: number | null,
@@ -227,30 +240,31 @@ export function underdogLabel(
   return null;
 }
 
-/** Живые деньги матча: для движка «за карты» это счётчик, для остальных —
- * цена победы и головы. Фонд в кадре не молчит до финального свистка. */
+/** Живые деньги матча — счётчик движка «за карты».
+ *
+ * Полоса денег в «Ходе матча» существует только у движка «за карты»: это
+ * живой счётчик, который растёт с каждой картой. У движков «за места» и
+ * «за победы» ничего по ходу матча не меняется — полоса висела бы мёртвым
+ * грузом; цена победы в таких матчах показывается в представлении и в
+ * итогах. Головы — врезкой перед матчем, им своя сцена.
+ *
+ * Заработок в полосе — за этот матч, а не за турнир: зритель смотрит
+ * «сколько взял прямо сейчас», а не таблицу итогов. */
 function matchMoney(ctx: AirContext, m: MatchState): AirMoney | null {
   const cfg = ctx.prize?.config ?? null;
-  if (cfg === null) return null;
+  if (cfg === null || cfg.engine.kind !== 'maps') return null;
   const price = ctx.prize?.mapPrice ?? null;
+  if (price === null) return null;
+
   const stake = ctx.prize?.live.find((l) => l.matchId === m.id) ?? null;
-  const heads = ctx.prize?.heads ?? [];
-  if (price === null && stake === null && heads.length === 0) return null;
-
-  const headOf = (pid: number | null): number => {
-    if (pid === null) return 0;
-    if (stake !== null) return m.playerA === pid ? stake.headA : stake.headB;
-    return heads.find((h) => h.playerId === pid)?.amount ?? 0;
-  };
-
   return {
-    aEarned: earnedOf(ctx, m.playerA ?? -1),
-    bEarned: earnedOf(ctx, m.playerB ?? -1),
-    perWin: price?.win ?? 0,
-    perLoss: price?.loss ?? 0,
+    aEarned: stake?.mapsA ?? 0,
+    bEarned: stake?.mapsB ?? 0,
+    perWin: price.win,
+    perLoss: price.loss,
     winPrice: stake?.winPrice ?? 0,
-    headA: headOf(m.playerA),
-    headB: headOf(m.playerB),
+    headA: stake?.headA ?? 0,
+    headB: stake?.headB ?? 0,
   };
 }
 
@@ -263,14 +277,70 @@ function matchUnderdog(ctx: AirContext, m: MatchState): string | null {
   return underdogLabel(winnerSeed, loserSeed);
 }
 
-/** Сколько заплатили за победы в этом матче — подпись к итогу. */
-function matchPaymentOf(ctx: AirContext, m: MatchState): number | null {
-  const cfg = ctx.prize?.config ?? null;
-  if (cfg === null || m.winnerId === null) return null;
-  const enginePays = cfg.engine.kind === 'matches';
-  const addonPays = cfg.addons.matchPayments !== null;
-  if (!enginePays && !addonPays) return null;
-  return earnedOf(ctx, m.winnerId) - (ctx.prize?.rows.find((r) => r.playerId === m.winnerId)?.bounty ?? 0);
+/** Деньги после матча: что каждый унесёт из этой встречи.
+ *
+ * Считается из тех же цен, которыми платит Rust: победа в матче, карты и
+ * снятая голова. Проигравший при движке «за карты» уносит утешительные
+ * карты — это видно и в итогах, и в таблице заработков. */
+function matchMoneyAfter(
+  ctx: AirContext,
+  m: MatchState,
+): MatchResultPayload['after'] {
+  const prize = ctx.prize ?? null;
+  const cfg = prize?.config ?? null;
+  if (prize === null || cfg === null || m.winnerId === null || m.isWalkover) return null;
+
+  const loserId = m.playerA === m.winnerId ? m.playerB : m.playerA;
+  const winnerSeed =
+    ctx.bracket.players.find((p) => p.playerId === m.winnerId)?.seed ?? null;
+  const loserSeed = ctx.bracket.players.find((p) => p.playerId === loserId)?.seed ?? null;
+  const key = `${m.bracket}:${m.round}`;
+
+  // Цена победы: движок «за матчи» и надстройка выплат, со ступенью андердога.
+  const step =
+    cfg.addons.underdog && winnerSeed !== null && loserSeed !== null
+      ? underdogStep(winnerSeed, loserSeed)
+      : 1;
+  let winPrice = 0;
+  if (cfg.engine.kind === 'matches') {
+    winPrice += prize.matchPrices.find((r) => r.key === key)?.price ?? 0;
+  }
+  if (cfg.addons.matchPayments !== null) {
+    winPrice += prize.paymentPrices.find((r) => r.key === key)?.price ?? 0;
+  }
+  winPrice = Math.floor(winPrice * step);
+
+  // Карты: победные по двойной цене, утешительные по одинарной.
+  let winnerMaps = 0;
+  let loserMaps = 0;
+  if (cfg.engine.kind === 'maps' && prize.mapPrice !== null) {
+    const discount = m.bracket === 'lower' ? Math.max(0, Math.min(100, cfg.engine.lowerDiscount)) / 100 : 1;
+    const per = prize.mapPrice.unit * discount;
+    const winMaps = m.winnerId === m.playerA ? m.scoreA : m.scoreB;
+    const loseMaps = m.winnerId === m.playerA ? m.scoreB : m.scoreA;
+    winnerMaps = Math.floor(winMaps * 2 * per);
+    loserMaps = Math.floor(loseMaps * per);
+  }
+
+  // Голова, снятая в этом матче: последнее снятие баунти из этого матча.
+  let headTaken = 0;
+  const last = prize.lastBounty;
+  if (last !== null && last.victimId === loserId && last.killerId === m.winnerId) {
+    headTaken = last.taken;
+  }
+
+  const winnerTake = winPrice + winnerMaps + headTaken;
+  const loserTake = loserMaps;
+  if (winnerTake === 0 && loserTake === 0) return null;
+
+  return {
+    winnerTake,
+    loserTake,
+    winPrice,
+    headTaken,
+    winnerMaps,
+    loserMaps,
+  };
 }
 
 export function matchIntro(ctx: AirContext, m: MatchState): MatchIntroPayload {
@@ -449,7 +519,7 @@ export function matchResult(ctx: AirContext, m: MatchState): MatchResultPayload 
         : (whereNext(ctx, m.nextLoseSlot) ?? 'в нижнюю сетку'),
     round: roundTitle(ctx, m),
     underdog: matchUnderdog(ctx, m),
-    matchMoney: matchPaymentOf(ctx, m),
+    after: matchMoneyAfter(ctx, m),
   };
 }
 
@@ -940,6 +1010,18 @@ export function fundBoard(ctx: AirContext): FundBoardPayload | null {
         kind: 'matches',
       });
     });
+  } else if (prize.config.engine.kind === 'bounty') {
+    // Охота: строки — головы по сидам, изначальные, до снятий.
+    prize.config.engine.shares.forEach((share, i) => {
+      const amount = Math.floor((prize.engineShare * share) / 100);
+      if (amount <= 0) return;
+      scheme.push({
+        title: `Голова ${i + 1} сида`,
+        note: prize.config.engine.rollover ? 'с перекатом' : 'выбил — забрал',
+        amount: money(amount),
+        kind: 'bounty',
+      });
+    });
   } else if (prize.mapPrice !== null) {
     scheme.push({
       title: 'Карта в победном матче',
@@ -976,7 +1058,6 @@ export function fundBoard(ctx: AirContext): FundBoardPayload | null {
       kind: 'bounty',
     });
   }
-
   if (prize.config.addons.rookieRace !== null) {
     scheme.push({
       title: 'Гонка новичков',
@@ -1024,10 +1105,15 @@ export function fundBoard(ctx: AirContext): FundBoardPayload | null {
   };
 }
 
-/** Деньги на голове — врезка перед матчем: что висит на каждом. */
+/** Деньги на голове — врезка перед матчем: что висит на каждом.
+ *
+ * Работает и для надстройки баунти, и для движка охоты: головы в виде одни. */
 export function bountyHeads(ctx: AirContext, m: MatchState): BountyHeadsPayload | null {
   const prize = ctx.prize;
-  if (prize === null || prize.config.addons.bounty === null) return null;
+  if (prize === null) return null;
+  const hasBounty =
+    prize.config.addons.bounty !== null || prize.config.engine.kind === 'bounty';
+  if (!hasBounty) return null;
   const a = airPlayer(ctx, m.playerA);
   const b = airPlayer(ctx, m.playerB);
   if (a === null || b === null) return null;
@@ -1099,5 +1185,127 @@ export function jackpotScene(ctx: AirContext): JackpotPayload | null {
   return {
     projected: Math.max(0, prize.remainder),
     current: prize.jackpotNow,
+  };
+}
+
+// ────────────────────────────────────────────────── трейлеры турнира
+
+/** Формат турнира словами: сетка, участники, счёт матча. */
+function formatOf(ctx: AirContext): string {
+  const double = ctx.bracket.matches.some((m) => m.bracket === 'lower');
+  const grid = double ? 'двойная выбывание' : 'сетка на вылет';
+  const players = ctx.bracket.players.length;
+  const target = ctx.bracket.targetScore.default;
+  return `${grid} · ${players} участников · до ${target} побед в матче`;
+}
+
+/** Трейлер-название: что за турнир, формат и чем играют. */
+export function trailerTitle(ctx: AirContext): TrailerTitlePayload | null {
+  if (ctx.bracket.players.length < 2) return null;
+
+  const poolNames = [
+    ...new Set(
+      ctx.editor.rounds
+        .map((r) => r.playingPoolName)
+        .filter((name): name is string => name !== null && name !== ''),
+    ),
+  ];
+  const poolIds = new Set(
+    ctx.editor.rounds
+      .map((r) => r.playingPoolId)
+      .filter((id): id is number => id !== null),
+  );
+  const maps = ctx.pools
+    .filter((p) => poolIds.has(p.id))
+    .reduce((a, p) => a + p.slots.length, 0);
+
+  return {
+    tournament: ctx.bracket.name,
+    format: formatOf(ctx),
+    pools: poolNames,
+    maps,
+  };
+}
+
+/** Трейлер-участники: все игроки, камера едет по списку. */
+export function trailerPlayers(ctx: AirContext): TrailerPlayersPayload | null {
+  const rows = ctx.bracket.players
+    .slice()
+    .sort((a, b) => (a.seed ?? 99) - (b.seed ?? 99))
+    .map((p) => ({
+      nick: p.nickname,
+      color: p.color,
+      osuUserId: ctx.players.find((x) => x.id === p.playerId)?.osuUserId ?? null,
+      seed: p.seed,
+      rookie: p.isRookie,
+    }));
+  if (rows.length < 2) return null;
+  return { tournament: ctx.bracket.name, rows };
+}
+
+/** Трейлер-кону: фонд и его устройство. */
+export function trailerStakes(ctx: AirContext): TrailerStakesPayload | null {
+  const prize = ctx.prize;
+  const scheme: { title: string; note: string | null; amount: number }[] = [];
+
+  if (prize !== null) {
+    const cfg = prize.config;
+    switch (cfg.engine.kind) {
+      case 'places':
+        scheme.push({
+          title: 'Места',
+          note: `платят первые ${cfg.engine.shares.length}`,
+          amount: prize.engineShare,
+        });
+        break;
+      case 'matches':
+        scheme.push({
+          title: 'Победы в матчах',
+          note: 'ближе к финалу — дороже',
+          amount: prize.engineShare,
+        });
+        break;
+      case 'maps':
+        scheme.push({
+          title: 'Каждая карта',
+          note: 'живой счётчик',
+          amount: prize.engineShare,
+        });
+        break;
+      case 'bounty':
+        scheme.push({
+          title: 'Охота за головами',
+          note: cfg.engine.rollover ? 'с перекатом' : 'выбил — забрал',
+          amount: prize.engineShare,
+        });
+        break;
+    }
+    if (cfg.addons.bounty !== null) {
+      scheme.push({
+        title: 'Деньги на голове',
+        note: 'снимает победитель',
+        amount: cfg.addons.bounty.amounts.reduce((a, b) => a + b, 0),
+      });
+    }
+    if (cfg.addons.matchPayments !== null) {
+      scheme.push({
+        title: 'Выплаты за матчи',
+        note: 'поверх движка',
+        amount: cfg.addons.matchPayments.amount,
+      });
+    }
+    if (cfg.addons.rookieRace !== null) {
+      scheme.push({ title: 'Гонка новичков', note: 'отдельный зачёт', amount: cfg.addons.rookieRace });
+    }
+    if (cfg.addons.spectator !== null) {
+      scheme.push({ title: 'Зрительский банк', note: 'лучший матч', amount: cfg.addons.spectator });
+    }
+  }
+
+  return {
+    tournament: ctx.bracket.name,
+    fund: prize?.fundEffective ?? null,
+    scheme,
+    format: formatOf(ctx),
   };
 }

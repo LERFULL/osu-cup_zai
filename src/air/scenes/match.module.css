@@ -97,16 +97,20 @@
 
 [data-anim='cinematic'] .liveTop {
   animation: cineFarIn 950ms var(--ease) both;
+  /* Ближний план: игроки выступают из кадра, когда камера летит. */
+  transform: translateZ(120px);
 }
 
 [data-anim='cinematic'] .resultHead,
 [data-anim='cinematic'] .banHead {
   animation: cineFarIn 950ms var(--ease) both;
+  transform: translateZ(110px);
 }
 
 [data-anim='cinematic'] .scoreRow {
   animation: cineNearRightIn 660ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 52ms + 220ms);
+  transform: translateZ(calc(80px - var(--i, 0) * 18px));
 }
 
 /* Планки письма-бокса (обвязка слоя) отъедают верх и низ кадра: «Ходу
@@ -115,6 +119,84 @@
 [data-anim='cinematic'] .live {
   padding-top: 96px;
   padding-bottom: 92px;
+}
+
+/* Глубина сцены: контейнеры держат 3D-контекст, элементы расходятся по
+   планам — при движении камеры получается параллакс, а не плоский слайд. */
+[data-anim='cinematic'] .live,
+[data-anim='cinematic'] .versus,
+[data-anim='cinematic'] .livePool,
+[data-anim='cinematic'] .liveGroup,
+[data-anim='cinematic'] .frame,
+[data-anim='cinematic'] .overlay,
+[data-anim='cinematic'] .reveal,
+[data-anim='cinematic'] .final,
+[data-anim='cinematic'] .progress,
+[data-anim='cinematic'] .headsVs,
+[data-anim='cinematic'] .taken {
+  transform-style: preserve-3d;
+}
+
+/* Строка хода и деньги — передний план маппула. */
+[data-anim='cinematic'] .liveTurn {
+  transform: translateZ(90px);
+}
+
+[data-anim='cinematic'] .liveMoney {
+  transform: translateZ(70px);
+}
+
+/* Строки маппула уходят вглубь по очереди: список читается как ряд карт,
+   разложенных в пространстве. Вход — разворотом, не подъёмом. */
+[data-anim='cinematic'] .liveLine {
+  transform: translateZ(calc(44px - var(--i, 0) * 5px));
+  animation: cineLineIn 680ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 58ms + 240ms);
+}
+
+@keyframes cineLineIn {
+  from {
+    opacity: 0;
+    transform: translateX(-86px) translateZ(140px) rotateY(26deg);
+    filter: blur(7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateZ(calc(44px - var(--i, 0) * 5px));
+  }
+}
+
+/* Окно врезки — самый ближний план: камера к нему и летит. */
+[data-anim='cinematic'] .revealCard {
+  transform: translateZ(160px);
+}
+
+[data-anim='cinematic'] .revealRow {
+  transform: translateZ(60px);
+}
+
+/* Соперники в представлении: каждый со своей глубиной — камера, облетающая
+   кадр, честно меняет их масштаб. */
+[data-anim='cinematic'] .versusSide:first-child {
+  transform: translateZ(90px);
+}
+
+[data-anim='cinematic'] .versusGrid > .versusSide:last-child {
+  transform: translateZ(50px);
+}
+
+[data-anim='cinematic'] .versusMiddle {
+  transform: translateZ(150px);
+}
+
+/* Победитель итога — ближе всех: он и есть событие. */
+[data-anim='cinematic'] .finalWinner {
+  transform: translateZ(130px);
+}
+
+[data-anim='cinematic'] .afterMoney {
+  transform: translateZ(80px);
 }
 
 
@@ -480,6 +562,30 @@
   min-height: 62px;
 }
 
+/* Большой маппул — двумя колонками: строки остаются читаемыми, и ни одна
+   не уезжает за край. Группы модов не режутся — делятся целиком. */
+.livePoolCols {
+  flex-direction: row;
+  gap: 20px;
+  align-items: stretch;
+}
+
+.liveColumn {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.livePoolCols .liveLine {
+  min-height: 48px;
+}
+
+.livePoolCols .liveGroup {
+  gap: 7px;
+}
+
 /* Правая часть строки */
 
 .endBan {
@@ -584,60 +690,194 @@
   }
 }
 
-/* Бан */
+/* ── Бан и пик: карта едет по кадру.
+ *
+ * Три движения на одной оси: строка маппула уезжает вправо за экран, окно с
+ * подробностями влетает слева и уходит вправо, строка возвращается в маппул
+ * слева — уже с меткой. Длительности привязаны к сроку слоя (--dur), поэтому
+ * бан на три секунды и пик на пять едут одной физикой. */
 
-.banHead {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  margin-bottom: 30px;
+.reveal {
+  position: absolute;
+  inset: 0;
 }
 
-.banMark {
+.revealDim {
+  position: absolute;
+  inset: 0;
+  background: rgb(8 9 13 / 0.7);
+  backdrop-filter: blur(5px);
+  animation: overlayIn var(--move) var(--ease);
+}
+
+/* Строка на месте первой строки маппула: оттуда и уезжает. */
+.revealRow {
+  position: absolute;
+  left: 80px;
+  top: 328px;
+  width: 640px;
+}
+
+.revealLine {
+  animation: revealLineGone var(--dur) linear both;
+}
+
+@keyframes revealLineGone {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  13% {
+    transform: translateX(140%);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translateX(140%);
+    opacity: 0;
+  }
+}
+
+/* Возврат строки: слева, на то же место, с меткой бана или пика. */
+.revealBack {
+  animation: revealBackHere var(--dur) var(--ease) both;
+}
+
+@keyframes revealBackHere {
+  0%,
+  66% {
+    transform: translateX(-135%);
+    opacity: 0;
+  }
+
+  82% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Окно с подробностями: влетает слева с разворотом, стоит, уходит вправо. */
+.revealCardWrap {
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-  width: 86px;
-  height: 86px;
+  perspective: 1700px;
+}
+
+.revealCard {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  width: min(1340px, 88vw);
+  padding: 46px 54px;
+  border-radius: 26px;
+  background: var(--card);
+  box-shadow: 0 44px 130px rgb(0 0 0 / 0.55);
+  transform-style: preserve-3d;
+  animation: revealCardFly var(--dur) var(--ease) both;
+}
+
+@keyframes revealCardFly {
+  0% {
+    transform: translateX(-118%) rotateY(32deg) scale(0.92);
+    opacity: 0;
+  }
+
+  7% {
+    opacity: 1;
+  }
+
+  22% {
+    transform: translateX(0) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+
+  78% {
+    transform: translateX(0) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+
+  94% {
+    transform: translateX(124%) rotateY(-22deg) scale(0.94);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(130%) rotateY(-22deg) scale(0.94);
+    opacity: 0;
+  }
+}
+
+.revealHead {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+}
+
+.revealMark,
+.revealMarkPick {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
   border-radius: 50%;
+  font-size: 46px;
+}
+
+.revealMark {
   background: color-mix(in srgb, var(--red) 18%, transparent);
   color: var(--red);
-  font-size: 44px;
 }
 
-.banWhat {
-  font-size: 44px;
+.revealMarkPick {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.revealWhat,
+.revealWhatPick {
+  font-size: 42px;
   font-weight: 800;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
-.banWho {
+.revealWhat {
+  color: var(--red);
+}
+
+.revealWhatPick {
+  color: var(--accent);
+}
+
+.revealWho {
   margin-top: 4px;
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 700;
 }
 
-.banLine {
-  min-height: 118px;
-}
-
-/* Пик */
-
-.pick {
-  position: relative;
+.revealBody {
   display: flex;
   align-items: center;
   gap: 40px;
-  min-height: 430px;
-  padding: 56px 48px;
+  min-height: 240px;
 }
 
-.pickCover {
-  position: absolute;
-  inset: 0;
+.revealCover {
+  flex: none;
+  width: 340px;
+  height: 240px;
+  border-radius: 18px;
   background-size: cover;
   background-position: center;
-  opacity: 0.5;
-  animation: coverIn 5s var(--ease) forwards;
+  animation: coverIn 6s var(--ease) forwards;
 }
 
 @keyframes coverIn {
@@ -646,54 +886,58 @@
   }
 }
 
-.pickShade {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg, rgb(12 14 19 / 0.95) 26%, rgb(12 14 19 / 0.45));
-}
-
-.pickText {
-  position: relative;
+.revealText {
   flex: 1;
   min-width: 0;
 }
 
-.pickWho {
-  font-size: 28px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--txt3);
-}
-
-.pickWho span {
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.pickTitle {
-  margin-top: 18px;
-  font-size: 60px;
+.revealTitle {
+  font-size: 54px;
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.08;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.pickVersion {
+.revealVersion {
   margin-top: 12px;
-  font-size: 28px;
+  font-size: 27px;
   color: var(--txt2);
 }
 
-.pickNums {
+.revealNums {
   display: flex;
   align-items: baseline;
   gap: 32px;
-  margin-top: 34px;
+  margin-top: 28px;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-size: 34px;
+  font-size: 32px;
   color: var(--txt);
+}
+
+.revealVerdict,
+.revealVerdictPick {
+  margin-top: 30px;
+  padding: 9px 22px;
+  border-radius: 999px;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.revealVerdict {
+  border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--red);
+}
+
+.revealVerdictPick {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
 }
 
 .pickStars {
@@ -1066,6 +1310,66 @@
 .finalMoney span {
   font-family: var(--mono);
   font-weight: 700;
+}
+
+/* ── деньги после матча: сколько каждый уносит из закрытой встречи */
+
+.afterMoney {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 26px;
+  padding: 20px 26px;
+  border: 1px solid rgba(255, 208, 59, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(
+    100deg,
+    rgba(255, 208, 59, 0.05),
+    rgba(255, 208, 59, 0.1),
+    rgba(255, 208, 59, 0.04)
+  );
+}
+
+.afterTitle {
+  color: var(--txt3);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.afterRow {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 18px;
+  animation: rowIn 460ms var(--ease) both;
+  animation-delay: 160ms;
+}
+
+.afterRow + .afterRow {
+  animation-delay: 320ms;
+}
+
+.afterNick {
+  color: var(--who);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.afterSum {
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.afterParts {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 17px;
+  text-align: right;
 }
 
 /* Счётчик под полосой идущей карты. */

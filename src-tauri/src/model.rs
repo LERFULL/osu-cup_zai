@@ -1241,14 +1241,17 @@ pub struct PrizeConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PrizeEngineCfg {
-    /// places | matches | maps
+    /// places | matches | maps | bounty
     pub kind: String,
     /// places: проценты по местам, убывающие, в сумме сто.
+    /// bounty: проценты на голове каждого сида, в сумме сто.
     pub shares: Vec<i64>,
     /// matches: во сколько раз дороже следующий раунд верхней, проценты.
     pub growth: i64,
-    /// matches: скидка нижней сетки, проценты.
+    /// matches/maps: скидка нижней сетки, проценты.
     pub lower_discount: i64,
+    /// bounty: режим переката — половина убийце, половина ему на голову.
+    pub rollover: bool,
 }
 
 impl PrizeEngineCfg {
@@ -1258,6 +1261,7 @@ impl PrizeEngineCfg {
             shares,
             growth: 200,
             lower_discount: 50,
+            rollover: false,
         }
     }
 
@@ -1267,6 +1271,7 @@ impl PrizeEngineCfg {
             shares: vec![],
             growth,
             lower_discount,
+            rollover: false,
         }
     }
 
@@ -1276,6 +1281,18 @@ impl PrizeEngineCfg {
             shares: vec![],
             growth: 200,
             lower_discount: 50,
+            rollover: false,
+        }
+    }
+
+    /// Охота за головами: вся доля движка раскладывается на головы по сидам.
+    pub fn bounty(shares: Vec<i64>, rollover: bool) -> Self {
+        Self {
+            kind: "bounty".into(),
+            shares,
+            growth: 200,
+            lower_discount: 50,
+            rollover,
         }
     }
 }

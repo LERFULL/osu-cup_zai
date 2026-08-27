@@ -16,6 +16,7 @@ import type {
   MatchResultPayload,
   PickRevealPayload,
 } from '@/lib/air/types';
+import { useLayer } from './env';
 import { big, coverOf, Face, Frame, Head, Hex, MapLine, Roll, stars, time } from './parts';
 import s from './match.module.css';
 
@@ -83,6 +84,13 @@ export function MatchLive({ p }: { p: MatchLivePayload }) {
     else groups.push({ mod: row.mod, rows: [row] });
   }
 
+  // Маппул на двенадцать карт в одну колонку не встаёт: строки ужимаются ниже
+  // читаемого, а последняя — обычно тайбрейк — уезжает за край кадра. Большой
+  // пул идёт двумя колонками, сбалансированными по числу строк: мод-группы
+  // не режутся, а делятся между колонками целиком.
+  const twoCols = p.rows.length >= 9;
+  const columns = twoCols ? splitColumns(groups) : [groups];
+
   // Номер строки во всём маппуле, а не в группе: задержка появления должна
   // идти сверху вниз по кадру, а не начинаться заново в каждой группе.
   let line = 0;
@@ -120,9 +128,10 @@ export function MatchLive({ p }: { p: MatchLivePayload }) {
         {p.turn.text}
       </div>
 
-      {/* Живые деньги матча: цена победы, головы, счётчик карт — по ходу игры.
-          Не сцена и не событие: деньги всё время на экране, как счёт. */}
-      {p.money !== null && (p.money.winPrice > 0 || p.money.headA > 0 || p.money.headB > 0 || p.money.perLoss > 0) ? (
+      {/* Живые деньги матча — только движку «за карты»: это счётчик, который
+          растёт с каждой картой. Остальные движки по ходу матча ничего не
+          меняют, и полоса висела бы мёртвым грузом. */}
+      {p.money !== null && (p.money.perLoss > 0 || p.money.aEarned > 0 || p.money.bEarned > 0) ? (
         <div className={s.liveMoney}>
           <span className={s.liveMoneySide} style={{ color: p.a.color }}>
             <Roll value={`${p.money.aEarned.toLocaleString('ru-RU')} ₽`} />
@@ -134,11 +143,11 @@ export function MatchLive({ p }: { p: MatchLivePayload }) {
           </span>
           <span className={s.liveMoneyMid}>
             {[
-              p.money.winPrice > 0
-                ? `победа — ${p.money.winPrice.toLocaleString('ru-RU')} ₽`
-                : null,
               p.money.perLoss > 0
                 ? `карта — ${p.money.perLoss.toLocaleString('ru-RU')} ₽`
+                : null,
+              p.money.winPrice > 0
+                ? `победа — ${p.money.winPrice.toLocaleString('ru-RU')} ₽`
                 : null,
             ]
               .filter((x) => x !== null)
@@ -155,39 +164,65 @@ export function MatchLive({ p }: { p: MatchLivePayload }) {
         </div>
       ) : null}
 
-      <div className={s.livePool}>
-        {groups.map((group) => (
-          <div key={group.mod} className={s.liveGroup}>
-            {group.rows.map((row) => {
-              const who =
-                row.state === 'played'
-                  ? row.winner
-                  : row.state === 'banned' || row.state === 'playing'
-                    ? row.by
-                    : null;
-              const color =
-                who === null ? null : who === p.a.id ? p.a.color : who === p.b.id ? p.b.color : null;
-              line += 1;
+      <div className={[s.livePool, twoCols ? s.livePoolCols : null].filter(Boolean).join(' ')}>
+        {columns.map((column, ci) => (
+          <div key={ci} className={s.liveColumn}>
+            {column.map((group) => (
+              <div key={group.mod} className={s.liveGroup}>
+                {group.rows.map((row) => {
+                  const who =
+                    row.state === 'played'
+                      ? row.winner
+                      : row.state === 'banned' || row.state === 'playing'
+                        ? row.by
+                        : null;
+                  const color =
+                    who === null ? null : who === p.a.id ? p.a.color : who === p.b.id ? p.b.color : null;
+                  line += 1;
 
-              return (
-                <MapLine
-                  key={row.slot}
-                  map={row}
-                  compact
-                  index={line - 1}
-                  className={s.liveLine}
-                  dim={row.state === 'banned' || row.state === 'locked'}
-                  glow={row.state === 'playing'}
-                  stripe={color}
-                  end={<RowEnd row={row} a={p.a} b={p.b} />}
-                />
-              );
-            })}
+                  return (
+                    <MapLine
+                      key={row.slot}
+                      map={row}
+                      compact
+                      dense={twoCols}
+                      index={line - 1}
+                      className={s.liveLine}
+                      dim={row.state === 'banned' || row.state === 'locked'}
+                      glow={row.state === 'playing'}
+                      stripe={color}
+                      end={<RowEnd row={row} a={p.a} b={p.b} />}
+                    />
+                  );
+                })}
+              </div>
+            ))}
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+/** Делит группы маппула на две сбалансированные колонки — по числу строк. */
+function splitColumns(
+  groups: { mod: string; rows: MatchLivePayload['rows'] }[],
+): { mod: string; rows: MatchLivePayload['rows'] }[][] {
+  const total = groups.reduce((a, g) => a + g.rows.length, 0);
+  const left: typeof groups = [];
+  const right: typeof groups = [];
+  let taken = 0;
+  for (const group of groups) {
+    // Половина пула ещё не набрана — группа идёт налево. Ровно половина и
+    // дальше — направо: правая колонка не должна остаться пустой.
+    if (taken < total / 2 || right.length === 0 && left.length === groups.length - 1) {
+      left.push(group);
+      taken += group.rows.length;
+    } else {
+      right.push(group);
+    }
+  }
+  return [left, right];
 }
 
 function RowEnd({
@@ -243,24 +278,119 @@ function Overlay({ children, wide }: { children: React.ReactNode; wide?: boolean
   );
 }
 
-export function BanReveal({ p }: { p: BanRevealPayload }) {
+/** Длительность слоя в секундах — врезка двигается по ней, а не по своим
+ * догадкам: зашедший посреди кадра не должен видеть анимацию с начала. */
+function useLayerSeconds(fallback: number): number {
+  const { since, until } = useLayer();
+  const from = Date.parse(since);
+  const to = until === null ? NaN : Date.parse(until);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return fallback;
+  return Math.max(1.5, (to - from) / 1000);
+}
+
+/**
+ * Бан и пик — не «появилась карточка», а движение одной и той же карты:
+ * строка маппула уезжает вправо за экран, слева вылетает окно с подробностями,
+ * окно уходит вправо — и строка возвращается в маппул слева. Всё на одной
+ * оси: карта едет по кадру, а не меняет обличье.
+ */
+function RevealFlow({
+  kind,
+  map,
+  n,
+  fallbackSeconds,
+  children,
+}: {
+  kind: 'ban' | 'pick';
+  map: BanRevealPayload['map'];
+  n?: number;
+  fallbackSeconds: number;
+  children: React.ReactNode;
+}) {
+  const seconds = useLayerSeconds(fallbackSeconds);
+  const style = { '--dur': `${seconds}s` } as React.CSSProperties;
+
   return (
-    <Overlay>
-      <div className={s.banHead}>
-        <span className={s.banMark} aria-hidden>
+    <div className={s.reveal} style={style}>
+      <div className={s.revealDim} aria-hidden />
+
+      {/* Строка маппула на своём месте: уезжает вправо за экран. */}
+      <div className={s.revealRow}>
+        <MapLine map={map} compact className={s.revealLine} />
+      </div>
+
+      {/* Окно с подробностями: влетает слева, стоит, уходит вправо. */}
+      <div className={s.revealCardWrap}>
+        <div className={[s.revealCard, kind === 'ban' ? s.revealCardBan : null].filter(Boolean).join(' ')}>
+          {children}
+        </div>
+      </div>
+
+      {/* Возврат: та же строка возвращается в маппул — уже с меткой. */}
+      <div className={s.revealRow}>
+        <MapLine
+          map={map}
+          compact
+          dim={kind === 'ban'}
+          glow={kind === 'pick'}
+          className={s.revealBack}
+          end={
+            kind === 'ban' ? (
+              <span className={s.endBan}>✕ бан {n ?? 1}</span>
+            ) : (
+              <span className={s.endLive}>
+                <i aria-hidden />
+                в игру
+              </span>
+            )
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+export function BanReveal({ p }: { p: BanRevealPayload }) {
+  const cover = coverOf(p.map.beatmapsetId);
+
+  return (
+    <RevealFlow kind="ban" map={p.map} n={p.n} fallbackSeconds={3}>
+      <div className={s.revealHead}>
+        <span className={s.revealMark} aria-hidden>
           ✕
         </span>
         <div>
-          <div className={s.banWhat}>бан {p.n}</div>
+          <div className={s.revealWhat}>бан {p.n}</div>
           {p.by !== null ? (
-            <div className={s.banWho} style={{ color: p.by.color }}>
+            <div className={s.revealWho} style={{ color: p.by.color }}>
               {p.by.nick}
             </div>
           ) : null}
         </div>
       </div>
-      <MapLine map={p.map} dim className={s.banLine} />
-    </Overlay>
+
+      <div className={s.revealBody}>
+        {cover !== null ? (
+          <div className={s.revealCover} style={{ backgroundImage: `url("${cover}")` }} aria-hidden />
+        ) : null}
+
+        <div className={s.revealText}>
+          <div className={s.revealTitle}>{p.map.title}</div>
+          <div className={s.revealVersion}>
+            {p.map.version}
+            {p.map.mapper !== null ? ` · ${p.map.mapper}` : ''}
+          </div>
+          <div className={s.revealNums}>
+            <span className={s.pickStars}>{stars(p.map.stars)}★</span>
+            <span>{time(p.map.length)}</span>
+            {p.map.bpm !== null ? <span>{Math.round(p.map.bpm)} BPM</span> : null}
+          </div>
+          <div className={s.revealVerdict}>карта выбывает из маппула</div>
+        </div>
+
+        <Hex mod={p.map.mod} label={p.map.slot} />
+      </div>
+    </RevealFlow>
   );
 }
 
@@ -268,37 +398,43 @@ export function PickReveal({ p }: { p: PickRevealPayload }) {
   const cover = coverOf(p.map.beatmapsetId);
 
   return (
-    <Overlay wide>
-      <div className={s.pick}>
-        {cover !== null ? (
-          <div className={s.pickCover} style={{ backgroundImage: `url("${cover}")` }} aria-hidden />
-        ) : null}
-        <div className={s.pickShade} aria-hidden />
+    <RevealFlow kind="pick" map={p.map} fallbackSeconds={5}>
+      <div className={s.revealHead}>
+        <span className={s.revealMarkPick} aria-hidden>
+          ▸
+        </span>
+        <div>
+          <div className={s.revealWhatPick}>пик</div>
+          {p.by !== null ? (
+            <div className={s.revealWho} style={{ color: p.by.color }}>
+              {p.by.nick}
+            </div>
+          ) : null}
+        </div>
+      </div>
 
-        <div className={s.pickText}>
-          <div className={s.pickWho}>
-            {p.by === null ? 'пик' : (
-              <>
-                пик <span style={{ color: p.by.color }}>{p.by.nick}</span>
-              </>
-            )}
-          </div>
-          <div className={s.pickTitle}>{p.map.title}</div>
-          <div className={s.pickVersion}>
+      <div className={s.revealBody}>
+        {cover !== null ? (
+          <div className={s.revealCover} style={{ backgroundImage: `url("${cover}")` }} aria-hidden />
+        ) : null}
+
+        <div className={s.revealText}>
+          <div className={s.revealTitle}>{p.map.title}</div>
+          <div className={s.revealVersion}>
             {p.map.version}
             {p.map.mapper !== null ? ` · ${p.map.mapper}` : ''}
           </div>
-
-          <div className={s.pickNums}>
+          <div className={s.revealNums}>
             <span className={s.pickStars}>{stars(p.map.stars)}★</span>
             <span>{time(p.map.length)}</span>
             {p.map.bpm !== null ? <span>{Math.round(p.map.bpm)} BPM</span> : null}
           </div>
+          <div className={s.revealVerdictPick}>играется следующим</div>
         </div>
 
         <Hex mod={p.map.mod} label={p.map.slot} />
       </div>
-    </Overlay>
+    </RevealFlow>
   );
 }
 
@@ -428,14 +564,37 @@ export function MatchResult({ p }: { p: MatchResultPayload }) {
             </div>
           ) : null}
           {p.underdog !== null ? <div className={s.underdogTag}>{p.underdog}</div> : null}
-          {p.matchMoney !== null && p.matchMoney > 0 ? (
-            <div className={s.finalMoney}>
-              <span style={{ color: p.winner.color }}>{p.winner.nick}</span> зарабатывает{' '}
-              {p.matchMoney.toLocaleString('ru-RU')} ₽
+        </div>
+      </div>
+
+      {/* Что по деньгам будет после матча: сколько каждый уносит из встречи. */}
+      {p.after !== null ? (
+        <div className={s.afterMoney}>
+          <div className={s.afterTitle}>деньги после матча</div>
+          <div className={s.afterRow} style={{ '--who': p.winner.color } as React.CSSProperties}>
+            <span className={s.afterNick}>{p.winner.nick}</span>
+            <span className={s.afterSum}>+{p.after.winnerTake.toLocaleString('ru-RU')} ₽</span>
+            <span className={s.afterParts}>
+              {[
+                p.after.winPrice > 0 ? `победа ${p.after.winPrice.toLocaleString('ru-RU')} ₽` : null,
+                p.after.winnerMaps > 0 ? `карты ${p.after.winnerMaps.toLocaleString('ru-RU')} ₽` : null,
+                p.after.headTaken > 0 ? `голова ${p.after.headTaken.toLocaleString('ru-RU')} ₽` : null,
+              ]
+                .filter((x) => x !== null)
+                .join(' · ')}
+            </span>
+          </div>
+          {p.after.loserTake > 0 ? (
+            <div className={s.afterRow} style={{ '--who': loser.color } as React.CSSProperties}>
+              <span className={s.afterNick}>{loser.nick}</span>
+              <span className={s.afterSum}>+{p.after.loserTake.toLocaleString('ru-RU')} ₽</span>
+              <span className={s.afterParts}>
+                карты {p.after.loserMaps.toLocaleString('ru-RU')} ₽
+              </span>
             </div>
           ) : null}
         </div>
-      </div>
+      ) : null}
     </Frame>
   );
 }

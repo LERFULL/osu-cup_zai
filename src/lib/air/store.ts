@@ -102,6 +102,15 @@ interface AirStore {
   /** Автоматика замерла на текущем кадре. */
   frozen: boolean;
   /**
+   * Показ ещё не начат: сервер поднял эфир, но кадры стоят на заставке.
+   *
+   * Нужен ровно для старта: поднять сервер — полдела, хосту ещё надо скопировать
+   * адрес, добавить источник в OBS и убедиться, что кадр виден. Пока он не
+   * нажал «Начать показ», эфир не двигается: ни плейлист паузы, ни кадры
+   * матча — предложения копятся в очереди и выйдут после кнопки.
+   */
+  standby: boolean;
+  /**
    * Кадр стоит по решению хоста: плейлист паузы его не сменит.
    *
    * Нужно ровно для сцен без таймера. «Перерыв 10 минут» не должно смахнуть
@@ -127,6 +136,8 @@ interface AirStore {
 
   // ── эфир
   start: () => Promise<void>;
+  /** Снять показ с ожидания: кадры идут, плейлист паузы собирается. */
+  beginShow: () => void;
   stop: () => Promise<void>;
   refreshStatus: () => Promise<void>;
 
@@ -184,6 +195,7 @@ export const useAir = create<AirStore>((set, get) => ({
   airing: null,
   proposals: [],
   frozen: false,
+  standby: false,
   hold: false,
 
   playlist: null,
@@ -241,7 +253,7 @@ export const useAir = create<AirStore>((set, get) => ({
 
     try {
       const status = await ipc.airStart(tournamentId, ctx?.bracket.name ?? 'Турнир');
-      set({ status, error: null, proposals: [], frozen: false });
+      set({ status, error: null, proposals: [], frozen: false, standby: true });
 
       // Эфир мог запуститься посреди турнира — это нормальный ход: заставка
       // до первого события, счётчики показов при этом не пустые. Заставка не
@@ -251,6 +263,12 @@ export const useAir = create<AirStore>((set, get) => ({
     } catch (e) {
       set({ error: String(e) });
     }
+  },
+
+  beginShow() {
+    // Хост скопировал адрес и поднял OBS — показ начинается. Очередь,
+    // накопленная в ожидании, выйдет сама на первом же тике.
+    set({ standby: false, pauseDone: false });
   },
 
   async stop() {
@@ -353,6 +371,15 @@ export const useAir = create<AirStore>((set, get) => ({
   plan() {
     const state = get();
 
+    if (state.standby) {
+      return {
+        label: 'показ не начат',
+        source: 'hold',
+        note: 'эфир поднят, кадр стоит на заставке — скопируй адрес, подними OBS и нажми «Начать показ»',
+        automatic: false,
+      };
+    }
+
     if (state.frozen) {
       return {
         label: 'кадр держится',
@@ -450,7 +477,7 @@ export const useAir = create<AirStore>((set, get) => ({
     // Плейлист собираем заранее, а не в момент перехода: пульт должен
     // показывать, что выйдет дальше, ещё до того, как это выйдет.
     const now = get();
-    if (inPause(now) && now.playlist === null && !now.pauseDone) openPause(get, set);
+    if (inPause(now) && !now.standby && now.playlist === null && !now.pauseDone) openPause(get, set);
 
     await runTimers(get, set);
   },
@@ -687,6 +714,11 @@ function enqueue(get: Get, set: Set, fresh: Proposal[]) {
     ...(opensMatch ? { countdownUntil: null } : {}),
   });
 
+  // Показ ещё не начат: кадры копятся в очереди и выйдут после кнопки.
+  // Очередь, а не выкидывание: хост начнёт показ в любой момент, и эфир
+  // обязан догнать матч, а не потерять его события.
+  if (state.standby) return;
+
   if (state.frozen) return;
 
   // Пик придержан: кадр стоит в очереди и ждёт кнопки. Всё, что встало за ним,
@@ -745,7 +777,9 @@ function betweenMatches(state: AirStore): boolean {
  * бюджета: пауза не должна крутиться до конца турнира.
  */
 function canRollPause(state: AirStore): boolean {
-  return state.config.pauseAuto && !state.frozen && !state.hold && !state.pauseDone;
+  return (
+    state.config.pauseAuto && !state.frozen && !state.hold && !state.pauseDone && !state.standby
+  );
 }
 
 /** Кадр отыграл своё — что дальше. */
@@ -770,6 +804,20 @@ async function runTimers(get: Get, set: Set) {
     const forever = top !== undefined && top.until === null;
     if ((done || forever) && canRollPause(state)) await advancePause(get, set);
     return;
+  }
+
+  // В очереди ждут кадры — обычно после снятия показа с ожидания: события
+  // матча копились, пока хост поднимал OBS. Если текущий кадр стоит без
+  // таймера («Ход матча»), очередь двигается сама — иначе врезки висели бы
+  // до конца матча. Придержанный пик и заморозка не трогаются: они ждут
+  // решения хоста, а не таймера.
+  if (!done && top !== undefined && top.until === null && state.proposals.length > 0 && !heldPick(state) && !state.frozen) {
+    const first = state.proposals[0];
+    if (first !== undefined) {
+      set({ proposals: state.proposals.slice(1) });
+      await get().air(first);
+      return;
+    }
   }
 
   if (!done) return;
@@ -1046,6 +1094,18 @@ function buildScene(
     }
     case 'fundBoard':
       return done(build.fundBoard(ctx));
+    case 'fundFlow':
+      return done(build.fundBoard(ctx));
+    case 'topEarners': {
+      const board = build.fundBoard(ctx);
+      return board === null || board.earned.length === 0 ? null : done(board);
+    }
+    case 'trailerTitle':
+      return done(build.trailerTitle(ctx));
+    case 'trailerPlayers':
+      return done(build.trailerPlayers(ctx));
+    case 'trailerStakes':
+      return done(build.trailerStakes(ctx));
     case 'rookieRace':
       return done(build.rookieRace(ctx));
     case 'spectatorBank':
@@ -1142,7 +1202,15 @@ function reasonFor(state: AirStore, id: SceneId): string {
     case 'bracket':
       return 'сетки ещё нет';
     case 'fundBoard':
+    case 'fundFlow':
       return 'фонд не задан';
+    case 'topEarners':
+      return 'никто ещё ничего не заработал';
+    case 'trailerTitle':
+    case 'trailerPlayers':
+      return 'состав меньше двух';
+    case 'trailerStakes':
+      return 'данных о турнире нет';
     case 'rookieRace':
       return 'надстройка выключена или новичков меньше двух';
     case 'spectatorBank':

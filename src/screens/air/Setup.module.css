@@ -437,6 +437,12 @@
   overflow-wrap: anywhere;
 }
 
+.obsRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
 .obsHow {
   margin-top: 6px;
   font-size: 12px;

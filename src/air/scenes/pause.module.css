@@ -153,6 +153,82 @@
 [data-anim='cinematic'] .podiumStep {
   animation: cinePodium 900ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 260ms + 240ms);
+  transform: translateZ(90px);
+}
+
+/* Глубина сцен паузы: заголовки ближе, списки уходят вглубь — камера,
+   летящая над таблицей, получает настоящий параллакс. */
+[data-anim='cinematic'] .frame,
+[data-anim='cinematic'] .two,
+[data-anim='cinematic'] .list,
+[data-anim='cinematic'] .records,
+[data-anim='cinematic'] .credits,
+[data-anim='cinematic'] .podium,
+[data-anim='cinematic'] .fundBoard,
+[data-anim='cinematic'] .fundScheme,
+[data-anim='cinematic'] .fundEarned,
+[data-anim='cinematic'] .bank,
+[data-anim='cinematic'] .flow,
+[data-anim='cinematic'] .flowStreams,
+[data-anim='cinematic'] .earners,
+[data-anim='cinematic'] .trailer,
+[data-anim='cinematic'] .trailerPlayers,
+[data-anim='cinematic'] .stakesStreams {
+  transform-style: preserve-3d;
+}
+
+/* Заголовок сцены — передний план. */
+[data-anim='cinematic'] .title {
+  transform: translateZ(110px);
+}
+
+[data-anim='cinematic'] .note {
+  transform: translateZ(90px);
+}
+
+/* Строки списков — лесенка вглубь: чем ниже строка, тем дальше от камеры. */
+[data-anim='cinematic'] .person,
+[data-anim='cinematic'] .h2hRow,
+[data-anim='cinematic'] .step,
+[data-anim='cinematic'] .modRow,
+[data-anim='cinematic'] .then,
+[data-anim='cinematic'] .creditsRow,
+[data-anim='cinematic'] .fundRow,
+[data-anim='cinematic'] .fundWho {
+  transform: translateZ(calc(70px - var(--i, 0) * 7px));
+}
+
+/* Крупные суммы — к камере: деньги и есть событие кадра. */
+[data-anim='cinematic'] .bankSum,
+[data-anim='cinematic'] .flowSum,
+[data-anim='cinematic'] .stakesSum {
+  transform: translateZ(150px);
+}
+
+/* Трейлер-название: буквы и так прилетают по одной — добавляем глубину,
+   чтобы облёт камеры разводил их по планам. */
+[data-anim='cinematic'] .trailerName {
+  transform: translateZ(100px);
+}
+
+[data-anim='cinematic'] .trailerFormat {
+  transform: translateZ(60px);
+}
+
+[data-anim='cinematic'] .trailerPlayer {
+  transform: translateZ(calc(70px - var(--i, 0) * 5px));
+}
+
+[data-anim='cinematic'] .stakesStream {
+  transform: translateZ(calc(80px - var(--i, 0) * 12px));
+}
+
+[data-anim='cinematic'] .flowRow {
+  transform: translateZ(calc(80px - var(--i, 0) * 12px));
+}
+
+[data-anim='cinematic'] .earner {
+  transform: translateZ(calc(100px - var(--i, 0) * 14px));
 }
 
 
@@ -1223,4 +1299,534 @@
     opacity: 1;
     transform: scale(1);
   }
+}
+
+/* ─────────────────────────────────────────── трейлеры турнира
+ *
+ * Трейлер — не «ещё одна сцена паузы», а первый показ: он обязан отличаться
+ * от эфира по ходу игры. Поэтому здесь своё движение: лучи света едут весь
+ * кадр, буквы прилетают по очереди с поворотом, списки плывут вверх. */
+
+.trailer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 34px;
+  padding: 0 120px;
+  overflow: hidden;
+}
+
+/* Лучи света: медленно едут весь кадр — камера не стоит. */
+.trailerRays {
+  position: absolute;
+  inset: -30% -40%;
+  background:
+    conic-gradient(
+      from 200deg at 50% 120%,
+      transparent 0deg,
+      color-mix(in srgb, var(--accent) 7%, transparent) 18deg,
+      transparent 36deg,
+      color-mix(in srgb, var(--accent) 5%, transparent) 54deg,
+      transparent 72deg,
+      transparent 360deg
+    );
+  animation: raysDrift 22s linear infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes raysDrift {
+  from {
+    transform: rotate(-6deg) scale(1);
+  }
+
+  to {
+    transform: rotate(5deg) scale(1.12);
+  }
+}
+
+.trailerKicker {
+  color: var(--accent);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  animation: kickerIn 700ms var(--ease) both;
+}
+
+@keyframes kickerIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+    letter-spacing: 0.7em;
+  }
+}
+
+/* Название по буквам: каждая прилетает со своим наклоном и глубиной —
+   это титр, а не строка текста. */
+.trailerName {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0;
+  max-width: 1500px;
+  font-size: 108px;
+  font-weight: 900;
+  letter-spacing: -0.015em;
+  line-height: 1.06;
+}
+
+.trailerLetter {
+  display: inline-block;
+  animation: letterIn 620ms var(--ease) both;
+  animation-delay: calc(var(--i) * 46ms + 180ms);
+  text-shadow: 0 0 70px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+@keyframes letterIn {
+  from {
+    opacity: 0;
+    transform: translateY(-46px) rotate(7deg) scale(1.22);
+    filter: blur(10px);
+  }
+}
+
+.trailerFormat {
+  color: var(--txt2);
+  font-size: 26px;
+  animation: rowIn 600ms var(--ease) both;
+  animation-delay: 900ms;
+}
+
+.trailerPools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  max-width: 1300px;
+}
+
+.trailerPool {
+  padding: 10px 24px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--txt);
+  font-size: 21px;
+  font-weight: 700;
+  animation: poolIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i) * 90ms + 1100ms);
+}
+
+@keyframes poolIn {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.94);
+  }
+}
+
+.trailerMaps {
+  color: var(--txt3);
+  font-size: 20px;
+  animation: poolIn 520ms var(--ease) both;
+  animation-delay: 1400ms;
+}
+
+/* ── трейлер-участники: список плывёт вверх, строки приходят по очереди */
+
+.trailerPlayers {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 64px 110px 48px;
+  gap: 30px;
+  overflow: hidden;
+}
+
+.trailerHead {
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  flex: none;
+}
+
+.trailerCount {
+  color: var(--txt);
+  font-family: var(--mono);
+  font-size: 54px;
+  font-weight: 800;
+}
+
+.trailerList {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  /* Весь список медленно плывёт вверх: камера едет по составу. */
+  animation: listDrift 20s var(--ease) both;
+}
+
+.trailerListCols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: center;
+  gap: 12px 46px;
+}
+
+@keyframes listDrift {
+  from {
+    transform: translateY(34px);
+  }
+
+  to {
+    transform: translateY(-16px);
+  }
+}
+
+.trailerPlayer {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  animation: playerIn 560ms var(--ease) both;
+  animation-delay: calc(var(--i) * 80ms + 150ms);
+}
+
+@keyframes playerIn {
+  from {
+    opacity: 0;
+    transform: translateX(-70px);
+    filter: blur(5px);
+  }
+}
+
+.trailerSeed {
+  flex: none;
+  width: 52px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 26px;
+  text-align: right;
+}
+
+.trailerNick {
+  color: var(--txt);
+  font-size: 34px;
+  font-weight: 800;
+}
+
+.trailerRookie {
+  padding: 4px 14px;
+  border: 1px solid rgba(126, 217, 87, 0.4);
+  border-radius: 999px;
+  background: rgba(126, 217, 87, 0.1);
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.trailerFoot {
+  flex: none;
+  color: var(--txt3);
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: rowIn 600ms var(--ease) both;
+  animation-delay: 1100ms;
+}
+
+/* ── трейлер-кону: фонд и потоки */
+
+.stakesFund {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.stakesSum {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 116px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-shadow: 0 0 70px rgba(255, 208, 59, 0.35);
+  animation: sumIn 0.8s both;
+}
+
+.stakesNote {
+  color: var(--txt3);
+  font-size: 20px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.stakesStreams {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(1150px, 100%);
+}
+
+.stakesStream {
+  display: grid;
+  grid-template-columns: 320px 1fr auto;
+  align-items: center;
+  gap: 22px;
+  animation: rowIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i) * 120ms + 500ms);
+}
+
+.stakesStreamTitle {
+  color: var(--txt);
+  font-size: 27px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.stakesStreamBar {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.stakesStreamBar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--accent));
+  animation: streamGrow 900ms var(--ease) both;
+  animation-delay: calc(var(--i) * 120ms + 800ms);
+  transform-origin: left;
+}
+
+@keyframes streamGrow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.stakesStreamSum {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 27px;
+  font-weight: 700;
+  min-width: 170px;
+}
+
+.stakesStreamNote {
+  grid-column: 1 / -1;
+  margin-top: -6px;
+  color: var(--txt2);
+  font-size: 17px;
+  text-align: right;
+}
+
+/* ───────────────────────────────────────── сцена «Куда идут деньги» */
+
+.flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding-top: 12px;
+}
+
+.flowFund {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  animation: sumIn 0.7s both;
+}
+
+.flowSum {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 84px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-shadow: 0 0 50px rgba(255, 208, 59, 0.3);
+}
+
+.flowNote {
+  color: var(--txt3);
+  font-size: 17px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Развилка: линии от фонда к потокам. */
+.flowSplit {
+  display: flex;
+  gap: 130px;
+  height: 74px;
+  margin: 6px 0;
+}
+
+.flowSplit i {
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 60%, transparent), transparent);
+  animation: splitGrow 700ms var(--ease) both;
+  animation-delay: calc(var(--i) * 110ms + 300ms);
+  transform-origin: top;
+}
+
+@keyframes splitGrow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.flowStreams {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(1250px, 100%);
+}
+
+.flowRow {
+  display: grid;
+  grid-template-columns: 330px 1fr auto;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  animation: rowIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i) * 90ms + 420ms);
+}
+
+.flowTitle {
+  color: var(--txt);
+  font-size: 24px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.flowRowNote {
+  grid-column: 1 / -1;
+  margin-top: -4px;
+  color: var(--txt3);
+  font-size: 16px;
+  text-align: right;
+}
+
+.flowBar {
+  height: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 65%, transparent);
+  animation: streamGrow 800ms var(--ease) both;
+  animation-delay: calc(var(--i) * 90ms + 700ms);
+  transform-origin: left;
+}
+
+.flowAmount {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 700;
+  min-width: 150px;
+  text-align: right;
+}
+
+/* Цвета потоков — те же, что у табло фонда. */
+.fundPlaces .flowAmount,
+.fundPlaces .flowBar {
+  color: #ffd03b;
+}
+
+.fundMatches .flowAmount,
+.fundMatches .flowBar {
+  color: #5bc8f5;
+}
+
+.fundMaps .flowAmount,
+.fundMaps .flowBar {
+  color: #7ed957;
+}
+
+.fundBounty .flowAmount,
+.fundBounty .flowBar {
+  color: #ff6fb1;
+}
+
+.fundRookie .flowAmount,
+.fundRookie .flowBar {
+  color: #7ed957;
+}
+
+.fundSpectator .flowAmount,
+.fundSpectator .flowBar {
+  color: #c77dff;
+}
+
+.fundJackpot .flowAmount,
+.fundJackpot .flowBar {
+  color: #f7913d;
+}
+
+.flowRest {
+  margin-top: 22px;
+  color: var(--txt3);
+  font-size: 19px;
+  animation: rowIn 520ms var(--ease) both;
+  animation-delay: 1200ms;
+}
+
+/* ──────────────────────────────────────────── сцена «Кто при деньгах» */
+
+.earners {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1250px;
+  margin: 0 auto;
+}
+
+.earner {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 12px 24px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  animation: rowIn 520ms var(--ease) both;
+  animation-delay: calc(var(--i) * 90ms);
+}
+
+.earnerTop {
+  padding: 18px 28px;
+  border: 1px solid color-mix(in srgb, var(--gold) 32%, transparent);
+  background: color-mix(in srgb, var(--gold) 6%, transparent);
+}
+
+.earnerPlace {
+  flex: none;
+  width: 44px;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.earnerNick {
+  flex: 1;
+  overflow: hidden;
+  color: var(--txt);
+  font-size: 32px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.earnerSum {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 36px;
+  font-weight: 800;
 }

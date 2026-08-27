@@ -2045,7 +2045,7 @@ function seedDemoTournament(): void {
       id: t.id,
       config: {
         fund: 10_000,
-        engine: { kind: 'places', shares: [34, 24, 17, 11, 8, 6], growth: 200, lowerDiscount: 50 },
+        engine: { kind: 'places', shares: [34, 24, 17, 11, 8, 6], growth: 200, lowerDiscount: 50, rollover: false },
         addons: {
           bounty: { amounts: [700, 450, 350], rollover: true },
           matchPayments: { amount: 2_500, growth: 200, lowerDiscount: 50 },

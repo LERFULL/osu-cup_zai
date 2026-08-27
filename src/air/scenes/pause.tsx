@@ -21,6 +21,9 @@ import type {
   RookieRacePayload,
   SpectatorBankPayload,
   StandingsPayload,
+  TrailerPlayersPayload,
+  TrailerStakesPayload,
+  TrailerTitlePayload,
 } from '@/lib/air/types';
 import { useLayer } from './env';
 import { big, Face, Frame, Head, Roll, Stat } from './parts';
@@ -577,6 +580,215 @@ export function JackpotScene({ p }: { p: JackpotPayload }) {
             <span className={s.bankNote}>первый выпуск серии — копилка заводится сегодня</span>
           )}
         </div>
+      </div>
+    </Frame>
+  );
+}
+
+// ────────────────────────────────────────────────── трейлеры турнира
+
+/** Трейлер-название: крупно что за турнир и чем играют.
+ *
+ * Название въезжает по буквам с поворотом — не слайд, а титр: каждая буква
+ * прилетает со своей задержкой и своей глубиной. Световой луч за ним едет
+ * весь кадр. */
+export function TrailerTitle({ p }: { p: TrailerTitlePayload }) {
+  const letters = [...p.tournament];
+  return (
+    <div className={s.trailer}>
+      <div className={s.trailerRays} aria-hidden />
+
+      <div className={s.trailerKicker}>сейчас начнётся</div>
+
+      <h1 className={s.trailerName} aria-label={p.tournament}>
+        {letters.map((ch, i) => (
+          <span
+            key={`${ch}-${i}`}
+            className={s.trailerLetter}
+            style={{ '--i': i } as React.CSSProperties}
+            aria-hidden
+          >
+            {ch === ' ' ? ' ' : ch}
+          </span>
+        ))}
+      </h1>
+
+      <div className={s.trailerFormat}>{p.format}</div>
+
+      {p.pools.length > 0 ? (
+        <div className={s.trailerPools}>
+          {p.pools.map((name, i) => (
+            <span
+              key={name}
+              className={s.trailerPool}
+              style={{ '--i': i } as React.CSSProperties}
+            >
+              {name}
+            </span>
+          ))}
+          {p.maps > 0 ? <span className={s.trailerMaps}>{p.maps} карт в маппулах</span> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Трейлер-участники: камера едет по списку сверху вниз.
+ *
+ * Список живёт своей высотой: игроки приезжают по очереди с разной глубиной,
+ * и весь кадр медленно плывёт вверх — камера не стоит. */
+export function TrailerPlayers({ p }: { p: TrailerPlayersPayload }) {
+  const rows = p.rows;
+  const many = rows.length > 12;
+  return (
+    <div className={s.trailerPlayers}>
+      <div className={s.trailerHead}>
+        <span className={s.trailerKicker}>участники</span>
+        <span className={s.trailerCount}>{rows.length}</span>
+      </div>
+
+      <div className={[s.trailerList, many ? s.trailerListCols : null].filter(Boolean).join(' ')}>
+        {rows.map((row, i) => (
+          <div
+            key={row.nick}
+            className={s.trailerPlayer}
+            style={{ '--who': row.color, '--i': i } as React.CSSProperties}
+          >
+            <span className={s.trailerSeed}>{row.seed ?? '—'}</span>
+            <Face
+              player={{ id: i, nick: row.nick, color: row.color, osuUserId: row.osuUserId, seed: row.seed }}
+              size={many ? 56 : 76}
+            />
+            <span className={s.trailerNick}>{row.nick}</span>
+            {row.rookie ? <span className={s.trailerRookie}>новичок</span> : null}
+          </div>
+        ))}
+      </div>
+
+      <div className={s.trailerFoot}>{p.tournament}</div>
+    </div>
+  );
+}
+
+/** Трейлер-кону: фонд течёт по потокам, каждый приезжает своим темпом. */
+export function TrailerStakes({ p }: { p: TrailerStakesPayload }) {
+  const total = p.scheme.reduce((a, x) => a + x.amount, 0);
+  return (
+    <div className={s.trailer}>
+      <div className={s.trailerRays} aria-hidden />
+
+      <div className={s.trailerKicker}>что на кону</div>
+
+      {p.fund !== null ? (
+        <div className={s.stakesFund}>
+          <span className={s.stakesSum}>{RUB(p.fund)}</span>
+          <span className={s.stakesNote}>призовой фонд</span>
+        </div>
+      ) : (
+        <div className={s.stakesFund}>
+          <span className={s.stakesSum}>{p.tournament}</span>
+          <span className={s.stakesNote}>{p.format}</span>
+        </div>
+      )}
+
+      {p.scheme.length > 0 ? (
+        <div className={s.stakesStreams}>
+          {p.scheme.map((row, i) => (
+            <div
+              key={row.title}
+              className={s.stakesStream}
+              style={{ '--i': i, '--part': total > 0 ? row.amount / total : 0 } as React.CSSProperties}
+            >
+              <span className={s.stakesStreamTitle}>{row.title}</span>
+              <span className={s.stakesStreamBar} aria-hidden>
+                <i />
+              </span>
+              <span className={s.stakesStreamSum}>{RUB(row.amount)}</span>
+              {row.note !== null ? <span className={s.stakesStreamNote}>{row.note}</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className={s.trailerFormat}>{p.format}</div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────── сцены про деньги
+
+/** Куда идут деньги: фонд вверху, потоки вниз — с долями и живыми суммами.
+ *
+ * Не табло, а схема: одна полоса на источник, ширина — доля фонда. Так видно
+ * не только «кто сколько взял», но и как фонд устроен. */
+export function FundFlow({ p }: { p: FundBoardPayload }) {
+  const total = p.scheme.reduce((a, x) => a + x.amount, 0);
+  return (
+    <Frame title="Куда идут деньги" note={`фонд ${RUB(p.fund)} · раздано ${RUB(p.paid)}`}>
+      <div className={s.flow}>
+        <div className={s.flowFund}>
+          <span className={s.flowSum}>{RUB(p.fund)}</span>
+          <span className={s.flowNote}>призовой фонд</span>
+        </div>
+
+        <div className={s.flowSplit} aria-hidden>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <i key={i} style={{ '--i': i } as React.CSSProperties} />
+          ))}
+        </div>
+
+        <div className={s.flowStreams}>
+          {p.scheme.map((row, i) => (
+            <div
+              key={`${row.title}-${i}`}
+              className={[s.flowRow, s[`fund${row.kind.charAt(0).toUpperCase()}${row.kind.slice(1)}`] ?? null]
+                .filter(Boolean)
+                .join(' ')}
+              style={{ '--i': i } as React.CSSProperties}
+            >
+              <span className={s.flowTitle}>{row.title}</span>
+              {row.note !== null ? <span className={s.flowRowNote}>{row.note}</span> : null}
+              <span className={s.flowBar} aria-hidden style={{ width: `${total > 0 ? Math.max(2, (row.amount / total) * 100).toFixed(1) : 2}%` }} />
+              <span className={s.flowAmount}>{RUB(row.amount)}</span>
+            </div>
+          ))}
+        </div>
+
+        {p.remainder > 0 ? (
+          <div className={s.flowRest}>
+            неразыгранное — {RUB(p.remainder)}
+            {p.scheme.some((r) => r.kind === 'jackpot') ? ' — уедет в джекпот' : ''}
+          </div>
+        ) : null}
+      </div>
+    </Frame>
+  );
+}
+
+/** Кто при деньгах: топ заработавших, с живыми суммами. */
+export function TopEarners({ p }: { p: FundBoardPayload }) {
+  return (
+    <Frame title="Кто при деньгах" note="заработанное в этом турнире, на сейчас">
+      <div className={s.earners}>
+        {p.earned.length === 0 ? (
+          <div className={s.fundEmpty}>пока никто ничего не взял</div>
+        ) : (
+          p.earned.slice(0, 6).map((row, i) => (
+            <div
+              key={row.nick}
+              className={[s.earner, i === 0 ? s.earnerTop : null].filter(Boolean).join(' ')}
+              style={{ '--who': row.color, '--i': i } as React.CSSProperties}
+            >
+              <span className={s.earnerPlace}>{i + 1}</span>
+              <Face
+                player={{ id: i, nick: row.nick, color: row.color, osuUserId: row.osuUserId, seed: null }}
+                size={i === 0 ? 96 : 72}
+              />
+              <span className={s.earnerNick}>{row.nick}</span>
+              <Roll value={RUB(row.amount)} className={s.earnerSum} />
+            </div>
+          ))
+        )}
       </div>
     </Frame>
   );

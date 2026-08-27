@@ -28,11 +28,12 @@ const inTauri = isTauri();
 
 export function Panel() {
   const air = useAir();
-  const { status, airing, frozen, playlist, error } = air;
+  const { status, airing, frozen, standby, playlist, error, watching, ctx } = air;
   const frame = useFrame();
 
   const [minutes, setMinutes] = useState(6);
   const [text, setText] = useState('');
+  const [copied, setCopied] = useState(false);
 
   if (status?.live !== true) return null;
 
@@ -43,7 +44,19 @@ export function Panel() {
 
   // В паузе у эфира появляются решения: чем занять экран, пока не играют.
   // Во время матча их нет, и показывать пустой блок незачем.
-  const inPause = air.watching === null || air.watching.status === 'finished';
+  const inPause = watching === null || watching.status === 'finished';
+
+  // Матч на сейчас: ники, счёт, раунд — то, что хосту нужно знать, не
+  // оборачиваясь к экрану матча.
+  const matchA = ctx?.bracket.players.find((p) => p.playerId === watching?.playerA) ?? null;
+  const matchB = ctx?.bracket.players.find((p) => p.playerId === watching?.playerB) ?? null;
+
+  const copyAddr = () => {
+    void navigator.clipboard.writeText(status.localUrl).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    });
+  };
 
   return (
     <aside className={s.panel}>
@@ -56,6 +69,25 @@ export function Panel() {
 
       {error !== null ? <div className={s.error}>{error}</div> : null}
 
+      {/* ── показ не начат: адрес и кнопка. Эфир поднят, но ждёт OBS. */}
+      {standby ? (
+        <div className={s.standby}>
+          <div className={s.standbyTitle}>Показ не начат</div>
+          <div className={s.standbyAddr}>{status.localUrl}</div>
+          <div className={s.standbyRow}>
+            <Button size="sm" onClick={copyAddr}>
+              {copied ? 'Скопировано ✓' : 'Скопировать адрес'}
+            </Button>
+            <Button size="sm" variant="primary" onClick={() => air.beginShow()}>
+              Начать показ
+            </Button>
+          </div>
+          <div className={s.standbyNote}>
+            Кадр стоит на заставке и никуда не уедет — подними OBS и жми «Начать показ»
+          </div>
+        </div>
+      ) : null}
+
       {/* ── что в кадре */}
       <div className={s.block}>
         <div className={s.label}>Сейчас</div>
@@ -67,6 +99,20 @@ export function Panel() {
           <iframe className={s.frame} src={previewSrc} title="Кадр эфира" />
         </div>
       </div>
+
+      {/* ── матч на сейчас: кто играет и какой счёт */}
+      {matchA !== null && matchB !== null && watching !== null ? (
+        <div className={s.block}>
+          <div className={s.label}>Матч</div>
+          <div className={s.match}>
+            <span style={{ color: matchA.color }}>{matchA.nickname}</span>
+            <b className={s.matchScore}>
+              {watching.scoreA + watching.bonusA} : {watching.scoreB + watching.bonusB}
+            </b>
+            <span style={{ color: matchB.color }}>{matchB.nickname}</span>
+          </div>
+        </div>
+      ) : null}
 
       {/* ── что дальше. Без этого хост не знает, что произойдёт, и потому
              смотрит в панель вместо матча. */}
@@ -163,6 +209,11 @@ export function Panel() {
       </div>
 
       <footer className={s.foot}>
+        <div className={s.footInfo}>
+          <button className={s.addr} type="button" onClick={copyAddr} title="Скопировать адрес эфира">
+            {copied ? 'адрес скопирован ✓' : status.localUrl}
+          </button>
+        </div>
         <span className={s.keys}>Пробел — дальше · P — замереть</span>
         <Button
           size="sm"
