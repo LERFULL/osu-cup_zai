@@ -22,7 +22,7 @@ import { FM_CHOICES, derive } from '@/lib/derive';
 import { useReorder } from '@/lib/useReorder';
 import { copyImage, downloadBlob, renderPoolImage } from '@/lib/exportImage';
 import * as ipc from '@/lib/ipc';
-import { Import } from '../library/Import';
+import { useApp } from '@/store/app';
 import { ImportJson } from './ImportJson';
 import { Picker } from './Picker';
 import { Report } from './Report';
@@ -49,12 +49,12 @@ const FIELD_NAMES: Record<PoolField, string> = {
 };
 
 export function PoolEditor({ id, notes, onClose }: Props) {
+  const { go } = useApp();
   const [pool, setPool] = useState<Pool | null>(null);
   const [whence, setWhence] = useState<PoolWhence | null>(null);
   // Правки сыгранного пула уезжают в копию: дальше работаем с её id.
   const [current, setCurrent] = useState(id);
   const [picking, setPicking] = useState<number | null>(null);
-  const [importing, setImporting] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hints, setHints] = useState<GenNote[]>(notes);
@@ -889,7 +889,7 @@ export function PoolEditor({ id, notes, onClose }: Props) {
           slot={slot}
           taken={taken}
           onClose={() => setPicking(null)}
-          onImport={() => setImporting(true)}
+          onImport={() => go('downloads')}
           onPick={(m: Beatmap) => {
             setPicking(null);
             void guard(async () =>
@@ -897,10 +897,6 @@ export function PoolEditor({ id, notes, onClose }: Props) {
             );
           }}
         />
-      ) : null}
-
-      {importing ? (
-        <Import onClose={() => setImporting(false)} onDone={() => setImporting(false)} />
       ) : null}
     </div>
   );

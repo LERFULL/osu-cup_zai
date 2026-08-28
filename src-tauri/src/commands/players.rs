@@ -59,7 +59,9 @@ pub async fn archive_player(
     id: i64,
     archived: bool,
 ) -> Result<()> {
-    state.db.with(|conn| Ok(db::set_archived(conn, id, archived)?))
+    state
+        .db
+        .with(|conn| Ok(db::set_archived(conn, id, archived)?))
 }
 
 #[tauri::command]
@@ -82,6 +84,75 @@ pub async fn merge_players(
 #[tauri::command]
 pub async fn player_stats(state: State<'_, Arc<AppState>>, id: i64) -> Result<PlayerStats> {
     state.db.with(|conn| Ok(db::stats(conn, id)?))
+}
+
+/// Расширенный профиль osu! игрока: pp, ранги, уровень, оценки, команда.
+///
+/// Тянется не чаще раза в сутки, между этим — из кеша. `refresh` позволяет
+/// перечитать силой: кнопка «Обновить» в карточке. Сетевая ошибка не роняет
+/// карточку, если профиль уже лежит в кеше пусть и старый.
+#[tauri::command]
+pub async fn player_osu_profile(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    refresh: Option<bool>,
+) -> Result<crate::model::PlayerOsuProfileWithHistory> {
+    let osu_user_id = state
+        .db
+        .with(|conn| Ok(db::get(conn, id)?.and_then(|p| p.osu_user_id)))?;
+
+    let Some(osu_user_id) = osu_user_id else {
+        // Игрок без привязки к osu! — карточка покажет внутреннюю статистику.
+        return Ok(crate::model::PlayerOsuProfileWithHistory {
+            profile: None,
+            history: vec![],
+        });
+    };
+
+    let force = refresh.unwrap_or(false);
+    let cached = if force {
+        None
+    } else {
+        state
+            .db
+            .with(|conn| Ok(db::cached_user_profile(conn, osu_user_id)?))?
+    };
+
+    let profile = match cached {
+        Some(p) => Some(p),
+        None => {
+            let fetched = match state.credentials() {
+                Ok(creds) => {
+                    state.limiter.acquire().await;
+                    match state.osu.user(&creds, osu_user_id).await {
+                        Ok(dto) => Ok(crate::osu::to_player_profile(dto)),
+                        Err(e) => Err(e),
+                    }
+                }
+                Err(e) => Err(e),
+            };
+
+            match fetched {
+                Ok(profile) => {
+                    state
+                        .db
+                        .with(|conn| Ok(db::save_user_profile(conn, &profile)?))?;
+                    Some(profile)
+                }
+                // Свежего нет, но старый кеш лучше пустоты: карточка
+                // останется читаемой даже без интернета.
+                Err(_) => state
+                    .db
+                    .with(|conn| Ok(db::user_profile_any_age(conn, osu_user_id)?))?,
+            }
+        }
+    };
+
+    let history = state
+        .db
+        .with(|conn| Ok(db::snapshots(conn, osu_user_id)?))?;
+
+    Ok(crate::model::PlayerOsuProfileWithHistory { profile, history })
 }
 
 /// Тянет аватар с osu! по ID профиля и запоминает путь к файлу.
@@ -123,7 +194,9 @@ pub async fn refresh_player_avatars(
     state: State<'_, Arc<AppState>>,
     include_archived: bool,
 ) -> Result<Vec<Player>> {
-    let players = state.db.with(|conn| Ok(db::list(conn, include_archived)?))?;
+    let players = state
+        .db
+        .with(|conn| Ok(db::list(conn, include_archived)?))?;
 
     for p in &players {
         let Some(osu_user_id) = p.osu_user_id else {

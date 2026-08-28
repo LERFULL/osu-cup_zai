@@ -4,7 +4,9 @@
 pub mod air;
 pub mod beatmaps;
 pub mod bracket;
-pub mod collections;pub mod exclusions;
+pub mod collections;
+pub mod downloads;
+pub mod exclusions;
 pub mod feasible;
 pub mod generate;
 pub mod history;
@@ -48,6 +50,9 @@ const AIR: &str = include_str!("migrations/005_air.sql");
 /// Призовой фонд: конфиг в турнире, флаг новичка и значения приложения.
 const PRIZE: &str = include_str!("migrations/006_prize.sql");
 
+/// Загрузки: очередь пачек, память модов удалённых карт, кеш профилей osu!.
+const DOWNLOADS: &str = include_str!("migrations/007_downloads.sql");
+
 /// Миграции по возрастанию версии. Чтобы добавить версию 6, допиши пару
 /// `(6, include_str!("migrations/006_...sql"))` — цикл применит её сам.
 const MIGRATIONS: &[(i64, &str)] = &[
@@ -57,10 +62,11 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (4, EDITOR),
     (5, AIR),
     (6, PRIZE),
+    (7, DOWNLOADS),
 ];
 
 /// Версия схемы, которую ожидает текущий код.
-const TARGET_VERSION: i64 = 6;
+const TARGET_VERSION: i64 = 7;
 
 pub struct Db {
     conn: Mutex<Connection>,

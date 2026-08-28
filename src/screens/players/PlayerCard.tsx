@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Chip, Empty, Field } from '@/components';
-import type { Player, PlayerStats } from '@/lib/types';
+import type { Player, PlayerOsuProfileWithHistory, PlayerStats, OsuSnapshot } from '@/lib/types';
 import { coverUrl } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import s from './PlayerCard.module.css';
@@ -61,9 +61,81 @@ function rate(won: number, total: number): string {
   return `${Math.round((won / total) * 100)}%`;
 }
 
+/** 1234567 → «1 234 567», пустое — прочерк. */
+function num(n: number | null | undefined): string {
+  if (n === null || n === undefined) return '—';
+  return n.toLocaleString('ru-RU');
+}
+
+/** Секунды за игрой → часы. */
+function hours(sec: number | null | undefined): string {
+  if (sec === null || sec === undefined) return '—';
+  return `${Math.round(sec / 3600).toLocaleString('ru-RU')} ч`;
+}
+
+function percent(n: number | null | undefined, digits = 2): string {
+  if (n === null || n === undefined) return '—';
+  return `${n.toFixed(digits)}%`;
+}
+
+/** «2026-08-29T…» → «29.08». Для подписи, когда профиль обновлялся. */
+function dayLabel(iso: string | null): string {
+  if (iso === null || iso === undefined) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Ломаная без зависимостей: минимум маркеров, только линия. */
+function Sparkline({
+  values,
+  invert = false,
+  color,
+}: {
+  values: number[];
+  invert?: boolean;
+  color: string;
+}) {
+  if (values.length < 2) return null;
+
+  const w = 320;
+  const h = 56;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+
+  const points = values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * (w - 4) + 2;
+      const t = (v - min) / span;
+      // Ранг читается наоборот: чем меньше число, тем выше точка.
+      const y = invert ? 4 + t * (h - 8) : h - 4 - t * (h - 8);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  return (
+    <svg className={s.spark} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Одинаковые ячейки-цифры: и osu!-статистика, и внутренняя сводка. */
+function Stat({ value, label, big = false }: { value: string; label: string; big?: boolean }) {
+  return (
+    <div className={[s.stat, big ? s.statBig : null].join(' ')}>
+      <span className={s.statValue}>{value}</span>
+      <span className={s.statLabel}>{label}</span>
+    </div>
+  );
+}
+
 export function PlayerCard({ id, onClose }: Props) {
   const [player, setPlayer] = useState<Player | null>(null);
   const [stats, setStats] = useState<PlayerStats | null>(null);
+  const [osu, setOsu] = useState<PlayerOsuProfileWithHistory | null>(null);
+  const [osuBusy, setOsuBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Черновик правок: пишем в базу по кнопке, а не на каждое нажатие клавиши.
@@ -79,13 +151,18 @@ export function PlayerCard({ id, onClose }: Props) {
 
   const reload = useCallback(async () => {
     try {
-      const [p, st] = await Promise.all([ipc.getPlayer(id), ipc.playerStats(id)]);
+      const [p, st, profile] = await Promise.all([
+        ipc.getPlayer(id),
+        ipc.playerStats(id),
+        ipc.playerOsuProfile(id).catch(() => null),
+      ]);
       if (p === null) {
         setError('Игрок не найден');
         return;
       }
       setPlayer(p);
       setStats(st);
+      setOsu(profile);
       setNickname(p.nickname);
       setOsuId(p.osuUserId === null ? '' : String(p.osuUserId));
       setNote(p.note ?? '');
@@ -99,6 +176,18 @@ export function PlayerCard({ id, onClose }: Props) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /** Силовое обновление профиля osu!: минуя суточный кеш. */
+  async function refreshOsu() {
+    setOsuBusy(true);
+    try {
+      setOsu(await ipc.playerOsuProfile(id, true));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setOsuBusy(false);
+    }
+  }
 
   async function save() {
     const trimmed = osuId.trim();
@@ -190,6 +279,23 @@ export function PlayerCard({ id, onClose }: Props) {
     (note.trim() === '' ? null : note) !== player.note ||
     (osuId.trim() === '' ? null : Number(osuId.trim())) !== player.osuUserId;
 
+  const profile = osu?.profile ?? null;
+  const history: OsuSnapshot[] = osu?.history ?? [];
+
+  // Линии прогресса строятся только по снятым точкам: один снимок —
+  // это ещё не динамика, два и больше уже видно.
+  const ppLine = history.filter((h) => h.pp !== null).map((h) => h.pp!);
+  const rankLine = history.filter((h) => h.globalRank !== null).map((h) => h.globalRank!);
+  const accLine = history.filter((h) => h.accuracy !== null).map((h) => h.accuracy!);
+
+  const ppDelta =
+    ppLine.length >= 2 ? ppLine[ppLine.length - 1]! - ppLine[0]! : null;
+  const rankDelta =
+    rankLine.length >= 2 ? rankLine[rankLine.length - 1]! - rankLine[0]! : null;
+
+  const activity = profile?.monthlyPlaycounts.slice(-12) ?? [];
+  const activityMax = activity.reduce((m, [, n]) => Math.max(m, n), 0);
+
   return (
     <div className={s.screen}>
       <div className={s.bar}>
@@ -221,6 +327,83 @@ export function PlayerCard({ id, onClose }: Props) {
       {error !== null && <div className={s.error}>{error}</div>}
 
       <div className={s.body}>
+        {/* ── герой: кто это на osu! и чего он стоит ── */}
+        <section className={s.osuBlock} style={{ borderColor: `${player.color}55` }}>
+          {profile === null ? (
+            <div className={s.osuEmpty}>
+              <div className={s.osuEmptyTitle}>Профиль osu! не привязан</div>
+              <p className={s.osuEmptyNote}>
+                Укажи ID профиля в форме ниже — карточка сама подтянет pp, ранги, уровень и
+                статистику. Раз в сутки она будет обновлять их сама, а по кнопке «Обновить» —
+                сразу.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className={s.osuHead}>
+                {player.avatarPath !== null ? (
+                  <img
+                    className={s.osuAvatar}
+                    src={coverUrl(player.avatarPath) ?? ''}
+                    alt=""
+                    style={{ borderColor: player.color }}
+                  />
+                ) : (
+                  <div
+                    className={s.osuAvatarEmpty}
+                    style={{ borderColor: player.color }}
+                    aria-hidden
+                  >
+                    {player.nickname.slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+
+                <div className={s.osuWho}>
+                  <span className={s.osuNick}>{profile.username ?? player.nickname}</span>
+                  <div className={s.osuBadges}>
+                    {profile.countryCode !== null && (
+                      <span className={s.badge}>{profile.countryCode}</span>
+                    )}
+                    {profile.teamName !== null && (
+                      <span
+                        className={s.badge}
+                        title="Команда из профиля osu!"
+                        data-team
+                      >
+                        {profile.teamTag !== null ? `[${profile.teamTag}]` : profile.teamName}
+                      </span>
+                    )}
+                    {player.isArchived && <span className={s.badge}>в архиве</span>}
+                  </div>
+                </div>
+
+                <div className={s.osuRefresh}>
+                  <span className={s.osuWhen}>обновлено {dayLabel(profile.fetchedAt)}</span>
+                  <Button size="sm" disabled={osuBusy} onClick={() => void refreshOsu()}>
+                    {osuBusy ? 'Тяну…' : 'Обновить'}
+                  </Button>
+                </div>
+              </div>
+
+              <div className={s.osuStats}>
+                <div className={s.statHero}>
+                  <span className={s.statHeroValue} style={{ color: player.color }}>
+                    {num(profile.pp === null ? null : Math.round(profile.pp))}
+                  </span>
+                  <span className={s.statLabel}>pp</span>
+                </div>
+                <Stat value={num(profile.globalRank)} label="мировой ранг" />
+                <Stat value={num(profile.countryRank)} label={`ранг ${profile.countryCode ?? '—'}`} />
+                <Stat value={percent(profile.accuracy)} label="точность" />
+                <Stat
+                  value={profile.levelCurrent === null ? '—' : `${profile.levelCurrent}`}
+                  label="уровень"
+                />
+              </div>
+            </>
+          )}
+        </section>
+
         <div className={s.cols}>
           <section className={s.block}>
             <div className={s.blockTitle}>Профиль</div>
@@ -235,7 +418,7 @@ export function PlayerCard({ id, onClose }: Props) {
               <div className={s.osuField}>
                 <Field
                   label="ID профиля osu!"
-                  hint="Нужен, чтобы подтянуть аватар из профиля"
+                  hint="Нужен, чтобы подтянуть аватар и статистику из профиля"
                   value={osuId}
                   inputMode="numeric"
                   onChange={(e) => setOsuId(e.target.value.replace(/\D/g, ''))}
@@ -290,33 +473,154 @@ export function PlayerCard({ id, onClose }: Props) {
           </section>
 
           <section className={s.block}>
-            <div className={s.blockTitle}>Всего</div>
+            <div className={s.blockTitle}>Прогресс</div>
+
+            {profile !== null && profile.levelCurrent !== null ? (
+              <div className={s.level}>
+                <div className={s.levelHead}>
+                  <span>
+                    Уровень <b>{profile.levelCurrent}</b>
+                  </span>
+                  <span className={s.levelPct}>{percent(profile.levelProgress, 0)}</span>
+                </div>
+                <div className={s.levelBar}>
+                  <div
+                    className={s.levelFill}
+                    style={{
+                      width: `${Math.min(100, Math.max(0, profile.levelProgress ?? 0))}%`,
+                      background: player.color,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              profile !== null && (
+                <div className={s.muted}>Уровень профиля пока не известен.</div>
+              )
+            )}
+
+            {ppLine.length >= 2 || rankLine.length >= 2 ? (
+              <div className={s.lines}>
+                {ppLine.length >= 2 ? (
+                  <div className={s.line}>
+                    <div className={s.lineHead}>
+                      <span className={s.label}>pp</span>
+                      <span
+                        className={[s.delta, ppDelta !== null && ppDelta >= 0 ? s.up : s.down].join(
+                          ' ',
+                        )}
+                      >
+                        {ppDelta !== null
+                          ? `${ppDelta >= 0 ? '+' : ''}${Math.round(ppDelta)} pp`
+                          : ''}
+                      </span>
+                    </div>
+                    <Sparkline values={ppLine} color={player.color} />
+                  </div>
+                ) : null}
+
+                {rankLine.length >= 2 ? (
+                  <div className={s.line}>
+                    <div className={s.lineHead}>
+                      <span className={s.label}>мировой ранг</span>
+                      <span
+                        className={[
+                          s.delta,
+                          rankDelta !== null && rankDelta <= 0 ? s.up : s.down,
+                        ].join(' ')}
+                      >
+                        {rankDelta !== null
+                          ? `${rankDelta > 0 ? '+' : ''}${num(rankDelta)}`
+                          : ''}
+                      </span>
+                    </div>
+                    <Sparkline values={rankLine} invert color={player.color} />
+                  </div>
+                ) : null}
+
+                {accLine.length >= 2 ? (
+                  <div className={s.line}>
+                    <div className={s.lineHead}>
+                      <span className={s.label}>точность</span>
+                    </div>
+                    <Sparkline values={accLine} color={player.color} />
+                  </div>
+                ) : null}
+
+                <div className={s.muted}>
+                  Снимки делаются раз в день, когда открывают карточку. Заходи почаще — линия
+                  станет точнее.
+                </div>
+              </div>
+            ) : (
+              <div className={s.muted}>
+                {profile === null
+                  ? 'Привяжи профиль osu! — здесь появится динамика pp и ранга.'
+                  : 'История появится со второго дня: снимки делаются раз в сутки.'}
+              </div>
+            )}
+
+            {activity.length > 0 && (
+              <div className={s.activity}>
+                <span className={s.label}>Игры по месяцам</span>
+                <div className={s.activityBars}>
+                  {activity.map(([month, n]) => (
+                    <div
+                      key={month}
+                      className={s.activityBar}
+                      title={`${month}: ${num(n)} игр`}
+                    >
+                      <div
+                        className={s.activityFill}
+                        style={{
+                          height: `${activityMax > 0 ? Math.max(4, Math.round((n / activityMax) * 100)) : 4}%`,
+                          background: player.color,
+                        }}
+                      />
+                      <span className={s.activityMonth}>{month.slice(5)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {profile !== null && (
+          <section className={s.block}>
+            <div className={s.blockTitle}>osu! в числах</div>
+            <div className={`${s.stats} ${s.five}`}>
+              <Stat value={num(profile.playCount)} label="игр" />
+              <Stat value={hours(profile.playTime)} label="в игре" />
+              <Stat value={num(profile.rankedScore)} label="рейтинговых очков" />
+              <Stat value={num(profile.totalScore)} label="всего очков" />
+              <Stat value={num(profile.gradesSS)} label="SS" />
+              <Stat value={num(profile.gradesS)} label="S" />
+              <Stat value={num(profile.gradesA)} label="A" />
+              <Stat value={num(profile.maxCombo)} label="макс. комбо" />
+              <Stat value={num(profile.hitCount)} label="нажатий" />
+              <Stat value={num(profile.replaysWatched)} label="реплеев просмотрено" />
+            </div>
+          </section>
+        )}
+
+        <div className={s.cols}>
+          <section className={s.block}>
+            <div className={s.blockTitle}>Турниры</div>
 
             {stats === null ? null : (
               <>
                 <div className={s.stats}>
-                  <div className={s.stat}>
-                    <span className={s.statValue}>{stats.tournaments}</span>
-                    <span className={s.statLabel}>турниров</span>
-                  </div>
-                  <div className={s.stat}>
-                    <span className={s.statValue}>{stats.tournamentWins}</span>
-                    <span className={s.statLabel}>побед в них</span>
-                  </div>
-                  <div className={s.stat}>
-                    <span className={s.statValue}>
-                      {stats.matchWins}
-                      <span className={s.of}>/{stats.matches}</span>
-                    </span>
-                    <span className={s.statLabel}>матчи · {rate(stats.matchWins, stats.matches)}</span>
-                  </div>
-                  <div className={s.stat}>
-                    <span className={s.statValue}>
-                      {stats.mapWins}
-                      <span className={s.of}>/{stats.maps}</span>
-                    </span>
-                    <span className={s.statLabel}>карты · {rate(stats.mapWins, stats.maps)}</span>
-                  </div>
+                  <Stat value={String(stats.tournaments)} label="турниров" />
+                  <Stat value={String(stats.tournamentWins)} label="побед в них" />
+                  <Stat
+                    value={`${stats.matchWins}/${stats.matches}`}
+                    label={`матчи · ${rate(stats.matchWins, stats.matches)}`}
+                  />
+                  <Stat
+                    value={`${stats.mapWins}/${stats.maps}`}
+                    label={`карты · ${rate(stats.mapWins, stats.maps)}`}
+                  />
                 </div>
 
                 {(stats.bestMod !== null || stats.worstMod !== null) && (
@@ -343,39 +647,39 @@ export function PlayerCard({ id, onClose }: Props) {
               </>
             )}
           </section>
-        </div>
 
-        <section className={s.block}>
-          <div className={s.blockTitle}>Как идут моды</div>
-          {stats === null || stats.byMod.length === 0 ? (
-            <div className={s.muted}>Ещё не сыграно ни одной карты.</div>
-          ) : (
-            <div className={s.bars}>
-              {stats.byMod.map((m) => {
-                const percent = m.played === 0 ? 0 : Math.round((m.won / m.played) * 100);
-                return (
-                  <div key={m.mod} className={s.bar}>
-                    <span className={s.barMod} data-mod={m.mod}>
-                      {m.mod}
-                    </span>
-                    <div className={s.barTrack}>
-                      {/* Полоса — доля выигранных карт: сравнивать моды между
-                          собой на глаз проще, чем читать проценты. */}
-                      <div
-                        className={s.barFill}
-                        style={{ width: `${percent}%`, background: `var(--${m.mod.toLowerCase()})` }}
-                      />
+          <section className={s.block}>
+            <div className={s.blockTitle}>Как идут моды</div>
+            {stats === null || stats.byMod.length === 0 ? (
+              <div className={s.muted}>Ещё не сыграно ни одной карты.</div>
+            ) : (
+              <div className={s.bars}>
+                {stats.byMod.map((m) => {
+                  const p = m.played === 0 ? 0 : Math.round((m.won / m.played) * 100);
+                  return (
+                    <div key={m.mod} className={s.bar}>
+                      <span className={s.barMod} data-mod={m.mod}>
+                        {m.mod}
+                      </span>
+                      <div className={s.barTrack}>
+                        {/* Полоса — доля выигранных карт: сравнивать моды между
+                            собой на глаз проще, чем читать проценты. */}
+                        <div
+                          className={s.barFill}
+                          style={{ width: `${p}%`, background: `var(--${m.mod.toLowerCase()})` }}
+                        />
+                      </div>
+                      <span className={s.barValue}>
+                        {m.won}/{m.played}
+                        <span className={s.barPercent}>{p}%</span>
+                      </span>
                     </div>
-                    <span className={s.barValue}>
-                      {m.won}/{m.played}
-                      <span className={s.barPercent}>{percent}%</span>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
 
         <section className={s.block}>
           <div className={s.blockTitle}>Выступления</div>

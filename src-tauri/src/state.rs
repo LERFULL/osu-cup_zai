@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use tokio::sync::Notify;
+
 use crate::air::AirSlot;
 use crate::cache::CoverCache;
 use crate::config::ConfigStore;
@@ -19,6 +21,9 @@ pub struct AppState {
     pub limiter: RateLimiter,
     pub batches: BatchRegistry,
     pub runner: RunnerGuard,
+    /// Пробуждение обработчика очереди загрузок: enqueue дёргает его вместо
+    /// того, чтобы гадать, спит обработчик или уже закончился.
+    pub queue_notify: Notify,
     /// Идущий эфир. Один на приложение: две трансляции одного турнира с одной
     /// машины — это два расходящихся состояния.
     pub air: AirSlot,
@@ -46,6 +51,7 @@ impl AppState {
             limiter: RateLimiter::per_minute(60),
             batches: BatchRegistry::default(),
             runner: RunnerGuard::default(),
+            queue_notify: Notify::new(),
             air: AirSlot::default(),
             db_path,
             data_dir,

@@ -315,10 +315,18 @@ pub fn upsert(conn: &Connection, map: &Beatmap) -> Result<bool> {
     }
 
     // OR IGNORE: то, что пользователь проставил руками, остаётся.
+    // Для свежей вставки сюда подмешивается память модов: карта могла
+    // раньше жить в библиотеке, её удалили и теперь добавили заново —
+    // прежние теги возвращаются сами, руками их ставить не надо.
+    let (tag_mods, tag_fm) = if existed {
+        (map.mods.clone(), map.fm_mods.clone())
+    } else {
+        restore_remod(conn, map.beatmap_id, &map.mods, &map.fm_mods)
+    };
     {
         let mut stmt = conn
             .prepare("INSERT OR IGNORE INTO beatmap_mods (beatmap_id, \"mod\") VALUES (?1, ?2)")?;
-        for m in &map.mods {
+        for m in &tag_mods {
             stmt.execute(params![map.beatmap_id, m])?;
         }
     }
@@ -326,7 +334,7 @@ pub fn upsert(conn: &Connection, map: &Beatmap) -> Result<bool> {
         let mut stmt = conn.prepare(
             "INSERT OR IGNORE INTO beatmap_fm_mods (beatmap_id, \"mod\") VALUES (?1, ?2)",
         )?;
-        for m in &map.fm_mods {
+        for m in &tag_fm {
             stmt.execute(params![map.beatmap_id, m])?;
         }
     }
@@ -372,6 +380,21 @@ pub fn existing_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<i64>> {
 }
 
 pub fn delete(conn: &Connection, ids: &[i64]) -> Result<()> {
+    // Память модов — до удаления: строка карты исчезнет вместе с каскадом
+    // тегов, а сюда мы складываем, что на ней было проставлено. При
+    // повторной загрузке той же карты теги вернутся сами (см. `upsert`).
+    for chunk in ids.chunks(CHUNK) {
+        let sql = format!(
+            "SELECT beatmap_id FROM beatmaps WHERE beatmap_id IN ({})",
+            placeholders(chunk.len())
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(chunk.iter()), |r| r.get::<_, i64>(0))?;
+        for row in rows {
+            remember_mods(conn, row?);
+        }
+    }
+
     for chunk in ids.chunks(CHUNK) {
         let sql = format!(
             "DELETE FROM beatmaps WHERE beatmap_id IN ({})",
@@ -383,13 +406,104 @@ pub fn delete(conn: &Connection, ids: &[i64]) -> Result<()> {
     Ok(())
 }
 
+/// Возвращает сохранённые теги удалённой карты, склеенные с новыми. Без
+/// дублей: что уже стоит в `mods`, из памяти второй раз не приходит.
+fn restore_remod(
+    conn: &Connection,
+    beatmap_id: i64,
+    fresh: &[String],
+    fresh_fm: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let saved: Option<(String, String)> = conn
+        .query_row(
+            "SELECT mods, fm_mods FROM beatmap_remod WHERE beatmap_id = ?1",
+            params![beatmap_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok();
+
+    let Some((mods_json, fm_json)) = saved else {
+        return (fresh.to_vec(), fresh_fm.to_vec());
+    };
+
+    let old: Vec<String> = serde_json::from_str(&mods_json).unwrap_or_default();
+    let old_fm: Vec<String> = serde_json::from_str(&fm_json).unwrap_or_default();
+
+    let mut mods = fresh.to_vec();
+    for m in old {
+        if !mods.contains(&m) {
+            mods.push(m);
+        }
+    }
+    let mut fm = fresh_fm.to_vec();
+    for m in old_fm {
+        if !fm.contains(&m) {
+            fm.push(m);
+        }
+    }
+    (mods, fm)
+}
+
+/// Есть ли уже атрибуты без модов — чтобы не ходить в сеть второй раз за
+/// скилсетом карты, которая раньше уже скачивалась.
+pub fn has_attributes(conn: &Connection, beatmap_id: i64) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM beatmap_attributes WHERE beatmap_id = ?1 AND mods = ''",
+            params![beatmap_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// Запоминает мод-теги карты на случай, если её удалят, а потом добавят заново.
+fn remember_mods(conn: &Connection, beatmap_id: i64) {
+    let mods: Vec<String> = conn
+        .prepare("SELECT \"mod\" FROM beatmap_mods WHERE beatmap_id = ?1")
+        .and_then(|mut st| {
+            st.query_map(params![beatmap_id], |r| r.get::<_, String>(0))
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    let fm: Vec<String> = conn
+        .prepare("SELECT \"mod\" FROM beatmap_fm_mods WHERE beatmap_id = ?1")
+        .and_then(|mut st| {
+            st.query_map(params![beatmap_id], |r| r.get::<_, String>(0))
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+
+    // Пустой памяти быть не может: зачем помнить, что тегов не было.
+    // Пустая запись затирается — так после «удалил и пере-tagировал»
+    // возвращаются свежие теги, а не то, что было до них.
+    if mods.is_empty() && fm.is_empty() {
+        let _ = conn.execute(
+            "DELETE FROM beatmap_remod WHERE beatmap_id = ?1",
+            params![beatmap_id],
+        );
+        return;
+    }
+
+    let _ = conn.execute(
+        "INSERT INTO beatmap_remod (beatmap_id, mods, fm_mods, saved_at)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(beatmap_id) DO UPDATE
+            SET mods = ?2, fm_mods = ?3, saved_at = ?4",
+        params![
+            beatmap_id,
+            serde_json::to_string(&mods).unwrap_or_else(|_| "[]".into()),
+            serde_json::to_string(&fm).unwrap_or_else(|_| "[]".into()),
+            now_iso()
+        ],
+    );
+}
+
 // ─────────────────────────────────────────────────────────────── чтение
 
 pub fn get(conn: &Connection, id: i64) -> Result<Option<Beatmap>> {
     let sql = format!("SELECT {COLS} FROM beatmaps b WHERE b.beatmap_id = ?1");
-    let found = conn
-        .query_row(&sql, params![id], map_row)
-        .optional()?;
+    let found = conn.query_row(&sql, params![id], map_row).optional()?;
 
     match found {
         Some(map) => {
@@ -587,7 +701,12 @@ fn order_by(f: &LibraryFilter) -> String {
 
 /// Страница библиотеки. Фильтрация и срез целиком на стороне SQL —
 /// библиотека рассчитана на десятки тысяч карт.
-pub fn list(conn: &Connection, f: &LibraryFilter, offset: i64, limit: i64) -> Result<Page<Beatmap>> {
+pub fn list(
+    conn: &Connection,
+    f: &LibraryFilter,
+    offset: i64,
+    limit: i64,
+) -> Result<Page<Beatmap>> {
     let w = build_where(conn, f)?;
     let where_sql = if w.conds.is_empty() {
         String::new()
@@ -1037,5 +1156,3 @@ pub fn auto_skillsets(map: &Beatmap, attr: &BeatmapAttributes) -> Vec<String> {
 
     out
 }
-
-

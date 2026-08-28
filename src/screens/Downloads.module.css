@@ -1,0 +1,350 @@
+/* Загрузки: слева форма новой пачки, справа очередь со живым прогрессом. */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 17px 24px 13px;
+}
+
+.h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.022em;
+}
+
+.right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.error {
+  margin: 0 24px 12px;
+  padding: 10px 13px;
+  border-radius: 10px;
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--red);
+  font-size: 12.5px;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 24px 28px;
+  overflow-y: auto;
+}
+
+.cols {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 17px;
+  width: 100%;
+  max-width: var(--col);
+  margin: 0 auto;
+  align-items: start;
+}
+
+/* На узком окне форма встаёт над очередью: сначала добавить, потом смотреть. */
+@media (width < 980px) {
+  .cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.blockTitle {
+  margin-bottom: 13px;
+  color: var(--txt3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── форма новой пачки ── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.found {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ok {
+  color: var(--green);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.note {
+  color: var(--txt3);
+  font-size: 11.5px;
+}
+
+.none {
+  color: var(--txt3);
+  font-size: 12px;
+}
+
+.mods {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  color: var(--txt3);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.hint {
+  color: var(--txt3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── очередь ── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.empty {
+  padding: 8px 0;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 14px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  transition: background 0.13s, border-color 0.13s;
+}
+
+.cardRunning {
+  background: var(--card2);
+  box-shadow: 0 0 18px rgba(91, 200, 245, 0.08), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.cardDone {
+  border: 1px solid rgba(126, 217, 87, 0.35);
+}
+
+.cardFailed {
+  border: 1px solid rgba(255, 107, 107, 0.4);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.statusActive {
+  color: var(--cyan);
+}
+
+.statusDone {
+  color: var(--green);
+}
+
+.statusFailed {
+  color: var(--red);
+}
+
+.statusCancelled {
+  color: var(--txt3);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* Мини-плашка мода: те же цвета, что в строках библиотеки. */
+.modChip {
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.modChip[data-mod='hd'] {
+  background: rgba(255, 208, 59, 0.16);
+  color: var(--hd);
+}
+
+.modChip[data-mod='hr'] {
+  background: rgba(255, 107, 107, 0.14);
+  color: var(--hr);
+}
+
+.modChip[data-mod='dt'] {
+  background: rgba(91, 200, 245, 0.14);
+  color: var(--dt);
+}
+
+.modChip[data-mod='fm'] {
+  background: rgba(199, 125, 255, 0.14);
+  color: var(--fm);
+}
+
+.modChip[data-mod='ez'] {
+  background: rgba(126, 217, 87, 0.14);
+  color: var(--ez);
+}
+
+.modChip[data-mod='tb'] {
+  background: rgba(126, 217, 87, 0.14);
+  color: var(--tb);
+}
+
+.noMods {
+  color: var(--txt3);
+  font-size: 11px;
+}
+
+.when {
+  margin-left: auto;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+/* ── прогресс ── */
+
+.progressWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--cyan);
+  transition: width 0.25s ease;
+}
+
+.count {
+  flex: 0 0 auto;
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.result {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.failedList {
+  color: var(--red);
+  font-size: 11.5px;
+}
+
+.failedAll {
+  overflow: hidden;
+  display: block;
+  text-overflow: ellipsis;
+}
+
+/* ── действия ── */
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.x {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--txt3);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.x:hover {
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--red);
+}

@@ -22,6 +22,7 @@ import type {
   GenRules,
   HistoryDetail,
   HistorySummary,
+  ImportBatch,
   ImportProgress,
   Label,
   LibraryFilter,
@@ -31,6 +32,7 @@ import type {
   Page,
   ParsedLinks,
   Player,
+  PlayerOsuProfileWithHistory,
   PlayerStats,
   Pool,
   PoolField,
@@ -367,17 +369,36 @@ export const rollSeries = (seriesId: number, keepPinned: boolean) =>
 export const rerollRepeat = (poolId: number, beatmapId: number) =>
   invoke<GenReport>('reroll_repeat', { poolId, beatmapId });
 
-// ────────────────────────────────────────────────────────────── импорт
+// ────────────────────────────────────────────────────────────── загрузки
 
 /** Разбор произвольного текста. Чистая операция, сети не трогает. */
 export const parseLinks = (text: string) => invoke<ParsedLinks>('parse_links', { text });
 
-/** Ставит найденное в очередь. Возвращает batchId, прогресс приходит событием. */
-export const importLinks = (parsed: ParsedLinks) => invoke<string>('import_links', { parsed });
+/** Поставить пачку в очередь. Прогресс приходит событием import:progress. */
+export const downloadQueueAdd = (parsed: ParsedLinks, mods: string[], name?: string) =>
+  invoke<ImportBatch>('download_queue_add', { parsed, mods, name: name ?? null });
 
-/** Повтор по картам, которые не загрузились. Возвращает новый batchId. */
-export const retryFailed = (beatmapIds: number[]) => invoke<string>('retry_failed', { beatmapIds });
-export const cancelBatch = (batchId: string) => invoke<void>('cancel_batch', { batchId });
+/** Вся очередь: идущие, ждущие и закончившиеся пачки. */
+export const downloadQueueList = () => invoke<ImportBatch[]>('download_queue_list');
+
+/** Отменить пачку: ждущая снимается сразу, идущая — на ближайшем шаге. */
+export const downloadQueueCancel = (batchId: string) =>
+  invoke<ImportBatch>('download_queue_cancel', { batchId });
+
+/** Отправить пачку заново. */
+export const downloadQueueRetry = (batchId: string) =>
+  invoke<ImportBatch>('download_queue_retry', { batchId });
+
+/** Убрать пачку из списка. */
+export const downloadQueueRemove = (batchId: string) =>
+  invoke<void>('download_queue_remove', { batchId });
+
+/** Убрать из списка всё, что уже не качается и не ждёт. */
+export const downloadQueueClear = () => invoke<void>('download_queue_clear');
+
+/** Событие «список очереди изменился»: перечитать его целиком. */
+export const onDownloadsChanged = (fn: () => void): Promise<UnlistenFn> =>
+  listen('downloads:changed', () => fn());
 
 export const getQueueStatus = () => invoke<QueueStatus>('get_queue_status');
 export const getCacheSize = () => invoke<number>('cache_size');
@@ -455,6 +476,13 @@ export const mergePlayers = (keepId: number, mergeId: number) =>
 export const deletePlayer = (id: number) => invoke<void>('delete_player', { id });
 
 export const playerStats = (id: number) => invoke<PlayerStats>('player_stats', { id });
+
+/**
+ * Расширенный профиль osu!: pp, ранги, уровень, оценки, команда, прогресс.
+ * Тянется не чаще раза в сутки, `refresh: true` перечитывает силой.
+ */
+export const playerOsuProfile = (id: number, refresh = false) =>
+  invoke<PlayerOsuProfileWithHistory>('player_osu_profile', { id, refresh });
 
 /** Тянет аватар с osu! по ID профиля. Возвращает игрока с путём к файлу. */
 export const fetchPlayerAvatar = (id: number) =>

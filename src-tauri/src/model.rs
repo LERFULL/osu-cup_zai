@@ -256,6 +256,32 @@ pub struct ImportProgress {
     pub failed: Vec<ImportFailure>,
 }
 
+/// Пачка в очереди загрузок. Живёт в базе, поэтому переживает перезапуск.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportBatch {
+    pub batch_id: String,
+    pub name: String,
+    /// Авто-теги на все карты пачки: NM, HD, HR…
+    pub mods: Vec<String>,
+    /// queued running done failed cancelled
+    pub status: String,
+    /// queued fetching skillsets covers saving done
+    pub stage: String,
+    /// Отдельные сложности.
+    pub beatmap_ids: Vec<i64>,
+    /// Наборы — при загрузке разворачиваются во все свои сложности.
+    pub beatmapset_ids: Vec<i64>,
+    pub total: i64,
+    pub done: i64,
+    pub added: i64,
+    pub skipped: i64,
+    pub failed: Vec<ImportFailure>,
+    pub created_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportFailure {
@@ -842,6 +868,64 @@ pub struct PlayerStats {
     pub versus: Vec<PlayerVersus>,
 }
 
+/// Расширенный профиль osu! для карточки игрока: всё, что отдаёт
+/// `GET /users/{id}` в разделе статистики, плюс команда и активность.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlayerOsuProfile {
+    pub osu_user_id: i64,
+    pub username: Option<String>,
+    pub country_code: Option<String>,
+    /// Команда профиля, если игрок в ней состоит.
+    pub team_name: Option<String>,
+    pub team_tag: Option<String>,
+    pub pp: Option<f64>,
+    pub global_rank: Option<i64>,
+    pub country_rank: Option<i64>,
+    /// Проценты, как на сайте.
+    pub accuracy: Option<f64>,
+    pub play_count: Option<i64>,
+    /// Секунды за игрой.
+    pub play_time: Option<i64>,
+    pub max_combo: Option<i64>,
+    pub ranked_score: Option<i64>,
+    pub total_score: Option<i64>,
+    pub hit_count: Option<i64>,
+    pub replays_watched: Option<i64>,
+    /// Уровень профиля и его прогресс до следующего.
+    pub level_current: Option<i64>,
+    /// Проценты 0..100.
+    pub level_progress: Option<i64>,
+    /// Оценки за всё время: SS, S, A.
+    pub grades_ss: Option<i64>,
+    pub grades_s: Option<i64>,
+    pub grades_a: Option<i64>,
+    /// Игры по месяцам: [(«2026-01», 1234), …], старые в конце.
+    pub monthly_playcounts: Vec<(String, i64)>,
+    pub fetched_at: String,
+}
+
+/// Одна точка прогресса: снимок профиля за день.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OsuSnapshot {
+    /// YYYY-MM-DD.
+    pub day: String,
+    pub pp: Option<f64>,
+    pub global_rank: Option<i64>,
+    pub accuracy: Option<f64>,
+    pub play_count: Option<i64>,
+}
+
+/// Профиль osu! плюс история снимков — ответ команды `player_osu_profile`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerOsuProfileWithHistory {
+    pub profile: Option<PlayerOsuProfile>,
+    /// Снимки по дням, старые в начале.
+    pub history: Vec<OsuSnapshot>,
+}
+
 // ──────────────────────────────────────────────────────────── турниры
 
 /// До скольких побед играют. Общее число, а по раундам — только там,
@@ -1021,11 +1105,7 @@ pub enum Phase {
     #[serde(rename = "notStarted")]
     NotStarted,
     #[serde(rename = "ban")]
-    Ban {
-        actor: i64,
-        done: i64,
-        total: i64,
-    },
+    Ban { actor: i64, done: i64, total: i64 },
     #[serde(rename = "pick")]
     Pick { actor: i64 },
     /// Карта пикнута — пока не скажут, кто её выиграл, дальше хода нет.

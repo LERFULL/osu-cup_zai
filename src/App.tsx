@@ -5,6 +5,7 @@ import { isTauri } from '@/lib/host';
 import { ImportCard, Rail } from '@/components';
 import Onboarding from '@/screens/Onboarding';
 import Library from '@/screens/Library';
+import Downloads from '@/screens/Downloads';
 import Players from '@/screens/Players';
 import Pools from '@/screens/Pools';
 import Settings from '@/screens/Settings';
@@ -19,6 +20,7 @@ const NAV = [
   { id: 'tournaments', icon: '⛁', label: 'Турниры' },
   { id: 'pools', icon: '☰', label: 'Маппулы' },
   { id: 'library', icon: '♪', label: 'Библиотека' },
+  { id: 'downloads', icon: '⤓', label: 'Загрузки' },
   { id: 'players', icon: '⚉', label: 'Игроки' },
   { id: 'history', icon: '⏱', label: 'История' },
 ] as const;
@@ -108,6 +110,7 @@ export default function App() {
       />
       <main className={s.main}>
         {route === 'library' && <Library />}
+        {route === 'downloads' && <Downloads />}
         {route === 'settings' && <Settings />}
         {route === 'home' && <Home />}
         {route === 'tournaments' && <Tournaments />}

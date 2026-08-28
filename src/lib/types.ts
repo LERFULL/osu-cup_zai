@@ -259,7 +259,7 @@ export interface ParsedLinks {
   unknown: string[];
 }
 
-/** Карты появляются в библиотеке уже на стадии saving, остальное дотягивается фоном. */
+/** Карты попадают в библиотеку только на стадии saving — когда пачка скачалась целиком. */
 export type ImportStage =
   | 'queued'
   | 'fetching'
@@ -267,7 +267,8 @@ export type ImportStage =
   | 'covers'
   | 'skillsets'
   | 'done'
-  | 'cancelled';
+  | 'cancelled'
+  | 'failed';
 
 export interface ImportProgress {
   batchId: string;
@@ -282,6 +283,27 @@ export interface ImportProgress {
 export interface ImportFailure {
   ref: string;
   reason: string;
+}
+
+/** Пачка в очереди загрузок. Живёт в базе — очередь переживает перезапуск. */
+export interface ImportBatch {
+  batchId: string;
+  name: string;
+  /** Авто-теги, которые встанут на все карты пачки. */
+  mods: ModTag[] | string[];
+  /** queued running done failed cancelled */
+  status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+  stage: ImportStage;
+  beatmapIds: number[];
+  beatmapsetIds: number[];
+  total: number;
+  done: number;
+  added: number;
+  skipped: number;
+  failed: ImportFailure[];
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
 }
 
 // ──────────────────────────────────────────────────────── очередь
@@ -727,6 +749,53 @@ export interface PlayerStats {
   /** По одному турниру на строку, новые сверху. */
   history: PlayerAppearance[];
   versus: PlayerVersus[];
+}
+
+/** Расширенный профиль osu! — то, что тянет карточка игрока с API. */
+export interface PlayerOsuProfile {
+  osuUserId: number;
+  username: string | null;
+  countryCode: string | null;
+  /** Команда профиля, если игрок в ней состоит. */
+  teamName: string | null;
+  teamTag: string | null;
+  pp: number | null;
+  globalRank: number | null;
+  countryRank: number | null;
+  /** Проценты, как на сайте. */
+  accuracy: number | null;
+  playCount: number | null;
+  /** Секунды за игрой. */
+  playTime: number | null;
+  maxCombo: number | null;
+  rankedScore: number | null;
+  totalScore: number | null;
+  hitCount: number | null;
+  replaysWatched: number | null;
+  /** Уровень профиля и прогресс до следующего, проценты 0..100. */
+  levelCurrent: number | null;
+  levelProgress: number | null;
+  gradesSS: number | null;
+  gradesS: number | null;
+  gradesA: number | null;
+  /** Игры по месяцам: [«2026-01», 1234], старые в конце. */
+  monthlyPlaycounts: [string, number][];
+  fetchedAt: string;
+}
+
+/** Снимок профиля за день — точка линии прогресса. */
+export interface OsuSnapshot {
+  day: string;
+  pp: number | null;
+  globalRank: number | null;
+  accuracy: number | null;
+  playCount: number | null;
+}
+
+export interface PlayerOsuProfileWithHistory {
+  profile: PlayerOsuProfile | null;
+  /** Снимки по дням, старые в начале. */
+  history: OsuSnapshot[];
 }
 
 // ────────────────────────────────────────────────────────────── турниры

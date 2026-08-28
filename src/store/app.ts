@@ -3,6 +3,7 @@ import type {
   AppStatus,
   Collection,
   Folder,
+  ImportBatch,
   ImportProgress,
   Label,
   LibraryFilter,
@@ -16,6 +17,7 @@ export type Route =
   | 'tournaments'
   | 'pools'
   | 'library'
+  | 'downloads'
   | 'players'
   | 'history'
   | 'settings';
@@ -39,12 +41,14 @@ interface AppState {
 
   filter: LibraryFilter;
 
-  /** Идущая загрузка по ссылкам. Живёт в сторе, а не в окне импорта:
-   *  поставил на скачку — и ушёл в другой раздел, она не прервётся. */
+  /** Идущая загрузка. Живёт в сторе, а не в окне: поставил на скачку —
+   *  и ушёл в другой раздел, она не прервётся. */
   importing: ImportProgress | null;
   /** Загрузка, карточку которой убрали с глаз. Сама она при этом идёт
    *  дальше, но обратно не всплывает. */
   hiddenBatch: string | null;
+  /** Очередь загрузок целиком: идущие, ждущие и закончившиеся пачки. */
+  queue: ImportBatch[];
 
   init: () => Promise<void>;
   go: (route: Route) => void;
@@ -53,11 +57,13 @@ interface AppState {
   /** Только счётчик «Без мод-тегов» — после правки тегов одной карты. */
   refreshUntagged: () => Promise<void>;
   refreshLabels: () => Promise<void>;
+  /** Очередь загрузок целиком — после событий и правок списка. */
+  refreshQueue: () => Promise<void>;
   setFilter: (patch: Partial<LibraryFilter>) => void;
   resetFilter: () => void;
   finishOnboarding: () => Promise<void>;
-  /** Ставит загрузку и возвращает управление сразу. */
-  startImport: (parsed: ParsedLinks) => Promise<void>;
+  /** Ставит пачку в очередь загрузок и возвращает управление сразу. */
+  addToQueue: (parsed: ParsedLinks, mods: string[], name?: string) => Promise<void>;
   /** Убирает карточку доделанной загрузки. */
   dismissImport: () => void;
 }
@@ -77,15 +83,16 @@ export const useApp = create<AppState>((set, get) => ({
   filter: EMPTY_FILTER,
   importing: null,
   hiddenBatch: null,
+  queue: [],
 
   async init() {
     try {
       const status = await ipc.getStatus();
       set({ status, ready: true, fatal: null });
-      await Promise.all([get().refreshCollections(), get().refreshLabels()]);
+      await Promise.all([get().refreshCollections(), get().refreshLabels(), get().refreshQueue()]);
 
       // Подписка живёт столько же, сколько приложение: прогресс нужен и
-      // тогда, когда окно импорта закрыто, а пользователь ушёл в турниры.
+      // тогда, когда пользователь ушёл в турниры или маппулы.
       void ipc.onImportProgress((p) => {
         if (get().hiddenBatch === p.batchId) {
           // Карточку этой загрузки убрали — обратно не показываем,
@@ -98,6 +105,12 @@ export const useApp = create<AppState>((set, get) => ({
         // Карты доехали — счётчики дерева пересчитываем сами, где бы
         // пользователь сейчас ни находился.
         if (p.stage === 'saving' || p.stage === 'done') void get().refreshCollections();
+      });
+
+      // Список очереди меняется извне (пачка взялась в работу, отменилась,
+      // кончилась) — перечитываем его целиком.
+      void ipc.onDownloadsChanged(() => {
+        void get().refreshQueue();
       });
     } catch (e) {
       // Экран с причиной лучше, чем вечная пустота.
@@ -134,6 +147,15 @@ export const useApp = create<AppState>((set, get) => ({
     set({ labels: await ipc.listLabels() });
   },
 
+  async refreshQueue() {
+    try {
+      set({ queue: await ipc.downloadQueueList() });
+    } catch {
+      // Очередь — необязательная часть старта: не считали, покажем позже,
+      // когда придёт первое событие downloads:changed.
+    }
+  },
+
   setFilter(patch) {
     set({ filter: { ...get().filter, ...patch } });
   },
@@ -151,22 +173,9 @@ export const useApp = create<AppState>((set, get) => ({
     set({ status, route: 'home' });
   },
 
-  async startImport(parsed) {
-    const batchId = await ipc.importLinks(parsed);
-    // Очередь начнёт присылать прогресс только со следующего события,
-    // поэтому показываем «поставлено в очередь» сразу.
-    set({
-      hiddenBatch: null,
-      importing: {
-        batchId,
-        stage: 'queued',
-        done: 0,
-        total: parsed.beatmapIds.length + parsed.beatmapsetIds.length,
-        added: 0,
-        skipped: 0,
-        failed: [],
-      },
-    });
+  async addToQueue(parsed, mods, name) {
+    await ipc.downloadQueueAdd(parsed, mods, name);
+    await get().refreshQueue();
   },
 
   dismissImport() {

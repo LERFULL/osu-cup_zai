@@ -51,6 +51,8 @@ function stageName(stage: ImportProgress['stage']): string {
       return 'Готово';
     case 'cancelled':
       return 'Отменено';
+    case 'failed':
+      return 'Ошибка';
     default:
       return 'В очереди';
   }
@@ -62,7 +64,7 @@ function stageName(stage: ImportProgress['stage']): string {
  * потом в обычных разделах.
  */
 export default function Onboarding() {
-  const startImport = useApp((st) => st.startImport);
+  const addToQueue = useApp((st) => st.addToQueue);
   const importing = useApp((st) => st.importing);
 
   const [step, setStep] = useState(1);
@@ -423,7 +425,9 @@ export default function Onboarding() {
                   variant="primary"
                   disabled={total === 0 || running}
                   onClick={() => {
-                    if (found !== null) void startImport(found);
+                    // Пачка онбординга — NM: размеченные карты сразу годятся
+                    // для генерации маппула на следующем шаге.
+                    if (found !== null) void addToQueue(found, ['NM'], 'Карты онбординга');
                   }}
                 >
                   {running ? 'Загружаю…' : total > 0 ? `Загрузить ${maps(total)}` : 'Загрузить'}

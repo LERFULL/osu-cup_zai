@@ -6,7 +6,6 @@ import { coverUrl, filterIsSet, filterSummary, maps } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { useApp } from '@/store/app';
 import { Tree } from './library/Tree';
-import { Import } from './library/Import';
 import { Card } from './library/Card';
 import { Bulk } from './library/Bulk';
 import { Summary } from './library/Summary';
@@ -30,9 +29,8 @@ function placeOf(filter: LibraryFilter): Place {
 }
 
 export default function Library() {
-  const { filter, setFilter, resetFilter, collections, refreshCollections, refreshUntagged } =
+  const { filter, setFilter, resetFilter, collections, refreshCollections, refreshUntagged, go } =
     useApp();
-  const [importing, setImporting] = useState(false);
   const [opened, setOpened] = useState<number | null>(null);
   const [picked, setPicked] = useState<ReadonlySet<number>>(new Set());
   // Состав выдачи меняют не только фильтры: импорт, удаление и массовые
@@ -326,8 +324,8 @@ export default function Library() {
               placeholder="Поиск по названию, артисту, мапперу"
               onChange={(e) => setFilter({ query: e.target.value })}
             />
-            <Button variant="primary" onClick={() => setImporting(true)}>
-              + По ссылкам
+            <Button variant="primary" onClick={() => go('downloads')} title="Ссылки, очередь и авто-теги пачек">
+              + Загрузки
             </Button>
           </div>
         </header>
@@ -407,10 +405,10 @@ export default function Library() {
             ) : (
               <Empty
                 title={here ? 'В этой коллекции пока пусто' : 'Здесь пока пусто'}
-                note="Вставь список ссылок на карты — прога найдёт их сама и загрузит."
+                note="Вставь список ссылок в загрузках — прога найдёт их сама и докачает пачкой."
                 actions={
-                  <Button variant="primary" onClick={() => setImporting(true)}>
-                    Добавить по ссылкам
+                  <Button variant="primary" onClick={() => go('downloads')}>
+                    Открыть загрузки
                   </Button>
                 }
               />
@@ -511,24 +509,6 @@ export default function Library() {
               for (const id of ids) next.delete(id);
               return next;
             });
-            void refreshCollections();
-            bumpSummary();
-          }}
-        />
-      ) : null}
-
-      {importing ? (
-        <Import
-          onClose={() => {
-            setImporting(false);
-            // Карты могли доехать и без нажатия «Показать в библиотеке»:
-            // счётчики дерева считаются по базе, а не по этому окну.
-            void refreshCollections();
-            bumpSummary();
-          }}
-          onDone={() => {
-            setImporting(false);
-            setFilter({ sort: 'added', dir: 'desc' });
             void refreshCollections();
             bumpSummary();
           }}

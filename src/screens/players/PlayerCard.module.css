@@ -125,6 +125,280 @@
   overflow-y: auto;
 }
 
+/* ── герой: профиль osu! целиком ── */
+/* Обводка в цвет игрока задаётся инлайном — карточка сразу «его». */
+
+.osuBlock {
+  width: 100%;
+  max-width: var(--col);
+  margin: 0 auto 13px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.osuHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.osuAvatar,
+.osuAvatarEmpty {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border: 2px solid;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--card2);
+}
+
+.osuAvatarEmpty {
+  display: grid;
+  place-items: center;
+  color: var(--txt3);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.osuWho {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.osuNick {
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.osuBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* Команда чуть заметнее прочих плашек: это «его» знак, а не технический ярлык. */
+.badge[data-team] {
+  background: rgba(199, 125, 255, 0.14);
+  color: var(--fm);
+}
+
+.osuRefresh {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.osuWhen {
+  color: var(--txt3);
+  font-size: 10.5px;
+}
+
+.osuEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.osuEmptyTitle {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.osuEmptyNote {
+  margin: 0;
+  color: var(--txt3);
+  font-size: 12px;
+  line-height: 1.55;
+  max-width: 460px;
+}
+
+/* Цифры героя: pp крупно, остальное ровными ячейками. */
+
+.osuStats {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr;
+  gap: 11px;
+}
+
+@media (width < 720px) {
+  .osuStats {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 12px;
+  border-radius: 11px;
+  background: var(--card2);
+}
+
+.statHero {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  justify-content: center;
+  padding: 11px 14px;
+  border-radius: 11px;
+  background: var(--card2);
+}
+
+.statHeroValue {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.statValue {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── прогресс: уровень и линии динамики ── */
+
+.level {
+  margin-bottom: 15px;
+}
+
+.levelHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+}
+
+.levelPct {
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.levelBar {
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.levelFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.line {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lineHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.spark {
+  width: 100%;
+  height: 56px;
+  display: block;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.delta {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.up {
+  color: var(--green);
+}
+
+.down {
+  color: var(--red);
+}
+
+/* Столбики игр по месяцам — двенадцать последних. */
+
+.activity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 15px;
+}
+
+.activityBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 64px;
+}
+
+.activityBar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 100%;
+}
+
+.activityFill {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px 3px 1px 1px;
+  opacity: 0.85;
+}
+
+.activityMonth {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 8.5px;
+}
+
 .cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -208,20 +482,15 @@
   gap: 11px;
 }
 
-.stat {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 11px 12px;
-  border-radius: 11px;
-  background: var(--card2);
+/* Десять ячеек «osu! в числах» — по пять в ряд, пока помещается. */
+.stats.five {
+  grid-template-columns: repeat(5, 1fr);
 }
 
-.statValue {
-  font-family: var(--mono);
-  font-size: 20px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
+@media (width < 720px) {
+  .stats.five {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .of {

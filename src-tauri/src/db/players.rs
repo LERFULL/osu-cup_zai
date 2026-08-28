@@ -5,7 +5,7 @@
 //! не оставляла расхождений.
 
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::model::{Player, PlayerStats, PlayerVersus};
 
@@ -237,11 +237,14 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
 /// Личную статистику не пересчитываем и не переносим: она вся считается
 /// запросами по истории матчей и потому пересчитывается сама.
 pub fn merge(conn: &Connection, keep_id: i64, merge_id: i64) -> Result<Player> {
-    anyhow::ensure!(keep_id != merge_id, "игрока нельзя объединить с самим собой");
+    anyhow::ensure!(
+        keep_id != merge_id,
+        "игрока нельзя объединить с самим собой"
+    );
 
     let keep = get(conn, keep_id)?.ok_or_else(|| anyhow::anyhow!("Игрок не найден"))?;
-    let gone = get(conn, merge_id)?
-        .ok_or_else(|| anyhow::anyhow!("Игрок для объединения не найден"))?;
+    let gone =
+        get(conn, merge_id)?.ok_or_else(|| anyhow::anyhow!("Игрок для объединения не найден"))?;
 
     // Оба в одном матче — коллизия, которую переносом ссылок не разрулить:
     // после склейки игрок оказался бы играющим сам с собой.
@@ -366,7 +369,11 @@ pub fn stats(conn: &Connection, id: i64) -> Result<PlayerStats> {
     )?;
     let ranked_mods = st
         .query_map(params![id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -484,6 +491,104 @@ pub fn stats(conn: &Connection, id: i64) -> Result<PlayerStats> {
     })
 }
 
+// ────────────────────────────────────────────── профиль osu! игрока
+
+/// Свежий (за сутки) расширенный профиль из кеша.
+pub fn cached_user_profile(
+    conn: &Connection,
+    osu_user_id: i64,
+) -> anyhow::Result<Option<crate::model::PlayerOsuProfile>> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT json FROM osu_user_cache
+              WHERE osu_user_id = ?1
+                AND julianday('now') - julianday(fetched_at) < 1.0",
+            params![osu_user_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
+}
+
+/// Профиль из кеша любого возраста: сетевые ошибки не должны ронять карточку.
+pub fn user_profile_any_age(
+    conn: &Connection,
+    osu_user_id: i64,
+) -> anyhow::Result<Option<crate::model::PlayerOsuProfile>> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT json FROM osu_user_cache WHERE osu_user_id = ?1",
+            params![osu_user_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
+}
+
+/// Кладёт профиль в кеш и заодно снимок за сегодняшний день.
+pub fn save_user_profile(
+    conn: &Connection,
+    profile: &crate::model::PlayerOsuProfile,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO osu_user_cache (osu_user_id, json, fetched_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(osu_user_id) DO UPDATE SET json = ?2, fetched_at = ?3",
+        params![
+            profile.osu_user_id,
+            serde_json::to_string(profile)?,
+            profile.fetched_at
+        ],
+    )?;
+
+    // Снимок — не чаще одного в день: день берём из даты загрузки профиля.
+    let day = profile.fetched_at.get(..10).unwrap_or("").to_string();
+    if day.len() == 10 {
+        conn.execute(
+            "INSERT INTO osu_snapshots (osu_user_id, day, pp, global_rank, accuracy, play_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(osu_user_id, day) DO UPDATE SET
+                pp = ?3, global_rank = ?4, accuracy = ?5, play_count = ?6",
+            params![
+                profile.osu_user_id,
+                day,
+                profile.pp,
+                profile.global_rank,
+                profile.accuracy,
+                profile.play_count
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// История снимков по дням, старые в начале — линия прогресса рисуется слева
+/// направо именно в этом порядке.
+pub fn snapshots(
+    conn: &Connection,
+    osu_user_id: i64,
+) -> anyhow::Result<Vec<crate::model::OsuSnapshot>> {
+    let mut stmt = conn.prepare(
+        "SELECT day, pp, global_rank, accuracy, play_count
+           FROM osu_snapshots
+          WHERE osu_user_id = ?1
+          ORDER BY day ASC",
+    )?;
+    let rows = stmt.query_map(params![osu_user_id], |r| {
+        Ok(crate::model::OsuSnapshot {
+            day: r.get(0)?,
+            pp: r.get(1)?,
+            global_rank: r.get(2)?,
+            accuracy: r.get(3)?,
+            play_count: r.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,10 +628,8 @@ mod tests {
     /// База только под app_kv: остальное палитре не нужно.
     fn kv_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE app_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-        )
-        .unwrap();
+        conn.execute_batch("CREATE TABLE app_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            .unwrap();
         conn
     }
 
@@ -548,7 +651,10 @@ mod tests {
     fn set_palette_rejects_wrong_input() {
         let conn = kv_conn();
         let short: Vec<String> = (0..7).map(|i| format!("#00{i:02x}aa")).collect();
-        assert!(set_palette(&conn, &short).is_err(), "семь цветов — не палитра");
+        assert!(
+            set_palette(&conn, &short).is_err(),
+            "семь цветов — не палитра"
+        );
 
         let bad = vec!["#ff6fb1".to_string(); 8];
         assert!(set_palette(&conn, &bad).is_ok());
@@ -558,7 +664,10 @@ mod tests {
             .collect();
         // «red» — не hex, но запись выше уже прошла: проверяем отклонение
         // именованного цвета отдельной попыткой.
-        assert!(set_palette(&conn, &named).is_err(), "именованный цвет не проходит");
+        assert!(
+            set_palette(&conn, &named).is_err(),
+            "именованный цвет не проходит"
+        );
         // Палитра при этом осталась прежней — валидной.
         assert_eq!(palette(&conn), bad);
     }

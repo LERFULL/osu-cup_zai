@@ -365,7 +365,11 @@ pub fn to_beatmap(dto: &BeatmapDto, parent: Option<&BeatmapsetDto>) -> Beatmap {
 }
 
 /// Ответ `/attributes` -> наша `BeatmapAttributes`. `mods` — та маска, которой спрашивали.
-pub fn to_attributes(beatmap_id: i64, mods: u32, dto: &DifficultyAttributesDto) -> BeatmapAttributes {
+pub fn to_attributes(
+    beatmap_id: i64,
+    mods: u32,
+    dto: &DifficultyAttributesDto,
+) -> BeatmapAttributes {
     BeatmapAttributes {
         beatmap_id,
         mods: mods_label(mods),
@@ -375,6 +379,59 @@ pub fn to_attributes(beatmap_id: i64, mods: u32, dto: &DifficultyAttributesDto) 
         slider_factor: dto.slider_factor,
         speed_note_count: dto.speed_note_count,
         max_combo: dto.max_combo,
+        fetched_at: now_iso(),
+    }
+}
+
+/// Ответ `/users/{id}` -> расширенный профиль для карточки игрока.
+/// Всё необязательно: недостающие поля карточка просто не покажет.
+pub fn to_player_profile(dto: UserDto) -> crate::model::PlayerOsuProfile {
+    let stats = dto.statistics.unwrap_or_default();
+    let team = dto.team.unwrap_or_default();
+    let grades = stats.grade_counts.unwrap_or_default();
+    let level = stats.level.unwrap_or_default();
+
+    // Скрытые оценки (ssh и пр.) складываются с видимыми: карточка
+    // показывает три числа, как на сайте без наведения.
+    let ss = match (grades.ss, grades.ssh) {
+        (Some(a), Some(b)) => Some(a + b),
+        (a, b) => a.or(b),
+    };
+    let s = match (grades.s, grades.sh) {
+        (Some(a), Some(b)) => Some(a + b),
+        (a, b) => a.or(b),
+    };
+
+    let monthly = dto
+        .monthly_playcounts
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|m| Some((m.start_date?.get(..7)?.to_string(), m.count.unwrap_or(0))))
+        .collect();
+
+    crate::model::PlayerOsuProfile {
+        osu_user_id: dto.id,
+        username: dto.username,
+        country_code: dto.country_code,
+        team_name: team.name,
+        team_tag: team.tag,
+        pp: stats.pp,
+        global_rank: stats.global_rank,
+        country_rank: stats.country_rank,
+        accuracy: stats.hit_accuracy,
+        play_count: stats.play_count,
+        play_time: stats.play_time,
+        max_combo: stats.max_combo,
+        ranked_score: stats.ranked_score,
+        total_score: stats.total_score,
+        hit_count: stats.hit_count,
+        replays_watched: stats.replays_watched,
+        level_current: level.current,
+        level_progress: level.progress,
+        grades_ss: ss,
+        grades_s: s,
+        grades_a: grades.a,
+        monthly_playcounts: monthly,
         fetched_at: now_iso(),
     }
 }
@@ -496,7 +553,8 @@ pub struct MatchUserDto {
 
 // ────────────────────────────────────────────────────────── профиль игрока
 
-/// Ответ `GET /users/{id}` в той части, что нужна сценам с цифрами.
+/// Ответ `GET /users/{id}` в той части, что нужна сценам с цифрами
+/// и карточке игрока.
 #[derive(Debug, Clone, Deserialize)]
 pub struct UserDto {
     pub id: i64,
@@ -508,6 +566,12 @@ pub struct UserDto {
     pub country_code: Option<String>,
     #[serde(default)]
     pub statistics: Option<UserStatsDto>,
+    /// Команда профиля. Появилась недавно и есть не у всех — потому Option.
+    #[serde(default)]
+    pub team: Option<UserTeamDto>,
+    /// Игры по месяцам, для графика активности в карточке.
+    #[serde(default)]
+    pub monthly_playcounts: Option<Vec<MonthlyCountDto>>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -524,6 +588,66 @@ pub struct UserStatsDto {
     pub play_count: Option<i64>,
     #[serde(default)]
     pub max_combo: Option<i64>,
+    #[serde(default)]
+    pub ranked_score: Option<i64>,
+    #[serde(default)]
+    pub total_score: Option<i64>,
+    /// Общее число нажатий за всё время.
+    #[serde(default)]
+    pub hit_count: Option<i64>,
+    #[serde(default)]
+    pub replays_watched: Option<i64>,
+    /// Секунды за игрой.
+    #[serde(default)]
+    pub play_time: Option<i64>,
+    /// Уровень профиля и прогресс до следующего (0..100).
+    #[serde(default)]
+    pub level: Option<UserLevelDto>,
+    /// Оценки SS/S/A за всё время, включая скрытые (ssh и пр.).
+    #[serde(default)]
+    pub grade_counts: Option<UserGradesDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UserLevelDto {
+    #[serde(default)]
+    pub current: Option<i64>,
+    #[serde(default)]
+    pub progress: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UserGradesDto {
+    #[serde(default, alias = "ss+")]
+    pub ss: Option<i64>,
+    #[serde(default, alias = "ssh+")]
+    pub ssh: Option<i64>,
+    #[serde(default, alias = "s+")]
+    pub s: Option<i64>,
+    #[serde(default, alias = "sh+")]
+    pub sh: Option<i64>,
+    #[serde(default, alias = "a+")]
+    pub a: Option<i64>,
+}
+
+/// Команда профиля: то, что карточка показывает бейджем.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UserTeamDto {
+    #[serde(default)]
+    pub id: Option<i64>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub tag: Option<String>,
+}
+
+/// Одна точка графика активности: месяц и число игр в нём.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MonthlyCountDto {
+    #[serde(default)]
+    pub start_date: Option<String>,
+    #[serde(default)]
+    pub count: Option<i64>,
 }
 
 #[cfg(test)]
@@ -567,10 +691,9 @@ mod tests {
 
     #[test]
     fn failtimes_parsed_as_object() {
-        let dto: BeatmapDto = serde_json::from_str(
-            r#"{"id": 1, "failtimes": {"fail": [1,2,3], "exit": [4,5]}}"#,
-        )
-        .expect("тестовый json валиден");
+        let dto: BeatmapDto =
+            serde_json::from_str(r#"{"id": 1, "failtimes": {"fail": [1,2,3], "exit": [4,5]}}"#)
+                .expect("тестовый json валиден");
         let ft = dto.failtimes.expect("failtimes есть");
         assert_eq!(ft.fail.len(), 3);
         assert_eq!(ft.exit.len(), 2);

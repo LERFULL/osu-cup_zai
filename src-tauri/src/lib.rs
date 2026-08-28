@@ -27,6 +27,13 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let state = AppState::new(data_dir)?;
             app.manage(Arc::new(state));
+
+            // Очередь загрузок живёт в базе: недокачанные пачки сами
+            // докачиваются после перезапуска приложения.
+            if let Err(e) = crate::import::revive_and_run(app.handle()) {
+                eprintln!("очередь загрузок не поднялась: {e}");
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -151,11 +158,14 @@ pub fn run() {
             commands::series::generate_series,
             commands::series::roll_series,
             commands::series::reroll_repeat,
-            // импорт
+            // импорт (очередь загрузок)
             commands::imports::parse_links,
-            commands::imports::import_links,
-            commands::imports::retry_failed,
-            commands::imports::cancel_batch,
+            commands::imports::download_queue_add,
+            commands::imports::download_queue_list,
+            commands::imports::download_queue_cancel,
+            commands::imports::download_queue_retry,
+            commands::imports::download_queue_remove,
+            commands::imports::download_queue_clear,
             // игроки
             commands::players::list_players,
             commands::players::merge_players,
@@ -165,6 +175,7 @@ pub fn run() {
             commands::players::archive_player,
             commands::players::delete_player,
             commands::players::player_stats,
+            commands::players::player_osu_profile,
             commands::players::fetch_player_avatar,
             commands::players::refresh_player_avatars,
             // турниры
