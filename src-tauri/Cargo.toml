@@ -10,6 +10,13 @@ rust-version = "1.77"
 name = "osu_cup_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Каноничная фича из шаблона Tauri 2: релизная сборка вшивает ассеты фронтенда
+# и переводит приложение в production-режим (без неё окно грузит devUrl).
+# `tauri build` включает её автоматически, для ручного `cargo build --release`
+# передавай: cargo build --release --features custom-protocol
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
