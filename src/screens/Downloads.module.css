@@ -282,7 +282,7 @@
   gap: 10px;
 }
 
-.bar {
+.track {
   flex: 1;
   height: 5px;
   border-radius: 3px;

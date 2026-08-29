@@ -337,7 +337,7 @@ function BatchCard({ batch, onCancel, onRetry, onRemove, onShow }: CardProps) {
 
       {active && !done ? (
         <div className={s.progressWrap}>
-          <div className={s.bar}>
+          <div className={s.track}>
             <div className={s.fill} style={{ width: `${percent}%` }} />
           </div>
           <span className={s.count}>

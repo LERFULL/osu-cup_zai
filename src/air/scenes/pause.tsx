@@ -383,7 +383,7 @@ export function Stats({ p }: { p: StatsPayload }) {
   const maxMod = Math.max(1, ...p.mods.map((m) => m.count));
   return (
     <Frame title="Цифры турнира" note="всё, что сыграли на сейчас">
-      <div className={s.stats}>
+      <div className={s.statsCol}>
         <div className={s.statsRow}>
           <Stat name="Матчей" value={`${p.matches.played} / ${p.matches.total}`} note="сыграно из всех в сетке" index={0} />
           <Stat name="Карт" value={p.maps} note="в рамках матчей" index={1} />

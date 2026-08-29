@@ -17,8 +17,11 @@ import type {
   GenNote,
   GenReport,
   GenRules,
+  ImportBatch,
+  ImportFailure,
   LibraryFilter,
   ModTag,
+  ParsedLinks,
   Pool,
   PoolField,
   PoolImportPreview,
@@ -53,6 +56,64 @@ const members = new Map<number, number[]>([
 ]);
 
 let nextId = 100;
+
+/** Очередь загрузок для вёрстки: идущая пачка, готовая и закончившаяся ошибкой. */
+let devBatches: ImportBatch[] = [
+  {
+    batchId: 'mock-running',
+    name: 'NM-пачка на вечер',
+    mods: ['NM'],
+    status: 'running',
+    stage: 'fetching',
+    beatmapIds: MAPS.slice(0, 20).map((m) => m.beatmapId),
+    beatmapsetIds: [],
+    total: 40,
+    done: 17,
+    added: 0,
+    skipped: 0,
+    failed: [],
+    createdAt: new Date().toISOString(),
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+  },
+  {
+    batchId: 'mock-done',
+    name: 'HD/DT из Discord',
+    mods: ['HD', 'DT'],
+    status: 'done',
+    stage: 'done',
+    beatmapIds: MAPS.slice(0, 12).map((m) => m.beatmapId),
+    beatmapsetIds: [1084284],
+    total: 25,
+    done: 25,
+    added: 24,
+    skipped: 1,
+    failed: [],
+    createdAt: new Date(Date.now() - 3600_000).toISOString(),
+    startedAt: new Date(Date.now() - 3600_000).toISOString(),
+    finishedAt: new Date(Date.now() - 3300_000).toISOString(),
+  },
+  {
+    batchId: 'mock-failed',
+    name: 'Пачка',
+    mods: ['NM'],
+    status: 'failed',
+    stage: 'failed',
+    beatmapIds: [2271897],
+    beatmapsetIds: [],
+    total: 2,
+    done: 0,
+    added: 0,
+    skipped: 0,
+    failed: [
+      { ref: '2271897', reason: 'нет в хранилище osu!' },
+      { ref: '915671', reason: 'нет в хранилище osu!' },
+    ] as ImportFailure[],
+    createdAt: new Date(Date.now() - 7200_000).toISOString(),
+    startedAt: new Date(Date.now() - 7200_000).toISOString(),
+    finishedAt: new Date(Date.now() - 7100_000).toISOString(),
+  },
+];
 
 // ───────────────────────────────────────────────── настройки приложения
 
@@ -1850,6 +1911,61 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
   retry_failed: () => 'mock-batch',
   cancel_batch: () => undefined,
   get_queue_status: () => ({ pending: 0, done: 0, failed: 0, budget: 60, activeBatch: null }),
+
+  // Очередь загрузок: в браузере живёт в памяти и уже с примерами, чтобы
+  // видно было и идущую пачку с прогрессом, и закончившиеся.
+  download_queue_list: () => devBatches,
+  download_queue_add: (a) => {
+    const parsed = a['parsed'] as ParsedLinks;
+    const mods = (a['mods'] as string[]) ?? [];
+    const batch: ImportBatch = {
+      batchId: `mock-${Date.now()}`,
+      name: typeof a['name'] === 'string' && a['name'] !== '' ? a['name'] : 'Пачка',
+      mods,
+      status: 'queued',
+      stage: 'queued',
+      beatmapIds: parsed.beatmapIds,
+      beatmapsetIds: parsed.beatmapsetIds,
+      total: parsed.beatmapIds.length + parsed.beatmapsetIds.length,
+      done: 0,
+      added: 0,
+      skipped: 0,
+      failed: [],
+      createdAt: new Date().toISOString(),
+      startedAt: null,
+      finishedAt: null,
+    };
+    devBatches = [batch, ...devBatches];
+    return batch;
+  },
+  download_queue_cancel: (a) => {
+    const b = devBatches.find((x) => x.batchId === a['batchId']);
+    if (b) {
+      b.status = 'cancelled';
+      b.stage = 'cancelled';
+      b.finishedAt = new Date().toISOString();
+    }
+    return b ?? null;
+  },
+  download_queue_retry: (a) => {
+    const b = devBatches.find((x) => x.batchId === a['batchId']);
+    if (b) {
+      b.status = 'queued';
+      b.stage = 'queued';
+      b.finishedAt = null;
+    }
+    return b ?? null;
+  },
+  download_queue_remove: (a) => {
+    devBatches = devBatches.filter((x) => x.batchId !== a['batchId']);
+    return undefined;
+  },
+  download_queue_clear: () => {
+    devBatches = devBatches.filter(
+      (x) => x.status === 'queued' || x.status === 'running',
+    );
+    return undefined;
+  },
   cache_size: () => 42 * 1024 * 1024,
   clear_cache: () => undefined,
 

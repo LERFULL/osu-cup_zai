@@ -657,7 +657,7 @@ export function PlayerCard({ id, onClose }: Props) {
                 {stats.byMod.map((m) => {
                   const p = m.played === 0 ? 0 : Math.round((m.won / m.played) * 100);
                   return (
-                    <div key={m.mod} className={s.bar}>
+                    <div key={m.mod} className={s.modRow}>
                       <span className={s.barMod} data-mod={m.mod}>
                         {m.mod}
                       </span>

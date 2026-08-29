@@ -779,7 +779,7 @@
 
 /* ── Цифры турнира: три блока — плашки, моды, топ. */
 
-.stats {
+.statsCol {
   display: flex;
   flex-direction: column;
   gap: 34px;
