@@ -1,0 +1,63 @@
+/* Полоска состава маппула: сегменты по модам с точками-заполненностью. */
+
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.bar {
+  display: flex;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+  max-width: 240px;
+}
+
+.seg {
+  display: flex;
+  gap: 2.5px;
+  align-items: center;
+  height: 7px;
+  min-width: 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--mod) 26%, transparent);
+  padding: 0 3px;
+}
+
+.dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--mod);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--mod) 70%, transparent);
+}
+
+.dotEmpty {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.14);
+}
+
+.note {
+  flex: 0 0 auto;
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.empty {
+  color: var(--txt3);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Компактный режим — в шапке редактора: крупнее сегменты, без заметки. */
+.compact .bar {
+  max-width: none;
+  height: 9px;
+}

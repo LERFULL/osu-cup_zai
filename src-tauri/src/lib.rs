@@ -129,6 +129,7 @@ pub fn run() {
             commands::pools::import_pool,
             // генерация
             commands::pools::generate_pool,
+            commands::pools::apply_template_to_pool,
             commands::pools::reroll_pool,
             commands::pools::reroll_slots,
             // исключения
@@ -143,6 +144,7 @@ pub fn run() {
             commands::series::rename_series,
             commands::series::set_series_color,
             commands::series::set_series_note,
+            commands::series::set_series_tournament,
             commands::series::set_series_kind,
             commands::series::set_series_no_repeat,
             commands::series::set_series_sources,

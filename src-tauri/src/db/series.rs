@@ -30,6 +30,7 @@ fn row_to_series(row: &rusqlite::Row) -> rusqlite::Result<Series> {
         exclusions: Vec::new(),
         no_repeat_inside: row.get::<_, i64>("no_repeat_inside")? != 0,
         display_fields: fields.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok()),
+        tournament_id: row.get("tournament_id")?,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         pools: Vec::new(),
@@ -37,7 +38,7 @@ fn row_to_series(row: &rusqlite::Row) -> rusqlite::Result<Series> {
 }
 
 const COLS: &str = "id, name, kind, color, note, sources, no_repeat_inside,
-                    display_fields, position, created_at";
+                    display_fields, tournament_id, position, created_at";
 
 /// Список серий со составом, но без исключений: в дереве нужны только
 /// названия, тип и счётчики.
@@ -238,6 +239,29 @@ pub fn set_note(conn: &Connection, id: i64, note: Option<&str>) -> Result<()> {
     conn.execute(
         "UPDATE series SET note = ?2 WHERE id = ?1",
         params![id, note],
+    )?;
+    Ok(())
+}
+
+/// Привязать серию к турниру (None — отвязать). Один турнир держит одну
+/// серию: уникальный индекс по tournament_id не даст привязать вторую,
+/// а турнир, которого нет, отсекается здесь.
+pub fn set_tournament(conn: &Connection, id: i64, tournament_id: Option<i64>) -> Result<()> {
+    if let Some(tid) = tournament_id {
+        let found: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM tournaments WHERE id = ?1",
+                params![tid],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if found.is_none() {
+            return Err(AppError::Other("Турнир не найден".into()));
+        }
+    }
+    conn.execute(
+        "UPDATE series SET tournament_id = ?2 WHERE id = ?1",
+        params![id, tournament_id],
     )?;
     Ok(())
 }

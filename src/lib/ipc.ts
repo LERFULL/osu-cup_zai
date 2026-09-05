@@ -360,6 +360,15 @@ export const setSeriesPoolLabel = (poolId: number, label: string | null) =>
 export const seriesStats = (id: number) => invoke<SeriesStats>('series_stats', { id });
 export const seriesRepeats = (id: number) => invoke<PoolOverlap[]>('series_repeats', { id });
 
+/** Жёсткая привязка серии к турниру (null — отвязать). */
+export const setSeriesTournament = (id: number, tournamentId: number | null) =>
+  invoke<void>('set_series_tournament', { id, tournamentId });
+
+/** Применить шаблон к существующему маппулу: структура пересобирается,
+ *  состав генерируется заново. */
+export const applyTemplateToPool = (poolId: number, templateId: number) =>
+  invoke<GenReport>('apply_template_to_pool', { poolId, templateId });
+
 /** Серия под турнир: создаётся сама серия и `count` пулов в ней. */
 export const generateSeries = (templateId: number, name: string, count: number) =>
   invoke<GenReport[]>('generate_series', { templateId, name, count });

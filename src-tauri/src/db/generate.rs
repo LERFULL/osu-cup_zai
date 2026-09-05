@@ -931,6 +931,31 @@ pub fn generate(
     fill(conn, pool_id, Scope::All)
 }
 
+/// Применить шаблон к существующему маппулу. Структура слотов пересобирается
+/// по шаблону, состав подтягивается генератором; пул после этого знает свой
+/// шаблон — перекаты и отчёты начинают работать как у скатанных пулов.
+///
+/// Состав, набранный руками, при этом теряется — фронт обязан спросить
+/// подтверждение перед вызовом. Сыгранный пул уходит в новую версию
+/// по общим правилам `writable`.
+pub fn apply_template(conn: &Connection, pool_id: i64, template_id: i64) -> Result<GenReport> {
+    let template = templates::get(conn, template_id)?;
+    if template.slots.is_empty() {
+        return Err(AppError::Other(
+            "В шаблоне нет ни одного слота — добавь их в редакторе шаблона".into(),
+        ));
+    }
+
+    let writable_id = pools::writable(conn, pool_id)?;
+    conn.execute(
+        "UPDATE pools SET template_id = ?2 WHERE id = ?1",
+        params![writable_id, template_id],
+    )?;
+    pools::replace_slots(conn, writable_id, &blank_slots(&template))?;
+
+    fill(conn, writable_id, Scope::All)
+}
+
 /// Серия маппулов под турнир: создаётся сама серия и `count` пулов в ней.
 ///
 /// Собирать их по одному неудобно и опасно: карта, попавшая в два пула одного

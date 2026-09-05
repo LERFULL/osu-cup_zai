@@ -9,6 +9,7 @@ import {
   type Pool,
   type PoolField,
   type PoolSlot,
+  type PoolTemplate,
   type PoolWhence,
 } from '@/lib/types';
 import {
@@ -52,6 +53,9 @@ export function PoolEditor({ id, notes, onClose }: Props) {
   const { go } = useApp();
   const [pool, setPool] = useState<Pool | null>(null);
   const [whence, setWhence] = useState<PoolWhence | null>(null);
+  // Шаблоны для выбора прямо в редакторе: пул может получить структуру
+  // и после создания, а не только при генерации.
+  const [templates, setTemplates] = useState<PoolTemplate[]>([]);
   // Правки сыгранного пула уезжают в копию: дальше работаем с её id.
   const [current, setCurrent] = useState(id);
   const [picking, setPicking] = useState<number | null>(null);
@@ -68,9 +72,14 @@ export function PoolEditor({ id, notes, onClose }: Props) {
 
   const load = useCallback(async (poolId: number) => {
     try {
-      const [p, w] = await Promise.all([ipc.getPool(poolId), ipc.poolWhence(poolId)]);
+      const [p, w, ts] = await Promise.all([
+        ipc.getPool(poolId),
+        ipc.poolWhence(poolId),
+        ipc.listTemplates().catch(() => [] as PoolTemplate[]),
+      ]);
       setPool(p);
       setWhence(w);
+      setTemplates(ts);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -213,6 +222,26 @@ export function PoolEditor({ id, notes, onClose }: Props) {
     setMenu(null);
     await guard(async () => {
       const report = await ipc.rerollPool(p.id, keepPinned);
+      accept(report.pool);
+      setHints(report.notes);
+      setShowReport(report.notes.length > 0);
+    });
+  }
+
+  /** Применить шаблон прямо в редакторе: структура пересобирается, состав
+   *  генерируется заново. Набранное руками стирается — потому и спрашиваем. */
+  async function applyTemplate(templateId: number) {
+    setMenu(null);
+    const t = templates.find((x) => x.id === templateId);
+    if (
+      filled > 0 &&
+      !window.confirm(
+        `Применить шаблон «${t?.name ?? templateId}»? Текущие слоты и карты пула будут заменены.`,
+      )
+    )
+      return;
+    await guard(async () => {
+      const report = await ipc.applyTemplateToPool(p.id, templateId);
       accept(report.pool);
       setHints(report.notes);
       setShowReport(report.notes.length > 0);
@@ -444,6 +473,45 @@ export function PoolEditor({ id, notes, onClose }: Props) {
             {avg !== null ? ` · ${avg.toFixed(2)}★` : ''}
             {pinned > 0 ? ` · закреплено ${pinned}` : ''}
           </span>
+
+          {/* Шаблон — часть пула, а не деталь генерации: выбирается здесь,
+              перекаты и отчёты работают одинаково для любого пула. */}
+          <div className={s.wrap}>
+            <Button
+              size="sm"
+              onClick={() => setMenu(menu === 'template' ? null : 'template')}
+              title="Структура слотов и правила генерации"
+            >
+              Шаблон:{' '}
+              {p.templateName !== null
+                ? p.templateName
+                : templates.length > 0
+                  ? 'не задан'
+                  : 'нет шаблонов'}
+            </Button>
+            <Menu open={menu === 'template'} onClose={() => setMenu(null)} align="left">
+              {templates.length === 0 ? (
+                <MenuItem onClick={() => setMenu(null)} disabled note="создай его во вкладке «Шаблоны»">
+                  Шаблонов пока нет
+                </MenuItem>
+              ) : (
+                templates.map((t) => (
+                  <MenuItem
+                    key={t.id}
+                    onClick={() => void applyTemplate(t.id)}
+                    disabled={t.id === p.templateId}
+                    {...(t.id === p.templateId
+                      ? { note: 'уже применён' }
+                      : filled > 0
+                        ? { note: 'слоты и карты заменятся' }
+                        : {})}
+                  >
+                    {t.name}
+                  </MenuItem>
+                ))
+              )}
+            </Menu>
+          </div>
 
           <div className={s.right}>
             {hints.length > 0 && !showReport ? (

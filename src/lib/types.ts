@@ -445,6 +445,8 @@ export interface Series {
   noRepeatInside: boolean;
   /** Значение по умолчанию для строк пулов серии. */
   displayFields: PoolField[] | null;
+  /** Турнир, к которому серия привязана жёстко. Один турнир — одна серия. */
+  tournamentId: number | null;
   position: number;
   createdAt: string;
   pools: SeriesPool[];
