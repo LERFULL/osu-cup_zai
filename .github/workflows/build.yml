@@ -1,0 +1,63 @@
+name: windows-build
+
+# Сборка Windows-версии. Качается из исходников, ничего не подписывает:
+# SmartScreen может предупредить о неизвестном издателе — это ожидаемо.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Зависимости фронта
+        run: pnpm install --frozen-lockfile
+
+      - name: Сборка приложения
+        run: pnpm tauri build
+
+      - name: Собрать файлы для выкладки
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Copy-Item src-tauri/target/release/osu-cup.exe out/osu-cup-0.1.0-portable.exe
+          $setup = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          if ($null -eq $setup) { throw "Установщик NSIS не найден" }
+          Copy-Item $setup.FullName out/osu-cup-0.1.0-setup.exe
+          Get-ChildItem out | Format-Table Name, Length
+
+      # Релиз «windows-build» перекатывается на каждый билд: одна свежая
+      # сборка всегда лежит по одному адресу.
+      - name: Выложить релиз windows-build
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete windows-build --yes --cleanup-tag 2>$null
+          gh release create windows-build `
+            out/osu-cup-0.1.0-portable.exe `
+            out/osu-cup-0.1.0-setup.exe `
+            --title "Сборка Windows" `
+            --notes "Автосборка из main.`n`n- portable — один exe, запускается сразу (нужен WebView2, он уже есть в Windows 10/11).`n- setup — установщик.`n`nWindows может предупредить о неизвестном издателе: сборка не подписана." `
+            --prerelease
