@@ -73,6 +73,7 @@ pub fn run() {
             commands::library::bulk_remove_mod,
             commands::library::bulk_clear_mods,
             commands::library::bulk_add_skillset,
+            commands::library::ensure_covers,
             // метки
             commands::library::list_labels,
             commands::library::create_label,

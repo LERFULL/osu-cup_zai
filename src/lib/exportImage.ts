@@ -9,6 +9,7 @@ import type { Bracket, BracketSide, Match, Pool, TournamentPlayer } from './type
 import { coverUrl } from './format';
 import { derive, modsFor } from './derive';
 import { CARD_H, COL_W, layoutBracket } from './bracketLayout';
+import * as ipc from './ipc';
 
 // ─────────────────────────────────────────────────────────────── общее
 
@@ -49,19 +50,29 @@ function loadImage(url: string, cors: boolean): Promise<HTMLImageElement | null>
 }
 
 /**
- * Обложка карты для канваса. Сначала локальный кеш (в браузерном моке это
- * data: URL, в Tauri — файл через asset-протокол), потом assets.ppy.sh:
- * обложки с osu! отдаются без CORS-заголовков, так что удалённая попытка
- * рассчитывать не на что — но если когда-нибудь появятся, заработает сама.
+ * Обложка карты для канваса. Порядок такой: путь, который гарантирует
+ * `ensure_covers` (обложку только что скачали в кеш), потом локальный кеш
+ * из полей карты. Удалённая обложка с assets.ppy.sh не вариант вовсе:
+ * она без CORS-заголовков — картинка либо не загрузится, либо испачкает
+ * канвас, и весь PNG не соберётся.
  */
-async function loadCover(coverPath: string | null, setId: number | null): Promise<HTMLImageElement | null> {
+async function loadCover(
+  coverPath: string | null,
+  setId: number | null,
+  ready: Map<number, string>,
+): Promise<HTMLImageElement | null> {
+  const ensured = setId !== null ? ready.get(setId) : undefined;
+  if (ensured !== undefined) {
+    const local = coverUrl(ensured);
+    if (local !== null) {
+      const img = await loadImage(local, false);
+      if (img !== null) return img;
+    }
+  }
   const local = coverUrl(coverPath);
   if (local !== null) {
     const img = await loadImage(local, false);
     if (img !== null) return img;
-  }
-  if (setId !== null) {
-    return loadImage(`https://assets.ppy.sh/beatmaps/${setId}/covers/cover.jpg`, true);
   }
   return null;
 }
@@ -130,14 +141,36 @@ const HEAD_H = 132;
 
 /**
  * Маппул картинкой: тёмный фон, шапка с названием, обложки, строки слотов.
- * Обложки грузятся с фолбэком: не загрузилась — плейсхолдер-прямоугольник.
+ * Перед рендером обложки дотягиваются в локальный кеш командой
+ * `ensure_covers` — поэтому картинка собирается одинаково на машине
+ * организатора и на машине друга, у которого кеш пуст. Не скачалось —
+ * плейсхолдер-прямоугольник, картинка всё равно собирается.
  */
 export async function renderPoolImage(pool: Pool, tournamentName: string | null): Promise<Blob> {
   const rows = pool.slots;
   const height = HEAD_H + rows.length * (ROW_H + ROW_GAP) + PAD;
+
+  const setIds = [
+    ...new Set(
+      rows
+        .map((slot) => slot.beatmap?.beatmapsetId ?? null)
+        .filter((id): id is number => id !== null),
+    ),
+  ];
+  const ready = new Map<number, string>();
+  try {
+    for (const cover of await ipc.ensureCovers(setIds)) {
+      ready.set(cover.beatmapsetId, cover.path);
+    }
+  } catch {
+    // Внешний рендер без Tauri — обложки возьмутся из полей карты.
+  }
+
   const covers = await Promise.all(
     rows.map((slot) =>
-      slot.beatmap === null ? Promise.resolve(null) : loadCover(slot.beatmap.coverPath, slot.beatmap.beatmapsetId),
+      slot.beatmap === null
+        ? Promise.resolve(null)
+        : loadCover(slot.beatmap.coverPath, slot.beatmap.beatmapsetId, ready),
     ),
   );
 

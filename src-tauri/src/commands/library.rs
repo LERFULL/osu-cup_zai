@@ -4,8 +4,49 @@ use tauri::State;
 
 use crate::db::beatmaps;
 use crate::error::Result;
-use crate::model::{Beatmap, BeatmapAttributes, Label, LibraryFilter, LibrarySummary, Page};
+use crate::model::{Beatmap, BeatmapAttributes, CoverReady, Label, LibraryFilter, LibrarySummary, Page};
 use crate::state::AppState;
+
+/// Гарантирует обложки в локальном кеше и возвращает их пути.
+///
+/// Картинки «Картинкой» собираются на канвасе: обложка из файла через
+/// asset-протокол канвас не пачкает, а обложка с assets.ppy.sh — пачкает
+/// (CORS osu! не отдаёт), и на машине без кеша PNG собирался без картинок.
+/// Поэтому перед рендером обложки дотягиваются в кеш здесь, в Rust, где
+/// ни CORS, ни канвас не мешают.
+#[tauri::command]
+pub async fn ensure_covers(
+    state: State<'_, Arc<AppState>>,
+    beatmap_set_ids: Vec<i64>,
+) -> Result<Vec<CoverReady>> {
+    let mut out = Vec::new();
+
+    for set_id in beatmap_set_ids {
+        // Уже в кеше — путь отдаём сразу, без сети.
+        if state.covers.has(set_id) {
+            out.push(CoverReady {
+                beatmapset_id: set_id,
+                path: state.covers.path_for(set_id).to_string_lossy().to_string(),
+            });
+            continue;
+        }
+
+        // Разрешение из общей очереди: обложки не должны съедать бюджет
+        // лобби и профилей посреди матча.
+        state.limiter.acquire().await;
+        if let Ok(bytes) = state.osu.download_cover(set_id).await {
+            if let Ok(path) = state.covers.put(set_id, &bytes) {
+                out.push(CoverReady {
+                    beatmapset_id: set_id,
+                    path: path.to_string_lossy().to_string(),
+                });
+            }
+        }
+        // Не скачалось — просто не возвращаем: вид нарисует плейсхолдер.
+    }
+
+    Ok(out)
+}
 
 #[tauri::command]
 pub async fn list_beatmaps(

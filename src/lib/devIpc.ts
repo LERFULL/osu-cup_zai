@@ -1102,6 +1102,9 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
   },
   get_attributes: () => [],
 
+  /** В dev-режиме обложки уже data:URL — кеш не нужен. */
+  ensure_covers: () => [],
+
   delete_beatmaps: (a) => {
     const gone = new Set(ids(a, 'beatmapIds'));
     for (let i = maps.length - 1; i >= 0; i--) {

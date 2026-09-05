@@ -82,6 +82,14 @@ pub struct SkillsetTag {
     pub suggested: bool,
 }
 
+/// Обложка, лежащая в локальном кеше. Возвращает `ensure_covers`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverReady {
+    pub beatmapset_id: i64,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Label {
     pub id: i64,
