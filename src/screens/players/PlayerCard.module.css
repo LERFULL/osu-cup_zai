@@ -438,6 +438,57 @@
   text-transform: uppercase;
 }
 
+/* Разделы карточки: турнирный профиль против игрового профиля osu!.
+   Концепция приложения — статистика турниров главная, osu!-числа вторичны,
+   и порядок блоков обязан это показывать. */
+.divide {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 14px;
+}
+
+.divide:first-child {
+  margin-top: 0;
+}
+
+.divide span {
+  flex: 0 0 auto;
+  color: var(--txt2);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.divide::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* Блок лобби-статистики внутри турнирного профиля. */
+.lobby {
+  margin-top: 14px;
+  padding: 12px 13px;
+  border: 1px solid rgb(91 200 245 / 0.25);
+  border-radius: 12px;
+  background: rgb(91 200 245 / 0.05);
+}
+
+.lobbyHead {
+  margin-bottom: 9px;
+}
+
+.lobbyTitle {
+  color: #7ed4f8;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .label {
   color: var(--txt3);
   font-size: 11.5px;

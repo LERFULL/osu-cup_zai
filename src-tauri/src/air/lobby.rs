@@ -22,6 +22,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
+use crate::db::air::{LobbyGameSave, LobbyScoreSave};
 use crate::osu::{MatchDto, MatchGameDto};
 use crate::state::AppState;
 
@@ -214,6 +215,24 @@ pub fn start(app: &AppHandle, state: Arc<AppState>, match_id: i64, room_id: i64)
                             error: None,
                         },
                     );
+
+                    // Завершённые игры складываются в турнирный профиль.
+                    // Запись идемпотентна по номеру игры, повторные опросы
+                    // того же события ничего не задвоят. Ошибка записи не
+                    // роняет эфир: цифры на кадре важнее статистики.
+                    let completed: Vec<LobbyGameSave> = games
+                        .iter()
+                        .filter(|g| g.end_time.is_some() && !g.scores.is_empty())
+                        .map(to_save)
+                        .collect();
+                    if !completed.is_empty() {
+                        let _ = state.db.with(|conn| {
+                            for game in &completed {
+                                crate::db::air::save_lobby_game(conn, match_id, game)?;
+                            }
+                            Ok(())
+                        });
+                    }
                 }
                 Err(e) => {
                     // Связь могла мигнуть — опрос не бросаем, но говорим прямо.
@@ -257,6 +276,36 @@ fn to_user(dto: &crate::osu::dto::MatchUserDto) -> LobbyUser {
         username: dto.username.clone(),
         avatar_url: dto.avatar_url.clone(),
         country_code: dto.country_code.clone(),
+    }
+}
+
+fn to_save(game: &LobbyGame) -> LobbyGameSave {
+    LobbyGameSave {
+        game_id: game.game_id,
+        beatmap_id: game.beatmap_id,
+        beatmapset_id: game.beatmapset_id,
+        title: game.title.clone(),
+        start_time: game.start_time.clone(),
+        end_time: game.end_time.clone(),
+        mods: game.mods.clone(),
+        total_length: game.total_length,
+        scores: game
+            .scores
+            .iter()
+            .map(|s| LobbyScoreSave {
+                osu_user_id: s.user_id,
+                total_score: s.total_score,
+                accuracy: s.accuracy,
+                max_combo: s.max_combo,
+                passed: s.passed,
+                rank: s.rank.clone(),
+                mods: s.mods.clone(),
+                great: s.great,
+                ok: s.ok,
+                meh: s.meh,
+                miss: s.miss,
+            })
+            .collect(),
     }
 }
 
