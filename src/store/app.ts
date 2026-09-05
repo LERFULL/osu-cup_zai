@@ -68,6 +68,25 @@ interface AppState {
   dismissImport: () => void;
 }
 
+const SORT_PREFS = 'osucup.library.sort';
+
+type SortPrefs = Partial<Pick<LibraryFilter, 'sort' | 'dir'>>;
+
+/** Последний выбранный порядок списка — человек не должен настраивать его заново. */
+function loadSortPrefs(): SortPrefs {
+  try {
+    const raw = localStorage.getItem(SORT_PREFS);
+    if (raw === null) return {};
+    const parsed = JSON.parse(raw) as SortPrefs;
+    const out: SortPrefs = {};
+    if (typeof parsed.sort === 'string') out.sort = parsed.sort;
+    if (parsed.dir === 'asc' || parsed.dir === 'desc') out.dir = parsed.dir;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export const useApp = create<AppState>((set, get) => ({
   status: null,
   route: 'home',
@@ -80,7 +99,7 @@ export const useApp = create<AppState>((set, get) => ({
   labels: [],
   untagged: 0,
 
-  filter: EMPTY_FILTER,
+  filter: { ...EMPTY_FILTER, ...loadSortPrefs() },
   importing: null,
   hiddenBatch: null,
   queue: [],
@@ -157,7 +176,17 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setFilter(patch) {
-    set({ filter: { ...get().filter, ...patch } });
+    const next = { ...get().filter, ...patch };
+    set({ filter: next });
+    // Порядок запоминаем сразу: он живёт между запусками приложения.
+    try {
+      localStorage.setItem(
+        SORT_PREFS,
+        JSON.stringify({ sort: next.sort, dir: next.dir }),
+      );
+    } catch {
+      // Хранилище может быть недоступно — это не повод ронять фильтр.
+    }
   },
 
   resetFilter() {

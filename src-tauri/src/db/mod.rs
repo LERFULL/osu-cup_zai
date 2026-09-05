@@ -53,6 +53,10 @@ const PRIZE: &str = include_str!("migrations/006_prize.sql");
 /// Загрузки: очередь пачек, память модов удалённых карт, кеш профилей osu!.
 const DOWNLOADS: &str = include_str!("migrations/007_downloads.sql");
 
+/// Библиотека 2.0: вложенные папки коллекций. Список карт всегда агрегируется
+/// по наборам — переключателя больше нет, миграция для этого не нужна.
+const LIBRARY: &str = include_str!("migrations/008_library_folders.sql");
+
 /// Миграции по возрастанию версии. Чтобы добавить версию 6, допиши пару
 /// `(6, include_str!("migrations/006_...sql"))` — цикл применит её сам.
 const MIGRATIONS: &[(i64, &str)] = &[
@@ -63,10 +67,11 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (5, AIR),
     (6, PRIZE),
     (7, DOWNLOADS),
+    (8, LIBRARY),
 ];
 
 /// Версия схемы, которую ожидает текущий код.
-const TARGET_VERSION: i64 = 7;
+const TARGET_VERSION: i64 = 8;
 
 pub struct Db {
     conn: Mutex<Connection>,

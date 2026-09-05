@@ -361,6 +361,8 @@ pub fn to_beatmap(dto: &BeatmapDto, parent: Option<&BeatmapsetDto>) -> Beatmap {
         skillsets: Vec::new(),
         labels: Vec::new(),
         set_count: None,
+            set_stars_min: None,
+            set_stars_max: None,
     }
 }
 

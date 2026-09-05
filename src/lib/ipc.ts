@@ -169,7 +169,10 @@ export const addToCollection = (collectionId: number, beatmapIds: number[]) =>
 export const removeFromCollection = (collectionId: number, beatmapIds: number[]) =>
   invoke<void>('remove_from_collection', { collectionId, beatmapIds });
 
-export const createFolder = (name: string) => invoke<Folder>('create_folder', { name });
+export const createFolder = (name: string, parentId: number | null) =>
+  invoke<Folder>('create_folder', { name, parentId });
+export const moveFolder = (id: number, parentId: number | null, position: number) =>
+  invoke<void>('move_folder', { id, parentId, position });
 export const renameFolder = (id: number, name: string) => invoke<void>('rename_folder', { id, name });
 export const deleteFolder = (id: number) => invoke<void>('delete_folder', { id });
 

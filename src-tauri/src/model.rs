@@ -57,10 +57,14 @@ pub struct Beatmap {
     pub skillsets: Vec<SkillsetTag>,
     pub labels: Vec<Label>,
 
-    /// Сколько сложностей у набора. Заполняется только в схлопнутом списке —
-    /// в остальных местах строка отвечает сама за себя.
+    /// Заполняется только в списке библиотеки, где строка — весь набор.
+    /// Сколько сложностей внутри и какой у них разброс звёзд.
     #[serde(default)]
     pub set_count: Option<i64>,
+    #[serde(default)]
+    pub set_stars_min: Option<f64>,
+    #[serde(default)]
+    pub set_stars_max: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +111,10 @@ pub struct Folder {
     pub id: i64,
     pub name: String,
     pub position: i64,
+    /// Родительская папка. None — папка лежит на верхнем уровне.
+    /// Удаление родителя поднимает папку на уровень выше (ON DELETE SET NULL).
+    #[serde(default)]
+    pub parent_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,9 +166,6 @@ pub struct LibraryFilter {
     /// сброс фильтра его не трогает, как и коллекцию.
     #[serde(default)]
     pub no_mods: bool,
-    /// Схлопывать сложности одного набора в одну строку.
-    #[serde(default)]
-    pub group_sets: bool,
     #[serde(default = "default_sort")]
     pub sort: String,
     #[serde(default = "default_dir")]
@@ -187,7 +192,6 @@ impl Default for LibraryFilter {
             length: Range::default(),
             collection_id: None,
             no_mods: false,
-            group_sets: false,
             sort: default_sort(),
             dir: default_dir(),
         }

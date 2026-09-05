@@ -76,6 +76,8 @@ fn map(id: i64, artist: &str, title: &str, stars: f64) -> Beatmap {
         skillsets: vec![],
         labels: vec![],
         set_count: None,
+            set_stars_min: None,
+            set_stars_max: None,
     }
 }
 
@@ -125,7 +127,7 @@ fn get_returns_mods_and_skillsets() {
 }
 
 #[test]
-fn group_sets_counts_only_what_passed_the_filter() {
+fn set_list_counts_only_what_passed_the_filter() {
     let conn = db();
     // Один набор, три сложности, но под фильтр звёзд проходят только две.
     for (id, ver, stars) in [(1, "Easy", 2.0), (2, "Hard", 5.0), (3, "Extra", 6.0)] {
@@ -136,7 +138,6 @@ fn group_sets_counts_only_what_passed_the_filter() {
     }
 
     let f = LibraryFilter {
-        group_sets: true,
         stars: crate::model::Range {
             min: Some(4.0),
             max: None,
@@ -151,7 +152,7 @@ fn group_sets_counts_only_what_passed_the_filter() {
 }
 
 #[test]
-fn group_sets_collapses_difficulties_into_one_row() {
+fn set_list_collapses_difficulties_into_one_row() {
     let conn = db();
     // Три сложности одного набора и одна чужая.
     for (id, ver, stars) in [(1, "Easy", 2.0), (2, "Hard", 4.0), (3, "Extra", 6.0)] {
@@ -162,8 +163,7 @@ fn group_sets_collapses_difficulties_into_one_row() {
     }
     beatmaps::upsert(&conn, &map(9, "B", "Other", 5.0)).unwrap();
 
-    let mut f = LibraryFilter {
-        group_sets: true,
+    let f = LibraryFilter {
         sort: "stars".into(),
         dir: "desc".into(),
         ..Default::default()
@@ -178,9 +178,12 @@ fn group_sets_collapses_difficulties_into_one_row() {
         .iter()
         .find(|m| m.beatmapset_id == Some(777))
         .expect("набор в списке");
-    // Показываем ту сложность, что первой идёт по сортировке — самую высокую.
+    // Представитель набора — самая высокая сложность.
     assert_eq!(song.version, "Extra");
     assert_eq!(song.set_count, Some(3));
+    // Разброс звёзд набора — от низкой до высокой.
+    assert_eq!(song.set_stars_min, Some(2.0));
+    assert_eq!(song.set_stars_max, Some(6.0));
 
     let other = page
         .items
@@ -188,16 +191,32 @@ fn group_sets_collapses_difficulties_into_one_row() {
         .find(|m| m.beatmap_id == 9)
         .expect("чужая карта");
     assert_eq!(other.set_count, Some(1));
-
-    // Без схлопывания — по строке на сложность, и счётчика нет.
-    f.group_sets = false;
-    let flat = beatmaps::list(&conn, &f, 0, 50).unwrap();
-    assert_eq!(flat.total, 4);
-    assert!(flat.items.iter().all(|m| m.set_count.is_none()));
+    assert_eq!(other.set_stars_min, Some(5.0));
 }
 
 #[test]
-fn group_sets_keeps_manual_maps_apart() {
+fn set_list_shows_union_of_set_mods() {
+    let conn = db();
+    // Три сложности набора с разными тегами — строка показывает все сразу.
+    let mut hd = map(1, "A", "Song", 4.0);
+    hd.beatmapset_id = Some(808);
+    hd.mods = vec!["HD".into()];
+    beatmaps::upsert(&conn, &hd).unwrap();
+
+    let mut dt = map(2, "A", "Song", 5.5);
+    dt.beatmapset_id = Some(808);
+    dt.mods = vec!["DT".into(), "NM".into()];
+    beatmaps::upsert(&conn, &dt).unwrap();
+
+    let f = LibraryFilter::default();
+    let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    assert_eq!(page.items.len(), 1);
+    // Порядок канонический по MOD_TAGS: NM, HD, DT.
+    assert_eq!(page.items[0].mods, vec!["NM", "HD", "DT"]);
+}
+
+#[test]
+fn set_list_keeps_manual_maps_apart() {
     let conn = db();
     // У ручных карт набора нет: они не должны слиться в одну строку.
     for id in 1..=3 {
@@ -207,13 +226,88 @@ fn group_sets_keeps_manual_maps_apart() {
         beatmaps::upsert(&conn, &m).unwrap();
     }
 
-    let f = LibraryFilter {
-        group_sets: true,
-        ..Default::default()
-    };
+    let f = LibraryFilter::default();
     let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
     assert_eq!(page.total, 3);
     assert!(page.items.iter().all(|m| m.set_count == Some(1)));
+}
+
+#[test]
+fn set_list_sorts_by_set_aggregates() {
+    let conn = db();
+    // Два набора: у первого максимум звёзд ниже, чем у второго.
+    for (id, stars, set) in [(1, 2.0, 100), (2, 4.0, 100), (3, 5.5, 200), (4, 5.0, 200)] {
+        let mut m = map(id, "A", &format!("Song {id}"), stars);
+        m.beatmapset_id = Some(set);
+        beatmaps::upsert(&conn, &m).unwrap();
+    }
+
+    let f = LibraryFilter {
+        sort: "stars".into(),
+        dir: "desc".into(),
+        ..Default::default()
+    };
+    let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    // Сортировка по максимуму набора: набор 200 (5.5) выше набора 100 (4.0).
+    assert_eq!(page.items[0].beatmapset_id, Some(200));
+    assert_eq!(page.items[1].beatmapset_id, Some(100));
+
+    // По возрастанию — наоборот.
+    let f = LibraryFilter {
+        sort: "stars".into(),
+        dir: "asc".into(),
+        ..Default::default()
+    };
+    let page = beatmaps::list(&conn, &f, 0, 50).unwrap();
+    assert_eq!(page.items[0].beatmapset_id, Some(100));
+    assert_eq!(page.items[1].beatmapset_id, Some(200));
+}
+
+#[test]
+fn folders_nest_move_and_dissolve() {
+    let conn = db();
+    let root = collections::create_folder(&conn, "Турниры", None).unwrap();
+    let child = collections::create_folder(&conn, "2026", Some(root.id)).unwrap();
+    let deep = collections::create_folder(&conn, "Лето", Some(child.id)).unwrap();
+
+    let listed = collections::list_folders(&conn).unwrap();
+    assert_eq!(listed.len(), 3);
+    assert_eq!(listed[1].parent_id, Some(root.id));
+
+    // Коллекция внутри глубокой папки.
+    let col = collections::create(&conn, "Пул", None).unwrap();
+    collections::move_to(&conn, col.id, Some(deep.id), 1).unwrap();
+
+    // Внутрь своего потомка нельзя — дерево замкнулось бы в цикл.
+    assert!(collections::move_folder(&conn, root.id, Some(deep.id), 1).is_err());
+    assert!(collections::move_folder(&conn, root.id, Some(root.id), 1).is_err());
+    // А к корню — можно.
+    collections::move_folder(&conn, deep.id, None, 1).unwrap();
+
+    // Удаление папки поднимает её прямое содержимое на уровень выше.
+    // deep — подпапка child, поэтому она поднимается к корню...
+    collections::delete_folder(&conn, child.id).unwrap();
+    let listed = collections::list_folders(&conn).unwrap();
+    let summer = listed.iter().find(|f| f.id == deep.id).unwrap();
+    assert_eq!(summer.parent_id, None, "папка поднялась к корню");
+
+    // ...а коллекция, лежащая в deep, остаётся в deep: она не была
+    // прямым содержимым удалённой папки.
+    let still_there = collections::list(&conn)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.id == col.id)
+        .expect("коллекция на месте");
+    assert_eq!(still_there.folder_id, Some(deep.id));
+
+    // Удаление deep поднимает уже саму коллекцию.
+    collections::delete_folder(&conn, deep.id).unwrap();
+    let lifted = collections::list(&conn)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.id == col.id)
+        .expect("коллекция на месте");
+    assert_eq!(lifted.folder_id, None, "коллекция поднялась к корню");
 }
 
 #[test]

@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Button, Chip, Empty, MapRow, RangeSlider } from '@/components';
-import { MOD_TAGS, type Beatmap, type LibraryFilter, type ModTag, type Place } from '@/lib/types';
+import { Button, Chip, Empty, MapRow, Menu, MenuItem, RangeSlider } from '@/components';
+import {
+  MOD_TAGS,
+  type Beatmap,
+  type LibraryFilter,
+  type ModTag,
+  type Place,
+  type SortKey,
+} from '@/lib/types';
 import { coverUrl, filterIsSet, filterSummary, maps } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { useApp } from '@/store/app';
-import { Tree } from './library/Tree';
+import { Explorer } from './library/Explorer';
 import { Card } from './library/Card';
 import { Bulk } from './library/Bulk';
 import { Summary } from './library/Summary';
@@ -15,11 +22,21 @@ import s from './Library.module.css';
 /** Высота строки плюс зазор — шаг виртуального списка. */
 const STEP = 56;
 
-/** Строка списка: сам набор или его сложность под ним. */
+/** Строка списка: набор или его сложность под ним. */
 interface Row {
   map: Beatmap;
   child: boolean;
 }
+
+/** Сортировка: подписи для человека и порядок в меню. */
+const SORTS: { key: SortKey; name: string }[] = [
+  { key: 'added', name: 'По дате добавления' },
+  { key: 'stars', name: 'По звёздам' },
+  { key: 'bpm', name: 'По BPM' },
+  { key: 'length', name: 'По длине' },
+  { key: 'title', name: 'По названию' },
+  { key: 'artist', name: 'По артисту' },
+];
 
 /** Где находимся сейчас — выводится из фильтра. */
 function placeOf(filter: LibraryFilter): Place {
@@ -29,8 +46,12 @@ function placeOf(filter: LibraryFilter): Place {
 }
 
 export default function Library() {
-  const { filter, setFilter, resetFilter, collections, refreshCollections, refreshUntagged, go } =
+  const { filter, setFilter, resetFilter, collections, folders, refreshCollections, refreshUntagged, go } =
     useApp();
+  // Проводник — лицо библиотеки. Открываемся в нём, а не в списке.
+  const [browse, setBrowse] = useState<number | null>(null);
+  const [explorer, setExplorer] = useState(true);
+  const [sortMenu, setSortMenu] = useState(false);
   const [opened, setOpened] = useState<number | null>(null);
   const [picked, setPicked] = useState<ReadonlySet<number>>(new Set());
   // Состав выдачи меняют не только фильтры: импорт, удаление и массовые
@@ -47,6 +68,37 @@ export default function Library() {
   // в схлопнутом списке их нет, а лезть за ними при каждом рендере незачем.
   const [spread, setSpread] = useState<ReadonlySet<number>>(new Set());
   const [kids, setKids] = useState<Readonly<Record<number, Beatmap[]>>>({});
+
+  /**
+   * Выделение и массовые действия оперируют наборами. Одна карта = один
+   * объект: отметив строку, человек имеет в виду весь набор, поэтому
+   * выбранная сложность раскрывается в id всех сложностей набора.
+   * Раскрываются лениво и кешируются — как и для показа сложностей.
+   */
+  const [bulkIds, setBulkIds] = useState<number[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const out: number[] = [];
+      for (const id of picked) {
+        const m = items.find((x) => x.beatmapId === id);
+        if (m === undefined) continue;
+        const set = m.beatmapsetId;
+        if (set === null || (m.setCount ?? 1) <= 1) {
+          out.push(id);
+          continue;
+        }
+        const list = kids[set] ?? (await ipc.getSetDifficulties(set));
+        if (!alive) return;
+        if (kids[set] === undefined) setKids((prev) => ({ ...prev, [set]: list }));
+        out.push(...list.map((k) => k.beatmapId));
+      }
+      setBulkIds(out);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [picked, items, kids]);
 
   // Плоский список строк: сложности развёрнутого набора встают сразу под ним.
   // Виртуализатору нужен именно плоский, иначе он не посчитает высоту.
@@ -98,6 +150,46 @@ export default function Library() {
   const title = untagged ? 'Без мод-тегов' : (here?.name ?? 'Все карты');
 
   const dirty = filterIsSet(filter);
+  const sortName = SORTS.find((x) => x.key === filter.sort)?.name ?? 'По дате добавления';
+
+  /** Хлебные крошки места: путь по папкам до коллекции. */
+  const crumbs = useMemo(() => {
+    if (here === null) return [];
+    const path: string[] = [];
+    let cur = here.folderId;
+    while (cur !== null) {
+      const f = folders.find((x) => x.id === cur);
+      if (f === undefined) break;
+      path.unshift(f.name);
+      cur = f.parentId;
+    }
+    return path;
+  }, [here, folders]);
+
+  function openPlace(next: Place) {
+    setExplorer(false);
+    if (next.kind === 'untagged') {
+      // Системный раздел и коллекция — разные места: вместе они бы
+      // показывали пересечение, которого пользователь не просил.
+      setFilter({ collectionId: null, noMods: true });
+      return;
+    }
+    if (next.kind === 'all') {
+      setFilter({ collectionId: null, noMods: false });
+      return;
+    }
+    const target = collections.find((c) => c.id === next.id) ?? null;
+    setFilter({ collectionId: next.id, noMods: false });
+    // Умная коллекция сама себе фильтр: чужие условия она не применяет,
+    // поэтому и показывать их набранными нечестно.
+    if (target?.isSmart === true) resetFilter();
+  }
+
+  /** Выйти из списка обратно в проводник — в папку, где лежит коллекция. */
+  function backToExplorer() {
+    setBrowse(here?.folderId ?? null);
+    setExplorer(true);
+  }
 
   function toggleMod(m: ModTag) {
     const has = filter.mods.includes(m);
@@ -115,6 +207,24 @@ export default function Library() {
     await refreshCollections();
     setFilter({ collectionId: made.id });
     resetFilter();
+  }
+
+  /** Развернуть или свернуть набор. Сложности догружаются при первом раскрытии. */
+  async function toggleSpread(setId: number) {
+    if (spread.has(setId)) {
+      setSpread((prev) => {
+        const next = new Set(prev);
+        next.delete(setId);
+        return next;
+      });
+      return;
+    }
+
+    if (kids[setId] === undefined) {
+      const list = await ipc.getSetDifficulties(setId);
+      setKids((prev) => ({ ...prev, [setId]: list }));
+    }
+    setSpread((prev) => new Set(prev).add(setId));
   }
 
   /**
@@ -206,9 +316,8 @@ export default function Library() {
   }
 
   async function removePicked() {
-    const ids = [...picked];
-    await ipc.deleteBeatmaps(ids);
-    drop(ids);
+    await ipc.deleteBeatmaps(bulkIds);
+    drop(bulkIds);
     setPicked(new Set());
     anchor.current = null;
     await refreshCollections();
@@ -220,43 +329,37 @@ export default function Library() {
     anchor.current = null;
   }
 
-  /** Развернуть или свернуть набор. Сложности догружаются при первом раскрытии. */
-  async function toggleSpread(setId: number) {
-    if (spread.has(setId)) {
-      setSpread((prev) => {
-        const next = new Set(prev);
-        next.delete(setId);
-        return next;
-      });
-      return;
-    }
-
-    if (kids[setId] === undefined) {
-      const list = await ipc.getSetDifficulties(setId);
-      setKids((prev) => ({ ...prev, [setId]: list }));
-    }
-    setSpread((prev) => new Set(prev).add(setId));
-  }
-
   /** Убрать одну карту — из строки списка или из раскрытого набора. */
   async function removeOne(map: Beatmap) {
-    if (!window.confirm(`Убрать «${displayTitle(map)} [${map.version}]» из библиотеки?`)) return;
+    // Строка набора — весь набор: предупреждаем честно.
+    const whole = map.beatmapsetId !== null && (map.setCount ?? 1) > 1;
+    const what = whole
+      ? `«${displayTitle(map)}» и все её ${map.setCount} сложностей`
+      : `«${displayTitle(map)} [${map.version}]»`;
+    if (!window.confirm(`Убрать ${what} из библиотеки?`)) return;
 
-    await ipc.deleteBeatmaps([map.beatmapId]);
+    const ids =
+      whole && map.beatmapsetId !== null
+        ? (kids[map.beatmapsetId] ?? (await ipc.getSetDifficulties(map.beatmapsetId))).map(
+            (k) => k.beatmapId,
+          )
+        : [map.beatmapId];
+
+    await ipc.deleteBeatmaps(ids);
     if (opened === map.beatmapId) setOpened(null);
 
     const set = map.beatmapsetId;
     if (set !== null && kids[set] !== undefined) {
       setKids((prev) => ({
         ...prev,
-        [set]: (prev[set] ?? []).filter((k) => k.beatmapId !== map.beatmapId),
+        [set]: (prev[set] ?? []).filter((k) => !ids.includes(k.beatmapId)),
       }));
     }
 
-    // Схлопнутая строка представляет весь набор: удалив показанную сложность,
-    // пересчитываем список, иначе набор пропал бы вместе с остальными.
-    if (filter.groupSets) await reload();
-    else drop([map.beatmapId]);
+    // Строка представляет весь набор: удалив её, пересчитываем список —
+    // и удалять сложность, которой больше нет, нельзя.
+    if (whole) await reload();
+    else drop(ids);
 
     await refreshCollections();
     bumpSummary();
@@ -276,220 +379,250 @@ export default function Library() {
     }
   }
 
-  return (
-    <div className={s.screen}>
-      <Tree
-        place={place}
-        onSelect={(next) => {
-          if (next.kind === 'untagged') {
-            // Системный раздел и коллекция — разные места: вместе они бы
-            // показывали пересечение, которого пользователь не просил.
-            setFilter({ collectionId: null, noMods: true });
-            return;
-          }
-          if (next.kind === 'all') {
-            setFilter({ collectionId: null, noMods: false });
-            return;
-          }
+  // ─────────────────────────────────────────────────── список карт
 
-          const target = collections.find((c) => c.id === next.id) ?? null;
-          setFilter({ collectionId: next.id, noMods: false });
-          // Умная коллекция сама себе фильтр: чужие условия она не применяет,
-          // поэтому и показывать их набранными нечестно.
-          if (target?.isSmart === true) resetFilter();
-        }}
-      />
-
-      <div className={s.main}>
-        <header className={s.bar}>
-          <div className={s.where}>
+  const listView = (
+    <div className={s.main}>
+      <header className={s.bar}>
+        <div className={s.where}>
+          <button className={s.home} onClick={backToExplorer} type="button" title="В проводник">
+            ‹
+          </button>
+          <nav className={s.path}>
             <h1 className={s.h1}>{title}</h1>
-            <span className={s.count}>{loading ? '…' : maps(total)}</span>
-            {place.kind !== 'all' ? (
-              <button
-                className={s.exit}
-                onClick={() => setFilter({ collectionId: null, noMods: false })}
-                type="button"
-                title="Выйти в «Все карты»"
-              >
-                ✕
-              </button>
+            {crumbs.length > 0 ? (
+              <span className={s.pathNote}>{crumbs.join(' › ')}</span>
             ) : null}
-          </div>
-
-          <div className={s.right}>
-            <input
-              className={s.search}
-              value={filter.query}
-              placeholder="Поиск по названию, артисту, мапперу"
-              onChange={(e) => setFilter({ query: e.target.value })}
-            />
-            <Button variant="primary" onClick={() => go('downloads')} title="Ссылки, очередь и авто-теги пачек">
-              + Загрузки
-            </Button>
-          </div>
-        </header>
-
-        <div className={s.filters}>
-          {/* В «Без мод-тегов» чипы модов не показываем: у этих карт тегов нет,
-              и любой выбранный дал бы гарантированно пустой список. */}
-          {untagged ? (
-            <span className={s.hint}>
-              Проставь мод-теги — и карта уедет отсюда в генерацию маппулов
-            </span>
-          ) : (
-            <div className={s.mods}>
-              {MOD_TAGS.map((m) => (
-                <Chip key={m} active={filter.mods.includes(m)} onClick={() => toggleMod(m)}>
-                  {m}
-                </Chip>
-              ))}
-            </div>
-          )}
-
-          <div className={s.slider}>
-            <RangeSlider
-              label="Звёзды"
-              min={0}
-              max={12}
-              step={0.1}
-              value={[filter.stars.min, filter.stars.max]}
-              onChange={([min, max]) => setFilter({ stars: { min, max } })}
-              format={(n) => n.toFixed(1)}
-            />
-          </div>
-
-          <Chip
-            active={filter.groupSets}
-            onClick={() => setFilter({ groupSets: !filter.groupSets })}
-            title="Сложности одного набора — одной строкой"
-          >
-            Наборами
-          </Chip>
-
-          <Chip
-            active={false}
-            onClick={() => {
-              // Выделить всё, что сейчас на экране: протягивание по строкам
-              // на сотне карт — это всё же работа.
-              setPicked(new Set(shown.map((r) => r.map.beatmapId)));
-            }}
-            title="Выделить все карты на экране"
-          >
-            Выделить все
-          </Chip>
-
-          {dirty ? (
-            <div className={s.saveFilter}>
-              <Button size="sm" onClick={() => void saveAsSmart()}>
-                Сохранить как умную
-              </Button>
-              <Button size="sm" onClick={resetFilter}>
-                Сбросить
-              </Button>
-            </div>
+          </nav>
+          <span className={s.count}>{loading ? '…' : maps(total)}</span>
+          {place.kind !== 'all' ? (
+            <button
+              className={s.exit}
+              onClick={() => {
+                setFilter({ collectionId: null, noMods: false });
+              }}
+              type="button"
+              title="Вернуться ко всем картам"
+            >
+              ✕
+            </button>
           ) : null}
         </div>
 
-        <Summary filter={filter} revision={revision} />
+        <div className={s.right}>
+          <input
+            className={s.search}
+            value={filter.query}
+            placeholder="Поиск по названию, артисту, мапперу"
+            onChange={(e) => setFilter({ query: e.target.value })}
+          />
+          <Button variant="primary" onClick={() => go('downloads')} title="Ссылки, очередь и авто-теги пачек">
+            + Загрузки
+          </Button>
+        </div>
+      </header>
 
-        <div className={s.list} ref={listRef}>
-          {error ? (
-            <Empty title="Не получилось прочитать библиотеку" note={error} />
-          ) : items.length === 0 && !loading ? (
-            untagged ? (
-              <Empty
-                title="Все карты размечены"
-                note="Как только появится карта без мод-тегов, она окажется здесь — и её будет видно, пока ей не проставят теги."
-              />
-            ) : (
-              <Empty
-                title={here ? 'В этой коллекции пока пусто' : 'Здесь пока пусто'}
-                note="Вставь список ссылок в загрузках — прога найдёт их сама и докачает пачкой."
-                actions={
-                  <Button variant="primary" onClick={() => go('downloads')}>
-                    Открыть загрузки
-                  </Button>
-                }
-              />
-            )
-          ) : (
-            <div className={s.canvas} style={{ height: rows.getTotalSize() }}>
-              {virtual.map((v) => {
-                const row = shown[v.index];
-                if (!row) return null;
-                const m = row.map;
-                const set = m.beatmapsetId;
-                const extra = m.setCount ?? 1;
+      <div className={s.filters}>
+        {/* В «Без мод-тегов» чипы модов не показываем: у этих карт тегов нет,
+            и любой выбранный дал бы гарантированно пустой список. */}
+        {untagged ? (
+          <span className={s.hint}>
+            Проставь мод-теги — и карта уедет отсюда в генерацию маппулов
+          </span>
+        ) : (
+          <div className={s.mods}>
+            {MOD_TAGS.map((m) => (
+              <Chip key={m} active={filter.mods.includes(m)} onClick={() => toggleMod(m)}>
+                {m}
+              </Chip>
+            ))}
+          </div>
+        )}
 
-                return (
-                  <div
-                    key={row.child ? `k${m.beatmapId}` : m.beatmapId}
-                    className={[s.slot, row.child ? s.child : null].filter(Boolean).join(' ')}
-                    style={{ transform: `translateY(${v.start}px)` }}
-                    data-index={v.index}
-                  >
-                    <MapRow
-                      kind="plain"
-                      stars={m.difficultyRating}
-                      {...(m.totalLength !== null ? { length: m.totalLength } : {})}
-                      {...(m.bpm !== null ? { bpm: m.bpm } : {})}
-                      cover={coverUrl(m.coverPath)}
-                      title={displayTitle(m)}
-                      version={m.version}
-                      mod={(m.mods[0] as ModTag) ?? 'NM'}
-                      untagged={m.mods.length === 0}
-                      selected={picked.has(m.beatmapId)}
-                      opened={opened === m.beatmapId}
-                      checkbox
-                      {...(!row.child && set !== null && extra > 1
-                        ? {
-                            expand: {
-                              count: extra,
-                              open: spread.has(set),
-                              onToggle: () => void toggleSpread(set),
-                            },
-                          }
-                        : {})}
-                      tools={
-                        <button
-                          className={s.rowX}
-                          onClick={() => void removeOne(m)}
-                          type="button"
-                          aria-label="Убрать из библиотеки"
-                          title="Убрать из библиотеки"
-                        >
-                          ✕
-                        </button>
-                      }
-                      onToggleSelect={(shift) => togglePick(v.index, m.beatmapId, shift)}
-                      onSweepSelect={(shift) => startSweep(v.index, m.beatmapId, shift)}
-                      onClick={() => setOpened(m.beatmapId)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
+        <div className={s.slider}>
+          <RangeSlider
+            label="Звёзды"
+            min={0}
+            max={12}
+            step={0.1}
+            value={[filter.stars.min, filter.stars.max]}
+            onChange={([min, max]) => setFilter({ stars: { min, max } })}
+            format={(n) => n.toFixed(1)}
+          />
         </div>
 
-        {picked.size > 0 ? (
-          <Bulk
-            ids={[...picked]}
-            selected={shown.filter((r) => picked.has(r.map.beatmapId)).map((r) => r.map)}
-            collections={collections}
-            here={here}
-            onClear={clearPicked}
-            onChanged={async () => {
-              await reload();
-              await refreshCollections();
-              void refreshUntagged();
-              bumpSummary();
-            }}
-            onDelete={removePicked}
-          />
+        <Chip
+          active={false}
+          onClick={() => {
+            // Выделить всё, что сейчас на экране: протягивание по строкам
+            // на сотне карт — это всё же работа.
+            setPicked(new Set(shown.map((r) => r.map.beatmapId)));
+          }}
+          title="Выделить все карты на экране"
+        >
+          Выделить все
+        </Chip>
+
+        {dirty ? (
+          <div className={s.saveFilter}>
+            <Button size="sm" onClick={() => void saveAsSmart()}>
+              Сохранить как умную
+            </Button>
+            <Button size="sm" onClick={resetFilter}>
+              Сбросить
+            </Button>
+          </div>
         ) : null}
+
+        <div className={s.sort}>
+          <button
+            className={s.sortBtn}
+            onClick={() => setSortMenu(!sortMenu)}
+            type="button"
+            title="Порядок списка"
+          >
+            {sortName}
+            <span className={s.sortDir} aria-hidden>
+              {filter.dir === 'asc' ? '↑' : '↓'}
+            </span>
+          </button>
+          <Menu open={sortMenu} onClose={() => setSortMenu(false)} align="right">
+            {SORTS.map((x) => (
+              <MenuItem
+                key={x.key}
+                onClick={() => {
+                  setSortMenu(false);
+                  if (filter.sort !== x.key) setFilter({ sort: x.key });
+                }}
+              >
+                {x.name}
+              </MenuItem>
+            ))}
+            <MenuItem
+              onClick={() => {
+                setSortMenu(false);
+                setFilter({
+                  dir: filter.dir === 'asc' ? 'desc' : 'asc',
+                });
+              }}
+              note="направление"
+            >
+              {filter.dir === 'asc' ? 'Сменить на убывание ↓' : 'Сменить на возрастание ↑'}
+            </MenuItem>
+          </Menu>
+        </div>
       </div>
+
+      <Summary filter={filter} revision={revision} />
+
+      <div className={s.list} ref={listRef}>
+        {error ? (
+          <Empty title="Не получилось прочитать библиотеку" note={error} />
+        ) : items.length === 0 && !loading ? (
+          untagged ? (
+            <Empty
+              title="Все карты размечены"
+              note="Как только появится карта без мод-тегов, она окажется здесь — и её будет видно, пока ей не проставят теги."
+            />
+          ) : (
+            <Empty
+              title={here ? 'В этой коллекции пока пусто' : 'Здесь пока пусто'}
+              note="Вставь список ссылок в загрузках — прога найдёт их сама и докачает пачкой."
+              actions={
+                <Button variant="primary" onClick={() => go('downloads')}>
+                  Открыть загрузки
+                </Button>
+              }
+            />
+          )
+        ) : (
+          <div className={s.canvas} style={{ height: rows.getTotalSize() }}>
+            {virtual.map((v) => {
+              const row = shown[v.index];
+              if (!row) return null;
+              const m = row.map;
+              const set = m.beatmapsetId;
+              const extra = m.setCount ?? 1;
+              const multi = !row.child && extra > 1;
+
+              return (
+                <div
+                  key={row.child ? `k${m.beatmapId}` : m.beatmapId}
+                  className={[s.slot, row.child ? s.child : null].filter(Boolean).join(' ')}
+                  style={{ transform: `translateY(${v.start}px)` }}
+                  data-index={v.index}
+                >
+                  <MapRow
+                    kind="plain"
+                    stars={m.difficultyRating}
+                    {...(m.totalLength !== null ? { length: m.totalLength } : {})}
+                    {...(m.bpm !== null ? { bpm: m.bpm } : {})}
+                    cover={coverUrl(m.coverPath)}
+                    title={displayTitle(m)}
+                    version={multi ? `${extra} сложностей` : m.version}
+                    mod={m.mods[0] ?? 'NM'}
+                    mods={m.mods}
+                    untagged={m.mods.length === 0}
+                    selected={picked.has(m.beatmapId)}
+                    opened={opened === m.beatmapId}
+                    checkbox
+                    {...(!row.child && set !== null && extra > 1
+                      ? {
+                          expand: {
+                            count: extra,
+                            open: spread.has(set),
+                            onToggle: () => void toggleSpread(set),
+                          },
+                        }
+                      : {})}
+                    tools={
+                      <button
+                        className={s.rowX}
+                        onClick={() => void removeOne(m)}
+                        type="button"
+                        aria-label="Убрать из библиотеки"
+                        title="Убрать из библиотеки"
+                      >
+                        ✕
+                      </button>
+                    }
+                    onToggleSelect={(shift) => togglePick(v.index, m.beatmapId, shift)}
+                    onSweepSelect={(shift) => startSweep(v.index, m.beatmapId, shift)}
+                    onClick={() => setOpened(m.beatmapId)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {picked.size > 0 ? (
+        <Bulk
+          ids={bulkIds.length > 0 ? bulkIds : [...picked]}
+          selected={shown.filter((r) => picked.has(r.map.beatmapId)).map((r) => r.map)}
+          collections={collections}
+          here={here}
+          onClear={clearPicked}
+          onChanged={async () => {
+            await reload();
+            await refreshCollections();
+            void refreshUntagged();
+            bumpSummary();
+          }}
+          onDelete={removePicked}
+        />
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div className={s.screen}>
+      {explorer ? (
+        <Explorer place={place} folder={browse} onOpenPlace={openPlace} onBrowse={setBrowse} />
+      ) : (
+        listView
+      )}
 
       {opened !== null ? (
         <Card

@@ -24,9 +24,46 @@
 .where {
   display: flex;
   flex: 1;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+/* Кнопка возврата в проводник — слева от заголовка. */
+.home {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card2);
+  color: var(--txt2);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.13s, border-color 0.13s;
+}
+
+.home:hover {
+  border-color: #2e3549;
+  color: var(--txt);
+}
+
+.path {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.pathNote {
+  color: var(--txt3);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .h1 {
@@ -119,6 +156,40 @@
 .saveFilter {
   display: flex;
   gap: 7px;
+}
+
+/* Сортировка прибита к правому краю панели фильтров. */
+.sort {
+  position: relative;
+  margin-left: auto;
+}
+
+.sortBtn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--txt2);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.13s, color 0.13s;
+}
+
+.sortBtn:hover {
+  border-color: #2e3549;
+  color: var(--txt);
+}
+
+.sortDir {
+  color: var(--pink);
+  font-size: 12px;
+  line-height: 1;
 }
 
 .list {
