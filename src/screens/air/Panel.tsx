@@ -23,7 +23,7 @@ const inTauri = isTauri();
 
 export function Panel() {
   const air = useAir();
-  const { status, airing, frozen, standby, playlist, playlistAt, error, watching, ctx } = air;
+  const { status, airing, frozen, standby, playlist, playlistAt, error, watching, ctx, lobby } = air;
   const frame = useFrame();
 
   const [minutes, setMinutes] = useState(6);
@@ -115,6 +115,20 @@ export function Panel() {
             </b>
             <span style={{ color: matchB.color }}>{matchB.nickname}</span>
           </div>
+
+          {/* Состояние лобби — раньше оно было невидимым: судья не отличал
+              «привязано и читается» от «привязано, но молчит». */}
+          {watching.lobbyId !== null ? (
+            <div className={lobby?.error === null && lobby?.at !== null ? s.lobbyOk : s.lobbyBad}>
+              {lobby === null
+                ? 'лобби: опрос не поднят'
+                : lobby.error !== null
+                  ? `лобби: ${lobby.error}`
+                  : lobby.at !== null
+                    ? `лобби читается · ${new Date(lobby.at).toLocaleTimeString()}`
+                    : 'лобби: первый опрос…'}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

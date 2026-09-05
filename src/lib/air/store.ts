@@ -670,9 +670,18 @@ async function watchMatch(get: Get, set: Set) {
     return;
   }
 
-  // Лобби появилось или сменилось — поднимаем опрос.
-  if (next.lobbyId !== null && state.lobby?.roomId !== next.lobbyId) {
+  // Лобби появилось или сменилось — поднимаем опрос. Сравниваем и матч,
+  // и номер комнаты: привязка того же лобби к другому матчу должна
+  // перезапустить опрос, а не оставить цифры от старого матча.
+  if (
+    next.lobbyId !== null &&
+    (state.lobby === null ||
+      state.lobby.matchId !== next.id ||
+      state.lobby.roomId !== next.lobbyId)
+  ) {
     try {
+      // Сначала гасим старый опрос, если он был: слот опроса один на сессию.
+      await ipc.airLobbyStop();
       await ipc.airLobbyStart(next.id, next.lobbyId);
       set({
         lobby: {
@@ -687,6 +696,14 @@ async function watchMatch(get: Get, set: Set) {
     } catch (e) {
       set({ error: String(e) });
     }
+  }
+
+  // Привязку сняли (или матч без лобби сменил привязанный): опрос обязан
+  // остановиться сразу. Иначе он молча тратил бы лимит osu! и продолжал
+  // показывать в эфире цифры лобби, к которому матч уже не привязан.
+  if (next.lobbyId === null && state.lobby !== null) {
+    await ipc.airLobbyStop();
+    set({ lobby: null });
   }
 
   const prev = state.watching;

@@ -28,6 +28,13 @@ use crate::state::AppState;
 /// Пока матч идёт — раз в 5 секунд. Это 12 запросов в минуту.
 const POLL_EVERY: Duration = Duration::from_secs(5);
 
+/// После серий неудач темп падает: за минуту связи не становится лучше,
+/// а лимит запросов дороже.
+const ERROR_EVERY: Duration = Duration::from_secs(30);
+
+/// Сколько опросов подряд с ошибкой — повод сбавить темп.
+const ERROR_STREAK: u32 = 4;
+
 /// Одна карта из лобби в том виде, в каком её ждёт эфир.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -155,6 +162,10 @@ impl Cursor {
 }
 
 /// Поднимает опрос лобби для матча. Возвращает управление сразу.
+///
+/// Опрос живёт, пока его не остановят явно: ошибки сети, лимита или
+/// credentials не убивают его, а лишь сбавляют темп. Ключ от API пользователь
+/// вправе починить посреди матча — и тогда цифры сами вернутся в эфир.
 pub fn start(app: &AppHandle, state: Arc<AppState>, match_id: i64, room_id: i64) -> Running {
     let alive = Arc::new(AtomicBool::new(true));
 
@@ -162,13 +173,18 @@ pub fn start(app: &AppHandle, state: Arc<AppState>, match_id: i64, room_id: i64)
     let flag = alive.clone();
     tokio::spawn(async move {
         let mut cursor = Cursor::default();
+        let mut failures: u32 = 0;
 
         while flag.load(Ordering::SeqCst) {
             let creds = match state.credentials() {
                 Ok(creds) => creds,
                 Err(e) => {
+                    // Ключ задан плохо или стёрся: останавливаться нельзя —
+                    // пользователь может ввести его прямо посреди матча.
+                    failures = failures.saturating_add(ERROR_STREAK);
                     emit(&app, fail(match_id, room_id, e.to_string()));
-                    break;
+                    tokio::time::sleep(ERROR_EVERY).await;
+                    continue;
                 }
             };
 
@@ -183,6 +199,7 @@ pub fn start(app: &AppHandle, state: Arc<AppState>, match_id: i64, room_id: i64)
                 .await
             {
                 Ok(dto) => {
+                    failures = 0;
                     let (games, flags) = collect(&dto);
                     cursor.absorb(&dto, &flags);
                     emit(
@@ -200,11 +217,18 @@ pub fn start(app: &AppHandle, state: Arc<AppState>, match_id: i64, room_id: i64)
                 }
                 Err(e) => {
                     // Связь могла мигнуть — опрос не бросаем, но говорим прямо.
+                    failures += 1;
                     emit(&app, fail(match_id, room_id, e.to_string()));
                 }
             }
 
-            tokio::time::sleep(POLL_EVERY).await;
+            // Неудачи подряд сбавляют темп, удача возвращает обычный ритм.
+            let pause = if failures >= ERROR_STREAK {
+                ERROR_EVERY
+            } else {
+                POLL_EVERY
+            };
+            tokio::time::sleep(pause).await;
         }
     });
 
