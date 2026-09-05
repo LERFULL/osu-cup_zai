@@ -22,6 +22,18 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Номер мультиплеерного матча из вставленной строки. Ссылка на матч
+ * (`/matches/123456`) разбирается первой — иначе первый номер из ссылки
+ * на карту внутри описания матча привязал бы не то лобби.
+ */
+function matchLobbyId(raw: string): number | null {
+  const byUrl = /(?:^|\/)matches\/(\d{5,})/.exec(raw);
+  if (byUrl !== null && byUrl[1] !== undefined) return Number(byUrl[1]);
+  const plain = /(\d{5,})/.exec(raw);
+  return plain !== null && plain[1] !== undefined ? Number(plain[1]) : null;
+}
+
 /** Строка состояния: чей ход и что он делает. */
 function turnLine(m: MatchState, name: (id: number | null) => string): string {
   switch (m.phase.kind) {
@@ -499,13 +511,13 @@ export function MatchView({ id, onClose }: Props) {
                     'Ссылка на мультиплеерный матч или его номер. Эфир возьмёт оттуда очки, точность и комбо.',
                   );
                   if (raw === null) return;
-                  const found = /(\d{5,})/.exec(raw);
+                  const found = matchLobbyId(raw);
                   if (found === null) {
                     setError('В этой строке нет номера матча');
                     return;
                   }
                   void run(async () => {
-                    await ipc.setMatchLobby(id, Number(found[1]));
+                    await ipc.setMatchLobby(id, found);
                     return ipc.matchState(id);
                   });
                 }}
@@ -515,6 +527,14 @@ export function MatchView({ id, onClose }: Props) {
             ) : (
               <>
                 <span className={s.lobbyId}>{state.lobbyId}</span>
+                <a
+                  className={s.lobbyLink}
+                  href={`https://osu.ppy.sh/community/matches/${state.lobbyId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  открыть
+                </a>
                 <button
                   className={s.lobbyLink}
                   type="button"

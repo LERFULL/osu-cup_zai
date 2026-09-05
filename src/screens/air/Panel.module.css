@@ -346,6 +346,27 @@
   color: var(--txt);
 }
 
+/* Состояние опроса лобби: зелёное — читается, красное — проблема. */
+.lobbyOk,
+.lobbyBad {
+  margin-top: 5px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.lobbyOk {
+  background: rgb(126 217 87 / 0.1);
+  color: var(--green);
+}
+
+.lobbyBad {
+  background: rgb(255 107 107 / 0.1);
+  color: #ff8b8b;
+  overflow-wrap: anywhere;
+}
+
 .keys {
   font-size: 10px;
   line-height: 1.4;
