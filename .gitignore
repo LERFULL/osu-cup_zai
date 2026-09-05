@@ -33,3 +33,4 @@ config.json
 # Env
 .env
 .env.local
+.rustcheck/
