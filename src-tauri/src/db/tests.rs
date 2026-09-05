@@ -803,6 +803,58 @@ fn builtin_templates_are_seeded_once() {
 }
 
 #[test]
+fn series_binds_to_one_tournament() {
+    let conn = db();
+    let t1 = tournaments::create(&conn, "Кубок осени", 8, 2).unwrap();
+    let t2 = tournaments::create(&conn, "Кубок весны", 8, 2).unwrap();
+    let s = series::create(&conn, "Осень", "tournament").unwrap();
+
+    series::set_tournament(&conn, s, Some(t1)).unwrap();
+    let got = series::get(&conn, s).unwrap();
+    assert_eq!(got.tournament_id, Some(t1));
+
+    // Вторая серия на тот же турнир не привяжется: индекс уникальности.
+    let other = series::create(&conn, "Ещё", "free").unwrap();
+    assert!(series::set_tournament(&conn, other, Some(t1)).is_err());
+
+    // Перепривязка к другому турниру работает — индекс частичный.
+    series::set_tournament(&conn, s, Some(t2)).unwrap();
+    assert_eq!(series::get(&conn, s).unwrap().tournament_id, Some(t2));
+
+    // Отвязка и несуществующий турнир.
+    series::set_tournament(&conn, s, None).unwrap();
+    assert_eq!(series::get(&conn, s).unwrap().tournament_id, None);
+    assert!(series::set_tournament(&conn, s, Some(9999)).is_err());
+}
+
+#[test]
+fn pool_takes_template_inside_editor() {
+    let conn = db();
+    for id in 1..=9 {
+        tagged(&conn, id, &format!("mapper{id}"), 180.0, &["NM", "TB"]);
+    }
+
+    let t = templates::create(&conn, "Свой").unwrap();
+    templates::set_slots(&conn, t.id, &[slot_in("NM", 2, None), slot_in("TB", 1, None)]).unwrap();
+
+    // Ручной пул без шаблона и без слотов — то, из чего редактор начинает.
+    let manual = pools::create(&conn, "Ручной", None).unwrap();
+
+    let report = generate::apply_template(&conn, manual, t.id).unwrap();
+    // Структура пересобрана по шаблону: NM×2 + TB×1, и всё заполнено.
+    assert_eq!(report.pool.template_id, Some(t.id));
+    assert_eq!(report.pool.slots.len(), 3);
+    assert!(report.pool.slots.iter().all(|s| s.beatmap_id.is_some()));
+    let tb = report
+        .pool
+        .slots
+        .iter()
+        .find(|s| s.mod_tag == "TB")
+        .unwrap();
+    assert_eq!(tb.slot_label, "TB");
+}
+
+#[test]
 fn series_never_repeats_a_map_across_its_pools() {
     let conn = db();
     // Девять карт на три пула по три слота — хватает ровно впритык.

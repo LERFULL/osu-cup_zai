@@ -15,6 +15,28 @@
   padding: 17px 24px 13px;
 }
 
+/* Возврат к списку серий. */
+.back {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card2);
+  color: var(--txt2);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.13s, border-color 0.13s;
+}
+
+.back:hover {
+  border-color: #2e3549;
+  color: var(--txt);
+}
+
 .title {
   display: flex;
   align-items: center;

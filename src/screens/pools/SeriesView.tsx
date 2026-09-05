@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Empty, Menu, MenuItem, MenuSeparator } from '@/components';
-import type { GenNote, Series, SeriesPool, SeriesStats, SeriesStep } from '@/lib/types';
+import type { GenNote, Pool, PoolTemplate, Series, SeriesPool, SeriesStats, SeriesStep, Tournament } from '@/lib/types';
 import { formatStars, maps, poolsWord, starsRange } from '@/lib/format';
 import { useReorder } from '@/lib/useReorder';
 import * as ipc from '@/lib/ipc';
 import { Report } from './Report';
 import { SeriesRules } from './Rules';
+import { useApp } from '@/store/app';
 import s from './SeriesView.module.css';
 
 interface Props {
   id: number;
   onOpenPool: (poolId: number, notes: GenNote[]) => void;
-  /** Обновить дерево: состав и названия серий там же. */
+  /** Обновить списки раздела: состав и названия серий там же. */
   onChanged: () => void | Promise<void>;
+  /** Вернуться к списку серий. */
+  onExit: () => void;
 }
 
 /** Ширина диаграммы роста сложности в звёздах — общая шкала для всех строк. */
@@ -27,14 +30,19 @@ function scale(steps: SeriesStep[]): { lo: number; hi: number } {
   return hi - lo < 0.4 ? { lo: lo - 0.2, hi: hi + 0.2 } : { lo, hi };
 }
 
-export function SeriesView({ id, onOpenPool, onChanged }: Props) {
+export function SeriesView({ id, onOpenPool, onChanged, onExit }: Props) {
   const [series, setSeries] = useState<Series | null>(null);
+  const [allSeries, setAllSeries] = useState<Series[]>([]);
   const [stats, setStats] = useState<SeriesStats | null>(null);
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [templates, setTemplates] = useState<PoolTemplate[]>([]);
+  const [loose, setLoose] = useState<Pool[]>([]);
   const [menu, setMenu] = useState<string | null>(null);
   const [rules, setRules] = useState(false);
   const [notes, setNotes] = useState<GenNote[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { go, setOpenTournament } = useApp();
 
   // Список пулов для перетаскивания. Через ref, а не через замыкание рендера:
   // ручка строки создаётся один раз, а порядок меняется на каждом переносе.
@@ -43,9 +51,20 @@ export function SeriesView({ id, onOpenPool, onChanged }: Props) {
 
   const load = useCallback(async () => {
     try {
-      const [x, st] = await Promise.all([ipc.getSeries(id), ipc.seriesStats(id)]);
+      const [x, st, ts, tps, ps, all] = await Promise.all([
+        ipc.getSeries(id),
+        ipc.seriesStats(id),
+        ipc.listTournaments().catch(() => [] as Tournament[]),
+        ipc.listTemplates(),
+        ipc.listPools(),
+        ipc.listSeries(),
+      ]);
       setSeries(x);
       setStats(st);
+      setTournaments(ts);
+      setTemplates(tps);
+      setLoose(ps.filter((p) => p.status !== 'archived' && p.seriesId === null));
+      setAllSeries(all);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -149,6 +168,20 @@ export function SeriesView({ id, onOpenPool, onChanged }: Props) {
     });
   }
 
+  /** Привязка серии к турниру — она же «отправить маппулы в турнир». */
+  async function bindTournament(tournamentId: number | null) {
+    setMenu(null);
+    await guard(async () => {
+      if (tournamentId !== null) {
+        // Маппулы серии сразу становятся пулами турнира.
+        await ipc.addTournamentSeries(tournamentId, x.id).catch(() => undefined);
+      }
+      await ipc.setSeriesTournament(x.id, tournamentId);
+      await load();
+      await onChanged();
+    });
+  }
+
   const band = scale(stats.steps);
   const span = band.hi - band.lo;
   /** Место звёзд на общей шкале, в процентах ширины дорожки. */
@@ -157,6 +190,9 @@ export function SeriesView({ id, onOpenPool, onChanged }: Props) {
   return (
     <div className={s.screen}>
       <header className={s.bar}>
+        <button className={s.back} onClick={onExit} type="button" title="К списку серий">
+          ‹
+        </button>
         <button className={s.title} onClick={() => void rename()} type="button">
           <span className={s.dot} style={{ background: x.color ?? '#4A5164' }} aria-hidden />
           {x.name}
@@ -166,6 +202,52 @@ export function SeriesView({ id, onOpenPool, onChanged }: Props) {
           {poolsWord(x.pools.length)} · {maps(stats.mapsTotal)}
         </span>
 
+        {/* Турнир серии: выбор здесь же, без походов в редактор турнира. */}
+        <div className={s.wrap}>
+          <Button size="sm" onClick={() => setMenu(menu === 'tour' ? null : 'tour')}>
+            {x.tournamentId !== null
+              ? `Турнир: ${
+                  tournaments.find((t) => t.id === x.tournamentId)?.name ?? `#${x.tournamentId}`
+                }`
+              : 'Турнир не привязан'}
+          </Button>
+          <Menu open={menu === 'tour'} onClose={() => setMenu(null)} align="right">
+            {tournaments.map((t) => (
+              <MenuItem
+                key={t.id}
+                onClick={() => void bindTournament(t.id)}
+                disabled={t.id === x.tournamentId}
+                {...(allSeries.some((other) => other.tournamentId === t.id && other.id !== x.id)
+                  ? { note: 'к этому турниру уже привязана серия' }
+                  : {})}
+              >
+                {t.name}
+              </MenuItem>
+            ))}
+            {x.tournamentId !== null ? (
+              <>
+                <MenuSeparator />
+                <MenuItem onClick={() => void bindTournament(null)} danger>
+                  Отвязать турнир
+                </MenuItem>
+              </>
+            ) : null}
+          </Menu>
+        </div>
+
+        {x.tournamentId !== null ? (
+          <Button
+            size="sm"
+            onClick={() => {
+              setOpenTournament(x.tournamentId);
+              go('tournaments');
+            }}
+            title="Открыть редактор турнира"
+          >
+            К турниру ↗
+          </Button>
+        ) : null}
+
         <div className={s.right}>
           <Button size="sm" onClick={() => setRules(!rules)}>
             Правила серии
@@ -173,6 +255,92 @@ export function SeriesView({ id, onOpenPool, onChanged }: Props) {
           <Button size="sm" onClick={() => void roll(true)} disabled={busy || x.pools.length === 0}>
             ↻ Скатать серию
           </Button>
+
+          {/* Добавить маппул — три пути рядом: пустой, из шаблона, из уже готовых. */}
+          <div className={s.wrap}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => setMenu(menu === 'add' ? null : 'add')}
+            >
+              + Добавить маппул
+            </Button>
+            <Menu open={menu === 'add'} onClose={() => setMenu(null)} align="right">
+              <MenuItem
+                onClick={() => {
+                  setMenu(null);
+                  void guard(async () => {
+                    const made = await ipc.createPool(`${x.name} — новый`, x.id);
+                    await load();
+                    await onChanged();
+                    onOpenPool(made.id, []);
+                  });
+                }}
+                note="собрать вручную"
+              >
+                Пустой маппул
+              </MenuItem>
+
+              {templates.length > 0 ? (
+                <MenuItem onClick={() => setMenu('fromTemplate')} note="структура и состав подтянутся">
+                  Из шаблона…
+                </MenuItem>
+              ) : null}
+
+              {loose.length > 0 ? (
+                <MenuItem onClick={() => setMenu('fromLoose')} note="перенести без генерации">
+                  Существующий…
+                </MenuItem>
+              ) : null}
+            </Menu>
+
+            <Menu open={menu === 'fromTemplate'} onClose={() => setMenu(null)} align="right">
+              {templates.map((t) => (
+                <MenuItem
+                  key={t.id}
+                  onClick={() => {
+                    setMenu(null);
+                    void guard(async () => {
+                      const report = await ipc.generatePool(t.id, `${x.name} — ${t.name}`, x.id);
+                      setNotes(report.notes);
+                      await load();
+                      await onChanged();
+                      onOpenPool(report.pool.id, report.notes);
+                    });
+                  }}
+                >
+                  {t.name}
+                </MenuItem>
+              ))}
+            </Menu>
+
+            <Menu open={menu === 'fromLoose'} onClose={() => setMenu(null)} align="right">
+              {loose.map((p) => (
+                <MenuItem
+                  key={p.id}
+                  onClick={() => {
+                    setMenu(null);
+                    void guard(async () => {
+                      const clashes = await ipc.addPoolToSeries(x.id, p.id);
+                      if (clashes.length > 0) {
+                        setError(
+                          `Маппул не перенесён: карты повторяются — ${clashes
+                            .map((c) => `${c.name} (${c.pools.join(', ')})`)
+                            .join('; ')}.`,
+                        );
+                        return;
+                      }
+                      await load();
+                      await onChanged();
+                    });
+                  }}
+                  note={p.name}
+                >
+                  {p.seriesLabel ?? p.name}
+                </MenuItem>
+              ))}
+            </Menu>
+          </div>
 
           <div className={s.wrap}>
             <Button size="sm" onClick={() => setMenu(menu === 'more' ? null : 'more')}>
@@ -185,20 +353,6 @@ export function SeriesView({ id, onOpenPool, onChanged }: Props) {
                 note="Закрепления не спасут — карты сменятся все"
               >
                 Скатать заново целиком
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem
-                onClick={() => {
-                  setMenu(null);
-                  void guard(async () => {
-                    const made = await ipc.createPool(`${x.name} — новый`, x.id);
-                    await load();
-                    await onChanged();
-                    onOpenPool(made.id, []);
-                  });
-                }}
-              >
-                Добавить пустой маппул
               </MenuItem>
             </Menu>
           </div>

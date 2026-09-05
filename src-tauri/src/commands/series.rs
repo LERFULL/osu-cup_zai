@@ -67,6 +67,18 @@ pub async fn set_series_note(
         .with(|conn| series_db::set_note(conn, id, note.as_deref()))
 }
 
+/// Жёсткая привязка серии к турниру (None — отвязать).
+#[tauri::command]
+pub async fn set_series_tournament(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    tournament_id: Option<i64>,
+) -> Result<()> {
+    state
+        .db
+        .with(|conn| series_db::set_tournament(conn, id, tournament_id))
+}
+
 /// Смена типа. Обратно в турнирную — только если между пулами нет повторов:
 /// иначе возвращается их список, а тип остаётся прежним.
 #[tauri::command]

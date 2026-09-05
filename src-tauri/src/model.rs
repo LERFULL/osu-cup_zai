@@ -502,6 +502,9 @@ pub struct Series {
     pub no_repeat_inside: bool,
     /// Значение по умолчанию для строк пулов серии.
     pub display_fields: Option<Vec<String>>,
+    /// Турнир, к которому серия привязана жёстко. Один турнир — одна серия.
+    #[serde(default)]
+    pub tournament_id: Option<i64>,
     pub position: i64,
     pub created_at: String,
     pub pools: Vec<SeriesPool>,

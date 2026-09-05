@@ -1,22 +1,28 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Empty, Menu, MenuItem, MenuSeparator } from '@/components';
 import type { GenNote, Pool, PoolTemplate, Series } from '@/lib/types';
-import { poolShape, slots as slotsWord, templateShape, templateSize } from '@/lib/format';
+import { templateShape, templateSize } from '@/lib/format';
 import * as ipc from '@/lib/ipc';
 import { TemplateEditor } from './pools/TemplateEditor';
 import { PoolEditor } from './pools/PoolEditor';
 import { ImportJson } from './pools/ImportJson';
 import { SeriesView } from './pools/SeriesView';
-import { Tree, type Place } from './pools/Tree';
+import { SeriesWizard } from './pools/SeriesWizard';
+import { PoolComposition } from './pools/PoolComposition';
 import s from './Pools.module.css';
+
+/** Категории раздела. Три сущности — три вкладки, вперемешку их больше нет. */
+type Tab = 'pools' | 'series' | 'templates';
+
+/** Фильтр списка маппулов внутри вкладки. */
+type PoolFilter = 'all' | 'loose' | 'archive';
 
 /** Что открыто поверх списка. */
 type Open = { kind: 'template'; id: number } | { kind: 'pool'; id: number } | null;
 
-const COLORS = ['#FF6FB1', '#5BC8F5', '#7ED957', '#FFD03B', '#C77DFF', '#FF6B6B'];
-
 export default function Pools() {
-  const [place, setPlace] = useState<Place>({ kind: 'all' });
+  const [tab, setTab] = useState<Tab>('pools');
+  const [poolFilter, setPoolFilter] = useState<PoolFilter>('all');
   const [pools, setPools] = useState<Pool[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
   const [templates, setTemplates] = useState<PoolTemplate[]>([]);
@@ -24,6 +30,8 @@ export default function Pools() {
   const [menu, setMenu] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<GenNote[]>([]);
+  const [wizard, setWizard] = useState(false);
+  const [showSeries, setShowSeries] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -97,52 +105,9 @@ export default function Pools() {
   async function makePool() {
     const name = window.prompt('Название маппула', 'Новый маппул');
     if (name === null || name.trim() === '') return;
-    const into = place.kind === 'series' ? place.id : null;
-    const made = await ipc.createPool(name.trim(), into);
+    const made = await ipc.createPool(name.trim(), null);
     await reload();
     setOpen({ kind: 'pool', id: made.id });
-  }
-
-  async function makeSeries(kind: 'tournament' | 'free') {
-    const name = window.prompt('Название серии', kind === 'tournament' ? 'Осень 2026' : 'Ящик');
-    if (name === null || name.trim() === '') return;
-    const made = await ipc.createSeries(name.trim(), kind);
-    await reload();
-    setPlace({ kind: 'series', id: made.id });
-  }
-
-  async function roll(t: PoolTemplate) {
-    setMenu(null);
-    const name = window.prompt('Название маппула', t.name);
-    if (name === null || name.trim() === '') return;
-    await guard(async () => {
-      const into = place.kind === 'series' ? place.id : null;
-      const report = await ipc.generatePool(t.id, name.trim(), into);
-      setNotes(report.notes);
-      setOpen({ kind: 'pool', id: report.pool.id });
-    });
-  }
-
-  /** Серия под турнир: создаётся сама серия и N пулов по одному на раунд. */
-  async function rollSeries(t: PoolTemplate) {
-    setMenu(null);
-    const name = window.prompt('Название серии', t.name);
-    if (name === null || name.trim() === '') return;
-
-    const raw = window.prompt(
-      'Сколько маппулов накатить под турнир?\nПо одному на раунд — карты между ними не повторятся.',
-      '4',
-    );
-    if (raw === null) return;
-    const count = Number(raw.trim());
-    if (!Number.isFinite(count) || count < 1) return;
-
-    await guard(async () => {
-      const reports = await ipc.generateSeries(t.id, name.trim(), count);
-      await reload();
-      const first = reports[0];
-      if (first?.pool.seriesId != null) setPlace({ kind: 'series', id: first.pool.seriesId });
-    });
   }
 
   async function renameTemplate(t: PoolTemplate) {
@@ -177,12 +142,48 @@ export default function Pools() {
     });
   }
 
+  /** Шаблон используется только отсюда — это разовое действие, а не режим. */
+  async function roll(t: PoolTemplate) {
+    setMenu(null);
+    const name = window.prompt('Название маппула', t.name);
+    if (name === null || name.trim() === '') return;
+    await guard(async () => {
+      const report = await ipc.generatePool(t.id, name.trim(), null);
+      setNotes(report.notes);
+      setOpen({ kind: 'pool', id: report.pool.id });
+    });
+  }
+
+  async function rollSeries(t: PoolTemplate) {
+    setMenu(null);
+    const name = window.prompt('Название серии', t.name);
+    if (name === null || name.trim() === '') return;
+
+    const raw = window.prompt(
+      'Сколько маппулов накатить под турнир?\nПо одному на раунд — карты между ними не повторятся.',
+      '4',
+    );
+    if (raw === null) return;
+    const count = Number(raw.trim());
+    if (!Number.isFinite(count) || count < 1) return;
+
+    await guard(async () => {
+      const reports = await ipc.generateSeries(t.id, name.trim(), count);
+      await reload();
+      const first = reports[0];
+      if (first?.pool.seriesId != null) {
+        setTab('series');
+        setShowSeries(first.pool.seriesId);
+      }
+    });
+  }
+
   const templateCard = (t: PoolTemplate) => (
     <div key={t.id} className={s.card}>
       <div className={s.text}>
         <div className={s.name}>{t.name}</div>
         <div className={s.shape}>
-          {templateShape(t)} — {slotsWord(templateSize(t))}
+          {templateShape(t)} — {templateSize(t)} слотов
         </div>
       </div>
 
@@ -190,8 +191,8 @@ export default function Pools() {
         <Button size="sm" onClick={() => setOpen({ kind: 'template', id: t.id })}>
           Изменить
         </Button>
-        <Button size="sm" variant="primary" onClick={() => void roll(t)}>
-          ↻ Скатать маппул
+        <Button size="sm" variant="primary" onClick={() => void roll(t)} title="Разовый маппул по этой структуре">
+          ↻ Создать маппул
         </Button>
         <button
           className={s.more}
@@ -206,7 +207,7 @@ export default function Pools() {
             onClick={() => void rollSeries(t)}
             note="Новая серия, карты между маппулами не повторятся"
           >
-            Накатать серию под турнир
+            Создать серию из шаблона
           </MenuItem>
           <MenuSeparator />
           <MenuItem onClick={() => void renameTemplate(t)}>Переименовать</MenuItem>
@@ -234,14 +235,56 @@ export default function Pools() {
     </div>
   );
 
+  const seriesCard = (x: Series) => (
+    <div key={x.id} className={s.card}>
+      <div className={s.text}>
+        <div className={s.name}>
+          <span className={s.dot} style={{ background: x.color ?? '#4A5164' }} aria-hidden />
+          {x.name}
+          <span className={s.kindTag}>{x.kind === 'tournament' ? 'турнирная' : 'свободная'}</span>
+          {x.tournamentId !== null ? <span className={s.locked}>турнир привязан</span> : null}
+        </div>
+        <div className={s.shape}>
+          {x.pools.length > 0
+            ? `${x.pools.length} маппулов · ${x.pools.filter((p) => p.isLocked).length} сыграно`
+            : 'маппулов пока нет'}
+        </div>
+      </div>
+
+      <div className={s.actions}>
+        <Button size="sm" variant="primary" onClick={() => setShowSeries(x.id)}>
+          Открыть
+        </Button>
+        <button
+          className={s.more}
+          onClick={() => setMenu(menu === `s${x.id}` ? null : `s${x.id}`)}
+          type="button"
+          aria-label="Действия"
+        >
+          ⋯
+        </button>
+        <Menu open={menu === `s${x.id}`} onClose={() => setMenu(null)} align="right">
+          <MenuItem
+            danger
+            note="Маппулы останутся"
+            onClick={() => {
+              setMenu(null);
+              void guard(async () => {
+                if (!window.confirm(`Удалить серию «${x.name}»? Маппулы останутся.`)) return;
+                await ipc.deleteSeries(x.id);
+                await reload();
+              });
+            }}
+          >
+            Удалить
+          </MenuItem>
+        </Menu>
+      </div>
+    </div>
+  );
+
   const poolCard = (p: Pool) => (
-    <div
-      key={p.id}
-      className={s.card}
-      draggable
-      onDragStart={(e) => e.dataTransfer.setData('text/plain', `pool:${p.id}`)}
-      title="Можно перетащить в серию"
-    >
+    <div key={p.id} className={s.card}>
       <div className={s.text}>
         <div className={s.name}>
           {p.name}
@@ -250,7 +293,10 @@ export default function Pools() {
           {p.seriesName !== null ? (
             <button
               className={s.tag}
-              onClick={() => p.seriesId !== null && setPlace({ kind: 'series', id: p.seriesId })}
+              onClick={() => {
+                setTab('series');
+                if (p.seriesId !== null) setShowSeries(p.seriesId);
+              }}
               type="button"
             >
               {p.seriesName}
@@ -258,7 +304,7 @@ export default function Pools() {
             </button>
           ) : null}
         </div>
-        <div className={s.shape}>{poolShape(p)}</div>
+        <PoolComposition pool={p} />
       </div>
 
       <div className={s.actions}>
@@ -347,57 +393,59 @@ export default function Pools() {
   );
 
   const live = pools.filter((p) => p.status !== 'archived');
-  const counts = {
-    all: live.length,
-    loose: live.filter((p) => p.seriesId === null).length,
-    templates: templates.length,
-    archive: pools.filter((p) => p.status === 'archived').length,
-  };
+  const visiblePools =
+    poolFilter === 'archive'
+      ? pools.filter((p) => p.status === 'archived')
+      : poolFilter === 'loose'
+        ? live.filter((p) => p.seriesId === null)
+        : live;
 
-  /** Что показывать справа для выбранного узла дерева. */
-  function content() {
-    if (place.kind === 'series') {
-      return (
+  // Открытая серия занимает вкладку целиком.
+  if (showSeries !== null) {
+    return (
+      <div className={s.screen}>
         <SeriesView
-          id={place.id}
+          id={showSeries}
           onOpenPool={(poolId, next) => {
             setNotes(next);
             setOpen({ kind: 'pool', id: poolId });
           }}
           onChanged={reload}
+          onExit={() => {
+            setShowSeries(null);
+            void reload();
+          }}
         />
-      );
-    }
+      </div>
+    );
+  }
 
-    const title =
-      place.kind === 'templates'
-        ? 'Шаблоны'
-        : place.kind === 'archive'
-          ? 'Архив'
-          : place.kind === 'loose'
-            ? 'Без серии'
-            : 'Все маппулы';
-
-    const list =
-      place.kind === 'templates'
-        ? templates
-        : place.kind === 'archive'
-          ? pools.filter((p) => p.status === 'archived')
-          : place.kind === 'loose'
-            ? live.filter((p) => p.seriesId === null)
-            : live;
-
-    return (
+  return (
+    <div className={s.screen}>
       <div className={s.pane}>
-        <header className={s.bar}>
-          <h1 className={s.h1}>{title}</h1>
-          <span className={s.count}>{list.length}</span>
+        <header className={s.tabbar}>
+          <div className={s.tabs}>
+            {(
+              [
+                ['pools', 'Маппулы', live.length],
+                ['series', 'Серии', series.length],
+                ['templates', 'Шаблоны', templates.length],
+              ] as [Tab, string, number][]
+            ).map(([key, name, count]) => (
+              <button
+                key={key}
+                className={[s.tab, tab === key ? s.tabOn : null].filter(Boolean).join(' ')}
+                onClick={() => setTab(key)}
+                type="button"
+              >
+                {name}
+                <span className={s.tabCount}>{count}</span>
+              </button>
+            ))}
+          </div>
+
           <div className={s.right}>
-            {place.kind === 'templates' ? (
-              <Button variant="primary" onClick={() => void makeTemplate()}>
-                + Создать шаблон
-              </Button>
-            ) : (
+            {tab === 'pools' ? (
               <>
                 <ImportJson
                   onImported={(res) => {
@@ -406,8 +454,8 @@ export default function Pools() {
                     setOpen({ kind: 'pool', id: res.pool.id });
                   }}
                 >
-                  {(open) => (
-                    <Button size="sm" onClick={open} title="Собрать пул из файла .json">
+                  {(openIt) => (
+                    <Button size="sm" onClick={openIt} title="Собрать пул из файла .json">
                       Импорт JSON
                     </Button>
                   )}
@@ -416,121 +464,121 @@ export default function Pools() {
                   + Пустой маппул
                 </Button>
               </>
-            )}
+            ) : null}
+
+            {/* Серия — самое частое создание в разделе: кнопка на виду. */}
+            {tab === 'series' ? (
+              <Button variant="primary" onClick={() => setWizard(true)}>
+                + Создать серию
+              </Button>
+            ) : null}
+
+            {tab === 'templates' ? (
+              <Button variant="primary" onClick={() => void makeTemplate()}>
+                + Создать шаблон
+              </Button>
+            ) : null}
           </div>
         </header>
+
+        {tab === 'pools' ? (
+          <div className={s.subFilters}>
+            {(
+              [
+                ['all', 'Все'],
+                ['loose', 'Без серии'],
+                ['archive', 'Архив'],
+              ] as [PoolFilter, string][]
+            ).map(([key, name]) => (
+              <button
+                key={key}
+                className={[s.chip, poolFilter === key ? s.chipOn : null].filter(Boolean).join(' ')}
+                onClick={() => setPoolFilter(key)}
+                type="button"
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <div className={s.body}>
           <div className={s.col}>
             {error !== null ? <div className={s.error}>{error}</div> : null}
 
-            {list.length === 0 ? (
-              place.kind === 'templates' ? (
+            {tab === 'templates' ? (
+              templates.length === 0 ? (
                 <Empty
                   title="Шаблонов пока нет"
-                  note="Шаблон — это структура пула: сколько карт под каждый мод и откуда их брать."
+                  note="Шаблон — это структура пула: сколько карт под каждый мод и откуда их брать. Использовать его можно из этой вкладки — создать маппул или сразу серию."
                   actions={
                     <Button variant="primary" onClick={() => void makeTemplate()}>
                       Создать шаблон
                     </Button>
                   }
                 />
-              ) : place.kind === 'archive' ? (
-                <Empty title="Архив пуст" note="Сюда попадают маппулы, убранные из работы." />
               ) : (
+                templates.map(templateCard)
+              )
+            ) : null}
+
+            {tab === 'series' ? (
+              series.length === 0 ? (
                 <Empty
-                  title="Маппулов пока нет"
-                  note="Скатай пул по шаблону или собери руками."
+                  title="Серий пока нет"
+                  note="Серия — набор маппулов под один турнир. Создай пустую или сразу накатай по шаблону — по одному маппулу на раунд."
                   actions={
-                    <>
-                      <Button
-                        variant="primary"
-                        onClick={() => setPlace({ kind: 'templates' })}
-                      >
-                        К шаблонам
-                      </Button>
-                      <Button onClick={() => void makePool()}>Пустой маппул</Button>
-                    </>
+                    <Button variant="primary" onClick={() => setWizard(true)}>
+                      Создать серию
+                    </Button>
                   }
                 />
+              ) : (
+                series.map(seriesCard)
               )
-            ) : place.kind === 'templates' ? (
-              (list as PoolTemplate[]).map(templateCard)
-            ) : (
-              (list as Pool[]).map(poolCard)
-            )}
+            ) : null}
+
+            {tab === 'pools' ? (
+              visiblePools.length === 0 ? (
+                <Empty
+                  title={
+                    poolFilter === 'archive'
+                      ? 'Архив пуст'
+                      : poolFilter === 'loose'
+                        ? 'Свободных маппулов нет'
+                        : 'Маппулов пока нет'
+                  }
+                  note={
+                    poolFilter === 'archive'
+                      ? 'Сюда попадают маппулы, убранные из работы.'
+                      : 'Собери руками, импортируй JSON или скатай из шаблона.'
+                  }
+                  actions={
+                    <Button variant="primary" onClick={() => void makePool()}>
+                      Пустой маппул
+                    </Button>
+                  }
+                />
+              ) : (
+                visiblePools.map(poolCard)
+              )
+            ) : null}
           </div>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div className={s.screen}>
-      <Tree
-        place={place}
-        series={series}
-        counts={counts}
-        onSelect={setPlace}
-        onMakeSeries={(kind) => void makeSeries(kind)}
-        onMakePool={() => void makePool()}
-        onDropPool={(seriesId, poolId) => void intoSeries(seriesId, poolId)}
-        onRename={(x) =>
-          void guard(async () => {
-            const name = window.prompt('Название серии', x.name);
-            if (name === null || name.trim() === '') return;
-            await ipc.renameSeries(x.id, name.trim());
-            await reload();
-          })
-        }
-        onColor={(x) =>
-          void guard(async () => {
-            // Цвет из палитры по кругу: диалог выбора ради шести оттенков лишний.
-            const at = COLORS.indexOf(x.color ?? '');
-            const next = COLORS[(at + 1) % COLORS.length] ?? COLORS[0] ?? null;
-            await ipc.setSeriesColor(x.id, next);
-            await reload();
-          })
-        }
-        onKind={(x) =>
-          void guard(async () => {
-            const next = x.kind === 'tournament' ? 'free' : 'tournament';
-            const clashes = await ipc.setSeriesKind(x.id, next);
-            if (clashes.length > 0) {
-              setError(
-                `Тип не сменился: карты повторяются — ${clashes
-                  .map((c) => `${c.name} (${c.pools.join(', ')})`)
-                  .join('; ')}.`,
-              );
-              return;
-            }
-            await reload();
-          })
-        }
-        onDuplicate={(x) =>
-          void guard(async () => {
-            const made = await ipc.duplicateSeries(x.id);
-            await reload();
-            setPlace({ kind: 'series', id: made.id });
-          })
-        }
-        onDelete={(x) =>
-          void guard(async () => {
-            if (!window.confirm(`Удалить серию «${x.name}»? Маппулы останутся.`)) return;
-            await ipc.deleteSeries(x.id);
-            if (place.kind === 'series' && place.id === x.id) setPlace({ kind: 'all' });
-            await reload();
-          })
-        }
-        onReorder={(ids) =>
-          void guard(async () => {
-            await ipc.reorderSeries(ids);
-            await reload();
-          })
-        }
-      />
-
-      {content()}
+      {wizard ? (
+        <SeriesWizard
+          templates={templates}
+          onClose={() => setWizard(false)}
+          onDone={(seriesId, genNotes) => {
+            void reload();
+            setTab('series');
+            setShowSeries(seriesId);
+            if (genNotes.length > 0) setNotes(genNotes);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

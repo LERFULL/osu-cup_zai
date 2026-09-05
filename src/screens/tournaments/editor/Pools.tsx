@@ -67,10 +67,21 @@ export function Pools({ id, t, state, pools, series, run }: EditorCtx) {
             {withSeries.map((x) => (
               <MenuItem
                 key={x.id}
-                note={`${x.pools.length} маппулов по порядку`}
+                note={
+                  x.tournamentId === id
+                    ? `привязана, ${x.pools.length} маппулов`
+                    : `${x.pools.length} маппулов по порядку`
+                }
                 onClick={() => {
                   setMenu(null);
-                  run(() => ipc.addTournamentSeries(id, x.id));
+                  run(async () => {
+                    await ipc.addTournamentSeries(id, x.id);
+                    // Серия привязывается к турниру в обе стороны: из серии
+                    // и из турнира — связь одна.
+                    if (x.tournamentId !== id) {
+                      await ipc.setSeriesTournament(x.id, id).catch(() => undefined);
+                    }
+                  });
                 }}
               >
                 {x.name}

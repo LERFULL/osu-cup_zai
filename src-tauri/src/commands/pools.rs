@@ -410,6 +410,19 @@ pub async fn generate_pool(
         .with_tx(|tx| generate::generate(tx, template_id, &name, series_id))
 }
 
+/// Применить шаблон к существующему маппулу: структура пересобирается,
+/// состав генерируется заново.
+#[tauri::command]
+pub async fn apply_template_to_pool(
+    state: State<'_, Arc<AppState>>,
+    pool_id: i64,
+    template_id: i64,
+) -> Result<GenReport> {
+    state
+        .db
+        .with_tx(|tx| generate::apply_template(tx, pool_id, template_id))
+}
+
 #[tauri::command]
 pub async fn reroll_pool(
     state: State<'_, Arc<AppState>>,

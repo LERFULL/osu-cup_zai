@@ -1653,6 +1653,32 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     return fill(newPool(String(a['name']), t, seriesId), false);
   },
 
+  apply_template_to_pool: (a) => {
+    const p = pool(a['poolId']);
+    const t = template(a['templateId']);
+    // Как на Rust: пул получает шаблон и полностью пересобирается.
+    p.templateId = t.id;
+    p.templateName = t.name;
+    p.slots = t.slots.flatMap((s) =>
+      Array.from({ length: s.count }, (_, i) => ({
+        id: 0,
+        slotLabel: s.mod === 'TB' ? 'TB' : `${s.mod}${i + 1}`,
+        mod: s.mod,
+        beatmapId: null,
+        pinned: false,
+        starRatingWithMods: null,
+        fmMods: [],
+        position: 0,
+        sources: null,
+        beatmap: null,
+        warnings: [],
+      })),
+    );
+    p.slots.sort((x, y) => Number(x.mod === 'TB') - Number(y.mod === 'TB'));
+    p.slots.forEach((s, i) => (s.position = i));
+    return fill(p, false);
+  },
+
   reroll_pool: (a) => {
     const p = pool(a['poolId']);
     if (templates.every((x) => x.id !== p.templateId)) {
@@ -1727,6 +1753,7 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
       exclusions: [],
       noRepeatInside: kind === 'tournament',
       displayFields: null,
+      tournamentId: null,
       position: seriesList.length,
       createdAt: '2026-08-09T00:00:00Z',
       pools: [],
@@ -1750,6 +1777,11 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
   set_series_note: (a) => {
     const x = seriesList.find((y) => y.id === a['id']);
     if (x) x.note = (a['note'] as string | null) ?? null;
+    return undefined;
+  },
+  set_series_tournament: (a) => {
+    const x = seriesList.find((y) => y.id === a['id']);
+    if (x) x.tournamentId = (a['tournamentId'] as number | null) ?? null;
     return undefined;
   },
   set_series_kind: (a) => {
@@ -1800,6 +1832,7 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
       ...src,
       id: nextId++,
       name: `${src.name} — копия`,
+      tournamentId: null,
       position: seriesList.length,
       pools: [],
     };
