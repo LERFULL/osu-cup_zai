@@ -307,6 +307,21 @@ describe('раскладка двойной сетки', () => {
     expect(breakX(drops[0]!.d)).not.toBe(breakX(drops[1]!.d));
   });
 
+  it('помечает у каждой связи матч, в который она приходит', () => {
+    // Вид подсвечивает «куда придёт игрок» по toId: у связи в матч 21
+    // должен стоять именно он, а не матч-источник.
+    const layout = layoutBracket(eight());
+
+    const intoSecond = layout.links.filter((l) => l.key.startsWith('11-21-'));
+    expect(intoSecond).toHaveLength(1);
+    expect(intoSecond[0]!.toId).toBe(21);
+
+    const dropOfFirst = layout.links.filter((l) => l.key.startsWith('11-41-'));
+    expect(dropOfFirst).toHaveLength(1);
+    expect(dropOfFirst[0]!.toId).toBe(41);
+    expect(dropOfFirst[0]!.drop).toBe(true);
+  });
+
   it('не пускает ни одну линию по карточке матча', () => {
     // Линия, проходящая сквозь карточку, портит сетку сильнее пересечений:
     // она читается как часть чужого матча.

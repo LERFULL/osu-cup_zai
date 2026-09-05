@@ -36,6 +36,9 @@ export interface Link {
   drop: boolean;
   /** Кто прошёл этим путём: победитель матча либо упавший вниз проигравший. */
   playerId: number | null;
+  /** В какой матч связь приходит. Виду нужен для подсветки
+   *  «наведи на пустое место — увидишь, откуда придёт игрок». */
+  toId: number;
 }
 
 export interface Layout {
@@ -394,6 +397,7 @@ export function layoutBracket(matches: Match[]): Layout {
       d,
       drop: edge.drop,
       playerId: edge.drop ? loser : m.winnerId,
+      toId: edge.target.id,
     };
   });
 

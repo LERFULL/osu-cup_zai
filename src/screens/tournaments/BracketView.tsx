@@ -68,6 +68,9 @@ export function BracketView({
 }: Props) {
   // Куда сейчас метится перетаскивание: подсветка только на допустимом месте.
   const [over, setOver] = useState<number | null>(null);
+  // Подсветка пути: игрок под курсором или пустое место, в которое навели.
+  const [hoverPlayer, setHoverPlayer] = useState<number | null>(null);
+  const [hoverSlot, setHoverSlot] = useState<number | null>(null);
 
   const byId = useMemo(() => {
     const map = new Map<number, TournamentPlayer>();
@@ -107,6 +110,27 @@ export function BracketView({
   // всего сломать незаметно, поэтому его держат тесты, а не глаз.
   const layout = useMemo(() => layoutBracket(bracket.matches), [bracket.matches]);
 
+  /**
+   * Подсвеченные связи.
+   *
+   * Навёл на игрока — видишь весь его путь по турниру, включая падения
+   * в нижнюю сетку. Навёл на пустое место — видишь связи, которые в этот
+   * матч приведут игроков, в том числе спуск из верхней.
+   */
+  const lit = useMemo(() => {
+    const keys = new Set<string>();
+    if (hoverPlayer !== null) {
+      for (const l of layout.links) {
+        if (l.playerId === hoverPlayer) keys.add(l.key);
+      }
+    } else if (hoverSlot !== null) {
+      for (const l of layout.links) {
+        if (l.toId === hoverSlot) keys.add(l.key);
+      }
+    }
+    return keys;
+  }, [hoverPlayer, hoverSlot, layout.links]);
+
   /** Ячейка стороны матча: сеяние, игрок и счёт. */
   function slot(m: Match, side: 'a' | 'b') {
     const id = side === 'a' ? m.playerA : m.playerB;
@@ -135,6 +159,14 @@ export function BracketView({
         ]
           .filter(Boolean)
           .join(' ')}
+        onMouseEnter={() => {
+          if (id !== null) setHoverPlayer(id);
+          else setHoverSlot(m.id);
+        }}
+        onMouseLeave={() => {
+          setHoverPlayer(null);
+          setHoverSlot(null);
+        }}
         draggable={seatable}
         onDragStart={(e) => {
           if (!seatable || id === null) return;
@@ -211,17 +243,32 @@ export function BracketView({
             </div>
           ))}
 
-          <svg className={s.links} width={layout.width} height={layout.height} aria-hidden>
+          <svg
+            className={[s.links, lit.size > 0 ? s.focusing : null].filter(Boolean).join(' ')}
+            width={layout.width}
+            height={layout.height}
+            aria-hidden
+          >
             {layout.links.map((l) => {
               // Цветом идёт только сыгранная связь: путь игрока по сетке
               // должен читаться, а несыгранная ветка — это ещё не путь.
               const color = l.playerId === null ? null : (byId.get(l.playerId)?.color ?? null);
+              const isLit = lit.has(l.key);
               return (
                 <path
                   key={l.key}
                   d={l.d}
-                  className={[s.link, l.drop ? s.linkDrop : null].filter(Boolean).join(' ')}
-                  {...(color !== null ? { style: { stroke: color, opacity: 0.85 } } : {})}
+                  className={[
+                    s.link,
+                    // Спуски между сетками скрыты, пока о них не спросят:
+                    // по умолчанию сетка показывает только проход внутри
+                    // своей сетки, без клубка сквозных линий.
+                    l.drop && !isLit ? s.linkDrop : null,
+                    isLit ? s.linkLit : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  {...(color !== null ? { style: { stroke: color } } : {})}
                 />
               );
             })}
