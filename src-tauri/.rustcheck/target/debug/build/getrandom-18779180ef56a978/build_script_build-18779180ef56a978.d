@@ -1,0 +1,5 @@
+/home/z/my-project/repo/src-tauri/.rustcheck/target/debug/build/getrandom-18779180ef56a978/build_script_build-18779180ef56a978.d: /home/z/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.4.3/build.rs
+
+/home/z/my-project/repo/src-tauri/.rustcheck/target/debug/build/getrandom-18779180ef56a978/build_script_build-18779180ef56a978: /home/z/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.4.3/build.rs
+
+/home/z/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.4.3/build.rs:

@@ -14,6 +14,7 @@ import type {
   Exclusion,
   ExclusionOwner,
   ExclusionTarget,
+  Folder,
   GenNote,
   GenReport,
   GenRules,
@@ -48,6 +49,12 @@ type Args = Record<string, unknown>;
 
 const maps: Beatmap[] = MAPS.map((m) => ({ ...m }));
 const collections: Collection[] = COLLECTIONS.map((c) => ({ ...c }));
+
+/** Дерево папок для проводника коллекций. */
+const folders: Folder[] = [
+  { id: 900, name: 'Турниры', position: 1, parentId: null },
+  { id: 901, name: 'Черновики', position: 2, parentId: 900 },
+];
 
 /** Состав обычных коллекций: id коллекции → id карт. */
 const members = new Map<number, number[]>([
@@ -153,7 +160,10 @@ function text(a: Args, key: string): string {
 }
 
 function withCount(c: Collection): Collection {
-  return { ...c, count: c.isSmart ? 0 : (members.get(c.id)?.length ?? 0) };
+  // Строка библиотеки — набор, поэтому и счётчик коллекции наборовый.
+  const own = members.get(c.id) ?? [];
+  const sets = new Set(own.map((id) => maps.find((m) => m.beatmapId === id)?.beatmapsetId ?? -id));
+  return { ...c, count: c.isSmart ? 0 : sets.size };
 }
 
 function matches(m: Beatmap, f: LibraryFilter): boolean {
@@ -978,38 +988,89 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     const f = a['filter'] as LibraryFilter;
     const offset = (a['offset'] as number) ?? 0;
     const limit = (a['limit'] as number) ?? 100;
-    let all = filtered(f);
+    const all = filtered(f);
 
-    // Схлопывание наборов — как в базе: от набора остаётся первая строка,
-    // а счётчик говорит, сколько за ней сложностей.
-    if (f.groupSets) {
-      const seen = new Map<number, Beatmap>();
-      const order: number[] = [];
-      for (const m of all) {
-        // Ручные карты набора не имеют — каждая сама себе набор.
-        const key = m.beatmapsetId ?? -m.beatmapId;
-        const known = seen.get(key);
-        if (known === undefined) {
-          seen.set(key, { ...m, setCount: 1 });
-          order.push(key);
-        } else {
-          known.setCount = (known.setCount ?? 1) + 1;
-        }
-      }
-      all = order.map((k) => seen.get(k)).filter((m): m is Beatmap => m !== undefined);
+    // Как в базе: строка — набор. Представитель — самая высокая сложность,
+    // моды — объединение тегов всех сложностей набора, звёзды — разброс.
+    const groups = new Map<number, Beatmap[]>();
+    for (const m of all) {
+      // Ручные карты набора не имеют — каждая сама себе набор.
+      const key = m.beatmapsetId ?? -m.beatmapId;
+      const list = groups.get(key);
+      if (list === undefined) groups.set(key, [m]);
+      else list.push(m);
     }
 
-    return { items: all.slice(offset, offset + limit), total: all.length, offset };
+    const canon = (m: ModTag) => MOD_TAGS.indexOf(m);
+    const rows: Beatmap[] = [...groups.entries()].map(([, list]) => {
+      // Представитель — самая высокая сложность набора.
+      let hardest = list[0];
+      for (const m of list) {
+        if (hardest === undefined || m.difficultyRating > hardest.difficultyRating) hardest = m;
+      }
+      if (hardest === undefined) throw new Error('пустой набор в моке — так не бывает');
+      const row: Beatmap = { ...hardest };
+      row.setCount = list.length;
+      row.setStarsMin = Math.min(...list.map((m) => m.difficultyRating));
+      row.setStarsMax = Math.max(...list.map((m) => m.difficultyRating));
+      if (list.length > 1) {
+        const tags = new Set<ModTag>();
+        for (const m of list) for (const t of m.mods) tags.add(t);
+        row.mods = [...tags].sort((x, y) => canon(x) - canon(y));
+      }
+      return row;
+    });
+
+    // Сортировка по набору целиком (как set_sort_key на Rust).
+    const dir = f.dir === 'asc' ? 1 : -1;
+    rows.sort((x, y) => {
+      const val = (m: Beatmap): number | string => {
+        switch (f.sort) {
+          case 'stars':
+            return m.setStarsMax ?? m.difficultyRating;
+          case 'bpm':
+            return m.bpm ?? 0;
+          case 'length':
+            return m.totalLength ?? 0;
+          case 'title':
+            return m.title.toLowerCase();
+          case 'artist':
+            return m.artist.toLowerCase();
+          default:
+            return m.addedAt;
+        }
+      };
+      const a = val(x);
+      const b = val(y);
+      if (a < b) return -dir;
+      if (a > b) return dir;
+      // Ничьи разрешает ключ набора — стабильная пагинация.
+      const ka = x.beatmapsetId ?? -x.beatmapId;
+      const kb = y.beatmapsetId ?? -y.beatmapId;
+      return (ka - kb) * dir;
+    });
+
+    return { items: rows.slice(offset, offset + limit), total: rows.length, offset };
   },
   count_without_mods: () => maps.filter((m) => m.mods.length === 0).length,
 
-  /** Сводка по выдаче — тем же фильтром, что и список. */
+  /** Сводка по выдаче — тем же фильтром, что и список. Числа про наборы. */
   library_summary: (a) => {
     const all = filtered(a['filter'] as LibraryFilter);
 
+    // Группируем так же, как список: строка — набор.
+    const groups = new Map<number, Beatmap[]>();
+    for (const m of all) {
+      const key = m.beatmapsetId ?? -m.beatmapId;
+      const list = groups.get(key);
+      if (list === undefined) groups.set(key, [m]);
+      else list.push(m);
+    }
+    const sets = [...groups.values()];
+
     const byMod = MOD_TAGS.map((mod) => ({
       mod,
-      count: all.filter((m) => m.mods.includes(mod)).length,
+      count: sets.filter((list) => list.some((m) => m.mods.includes(mod))).length,
     })).filter((x) => x.count > 0);
 
     const nums = (pick: (m: Beatmap) => number | null): number[] =>
@@ -1021,8 +1082,8 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     const avg = (v: number[]) => (v.length === 0 ? null : v.reduce((x, y) => x + y, 0) / v.length);
 
     return {
-      total: all.length,
-      untagged: all.filter((m) => m.mods.length === 0).length,
+      total: sets.length,
+      untagged: sets.filter((list) => list.every((m) => m.mods.length === 0)).length,
       byMod,
       starsMin: stars.length === 0 ? null : Math.min(...stars),
       starsMax: stars.length === 0 ? null : Math.max(...stars),
@@ -1111,7 +1172,7 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
   bulk_add_label: () => undefined,
 
   list_collections: () => collections.map(withCount),
-  list_folders: () => [],
+  list_folders: () => folders.map((f) => ({ ...f })),
 
   create_collection: (a) => {
     const made: Collection = {
@@ -1189,9 +1250,31 @@ const HANDLERS: Record<string, (a: Args) => unknown> = {
     return undefined;
   },
 
-  create_folder: (a) => ({ id: nextId++, name: String(a['name']), position: 0 }),
-  rename_folder: () => undefined,
-  delete_folder: () => undefined,
+  create_folder: (a) => {
+    const made: Folder = {
+      id: nextId++,
+      name: String(a['name']),
+      position: folders.length,
+      parentId: (a['parentId'] as number | null) ?? null,
+    };
+    folders.push(made);
+    return made;
+  },
+  move_folder: (a) => {
+    const f = folders.find((x) => x.id === a['id']);
+    if (f) f.parentId = (a['parentId'] as number | null) ?? null;
+    return undefined;
+  },
+  rename_folder: (a) => {
+    const f = folders.find((x) => x.id === a['id']);
+    if (f) f.name = String(a['name']);
+    return undefined;
+  },
+  delete_folder: (a) => {
+    const i = folders.findIndex((x) => x.id === a['id']);
+    if (i >= 0) folders.splice(i, 1);
+    return undefined;
+  },
 
   // ─────────────────────────────────── шаблоны и маппулы
 

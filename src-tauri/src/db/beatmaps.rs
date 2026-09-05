@@ -75,6 +75,8 @@ fn map_row(row: &Row) -> rusqlite::Result<Beatmap> {
         skillsets: Vec::new(),
         labels: Vec::new(),
         set_count: None,
+        set_stars_min: None,
+        set_stars_max: None,
     })
 }
 
@@ -675,32 +677,38 @@ fn build_where(conn: &Connection, f: &LibraryFilter) -> Result<Where> {
     Ok(w)
 }
 
-/// Ключ сортировки. Префикс нужен потому, что при схлопывании наборов внешний
-/// запрос читает уже готовый подзапрос, где алиаса `b` нет.
-fn sort_key(f: &LibraryFilter, prefix: &str) -> String {
+/// Ключ сортировки наборов. Набор — одна строка библиотеки, и сортировать её
+/// надо по набору целиком, а не по той сложности, что выпала представителем:
+/// иначе при смене сложности-представителя строка уезжала бы по списку.
+/// Числовые и временные ключи — агрегат по сложностям набора, текстовые
+/// одинаковы у всех сложностей и берутся как есть.
+fn set_sort_key(f: &LibraryFilter) -> String {
     let col = match f.sort.as_str() {
-        "stars" => "difficulty_rating",
-        "bpm" => "bpm",
-        "length" => "total_length",
+        "stars" => "set_stars_max",
+        "bpm" => "set_bpm_max",
+        "length" => "set_len_max",
+        "added" => "set_added_max",
         "title" => "title COLLATE NOCASE",
         "artist" => "artist COLLATE NOCASE",
-        _ => "added_at",
+        _ => "set_added_max",
     };
     let dir = if f.dir.eq_ignore_ascii_case("asc") {
         "ASC"
     } else {
         "DESC"
     };
-    // Второй ключ обязателен: на равных значениях пагинация иначе поедет.
-    format!("{prefix}{col} {dir}, {prefix}beatmap_id {dir}")
-}
-
-fn order_by(f: &LibraryFilter) -> String {
-    format!("ORDER BY {}", sort_key(f, "b."))
+    // Ничьи разрешает ключ набора — он же отвечает за стабильную пагинацию.
+    format!("{col} {dir}, set_key {dir}")
 }
 
 /// Страница библиотеки. Фильтрация и срез целиком на стороне SQL —
 /// библиотека рассчитана на десятки тысяч карт.
+///
+/// Строка списка — это набор целиком: одна карта = один объект, сложности
+/// живут внутри неё. Фильтр отбирает сложности (звёзды, моды, скилсеты…),
+/// а показывается набор, если под условия попала хотя бы одна из его
+/// сложностей. Моды строки — объединение тегов всех сложностей набора:
+/// карта с HD- и DT-версиями честно показывает оба тега.
 pub fn list(
     conn: &Connection,
     f: &LibraryFilter,
@@ -719,13 +727,8 @@ pub fn list(
     const SET_KEY: &str = "COALESCE(b.beatmapset_id, -b.beatmap_id)";
 
     let total: i64 = {
-        let what = if f.group_sets {
-            format!("COUNT(DISTINCT {SET_KEY})")
-        } else {
-            "COUNT(*)".to_string()
-        };
         let sql = format!(
-            "SELECT {what} FROM beatmaps b{joins}{where_sql}",
+            "SELECT COUNT(DISTINCT {SET_KEY}) FROM beatmaps b{joins}{where_sql}",
             joins = w.joins
         );
         let args: Vec<&dyn ToSql> = w.args.iter().map(|a| a.as_ref()).collect();
@@ -735,28 +738,29 @@ pub fn list(
     let limit = limit.clamp(1, 500);
     let offset = offset.max(0);
 
-    // В схлопнутом виде от набора остаётся одна строка — та, что первой идёт
-    // по текущей сортировке. Считаем и сколько сложностей за ней стоит,
-    // чтобы строка могла показать «ещё 4».
-    let sql = if f.group_sets {
-        format!(
-            "SELECT * FROM (
-               SELECT {COLS},
-                      COUNT(*) OVER (PARTITION BY {SET_KEY}) AS set_count,
-                      ROW_NUMBER() OVER (PARTITION BY {SET_KEY} ORDER BY {inner}) AS rn
-               FROM beatmaps b{joins}{where_sql}
-             ) WHERE rn = 1 ORDER BY {outer} LIMIT ? OFFSET ?",
-            joins = w.joins,
-            inner = sort_key(f, "b."),
-            outer = sort_key(f, ""),
-        )
-    } else {
-        format!(
-            "SELECT {COLS} FROM beatmaps b{joins}{where_sql} {order} LIMIT ? OFFSET ?",
-            joins = w.joins,
-            order = order_by(f),
-        )
-    };
+    // От набора остаётся одна строка-представитель — самая высокая сложность,
+    // обложка у набора общая, звёзды и моды строка берёт из агрегатов.
+    // Окна считают состав набора только среди сложностей, прошедших фильтр:
+    // счётчик обещает ровно то, что раскроется по клику.
+    let sql = format!(
+        "SELECT * FROM (
+           SELECT {COLS},
+                  {SET_KEY} AS set_key,
+                  COUNT(*) OVER (PARTITION BY {SET_KEY}) AS set_count,
+                  MIN(b.difficulty_rating) OVER (PARTITION BY {SET_KEY}) AS set_stars_min,
+                  MAX(b.difficulty_rating) OVER (PARTITION BY {SET_KEY}) AS set_stars_max,
+                  MAX(b.added_at) OVER (PARTITION BY {SET_KEY}) AS set_added_max,
+                  MAX(b.bpm) OVER (PARTITION BY {SET_KEY}) AS set_bpm_max,
+                  MAX(b.total_length) OVER (PARTITION BY {SET_KEY}) AS set_len_max,
+                  ROW_NUMBER() OVER (PARTITION BY {SET_KEY} ORDER BY {inner}) AS rn
+           FROM beatmaps b{joins}{where_sql}
+         ) WHERE rn = 1 ORDER BY {outer} LIMIT ? OFFSET ?",
+        joins = w.joins,
+        // Представитель — самая высокая сложность набора: она же нужна строке
+        // при сортировке по звёздам по убыванию, обложка у набора общая.
+        inner = "b.difficulty_rating DESC, b.beatmap_id DESC",
+        outer = set_sort_key(f),
+    );
 
     let mut args: Vec<Box<dyn ToSql>> = w.args;
     args.push(Box::new(limit));
@@ -764,12 +768,11 @@ pub fn list(
     let refs: Vec<&dyn ToSql> = args.iter().map(|a| a.as_ref()).collect();
 
     let mut stmt = conn.prepare(&sql)?;
-    let group = f.group_sets;
-    let rows = stmt.query_map(refs.as_slice(), move |r| {
+    let rows = stmt.query_map(refs.as_slice(), |r| {
         let mut m = map_row(r)?;
-        if group {
-            m.set_count = Some(r.get("set_count")?);
-        }
+        m.set_count = Some(r.get("set_count")?);
+        m.set_stars_min = Some(r.get("set_stars_min")?);
+        m.set_stars_max = Some(r.get("set_stars_max")?);
         Ok(m)
     })?;
 
@@ -778,12 +781,63 @@ pub fn list(
         items.push(row?);
     }
     attach(conn, &mut items)?;
+    union_set_mods(conn, &mut items)?;
 
     Ok(Page {
         items,
         total,
         offset,
     })
+}
+
+/// Моды строки набора = объединение тегов всех его сложностей. Теги живут
+/// на сложностях, но строка теперь отвечает за весь набор: карта с HD- и
+/// DT-версиями обязана показывать оба тега, а не только тег представителя.
+/// Порядок — канонический по MOD_TAGS, чтобы строка выглядела одинаково
+/// при каждом чтении.
+fn union_set_mods(conn: &Connection, items: &mut [Beatmap]) -> Result<()> {
+    if items.is_empty() {
+        return Ok(());
+    }
+
+    let set_ids: Vec<i64> = items.iter().filter_map(|m| m.beatmapset_id).collect();
+    if set_ids.is_empty() {
+        return Ok(());
+    }
+
+    // Ручные карты держат свои теги как есть — набора у них нет.
+    let mut unions: HashMap<i64, Vec<String>> = HashMap::new();
+    for chunk in set_ids.chunks(CHUNK) {
+        let sql = format!(
+            "SELECT b.beatmapset_id, m.\"mod\" FROM beatmap_mods m
+             JOIN beatmaps b ON b.beatmap_id = m.beatmap_id
+             WHERE b.beatmapset_id IN ({})",
+            placeholders(chunk.len())
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(chunk.iter()), |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (set_id, m) = row?;
+            unions.entry(set_id).or_default().push(m);
+        }
+    }
+
+    let canon = |m: &str| crate::model::MOD_TAGS.iter().position(|t| *t == m);
+    for item in items.iter_mut() {
+        let Some(set_id) = item.beatmapset_id else {
+            continue;
+        };
+        let Some(list) = unions.get(&set_id) else {
+            continue;
+        };
+        let mut tags: Vec<String> = list.clone();
+        tags.sort_by_key(|m| canon(m).unwrap_or(usize::MAX));
+        tags.dedup();
+        item.mods = tags;
+    }
+    Ok(())
 }
 
 /// Карты по списку id, в порядке самого списка. Пропавшие id просто выпадают.
@@ -837,8 +891,8 @@ pub fn ids_for(conn: &Connection, f: &LibraryFilter) -> Result<Vec<i64>> {
     Ok(out)
 }
 
-/// Сколько карт попадает под фильтр. Нужен счётчику умной коллекции:
-/// её состав нигде не хранится и считается по сохранённым условиям.
+/// Сколько карт попадает под фильтр. Считается по сложностям: генерация
+/// маппулов выбирает именно их, а не наборы.
 pub fn count_for(conn: &Connection, f: &LibraryFilter) -> Result<i64> {
     let w = build_where(conn, f)?;
     let where_sql = if w.conds.is_empty() {
@@ -855,13 +909,36 @@ pub fn count_for(conn: &Connection, f: &LibraryFilter) -> Result<i64> {
     Ok(conn.query_row(&sql, refs.as_slice(), |r| r.get(0))?)
 }
 
+/// Сколько наборов попадает под фильтр — счётчик умной коллекции.
+/// Строка библиотеки — набор, поэтому и счётчик у неё наборовый.
+pub fn count_sets_for(conn: &Connection, f: &LibraryFilter) -> Result<i64> {
+    let w = build_where(conn, f)?;
+    let where_sql = if w.conds.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", w.conds.join(" AND "))
+    };
+    let sql = format!(
+        "SELECT COUNT(DISTINCT COALESCE(b.beatmapset_id, -b.beatmap_id))
+           FROM beatmaps b{joins}{where_sql}",
+        joins = w.joins
+    );
+
+    let refs: Vec<&dyn ToSql> = w.args.iter().map(|a| a.as_ref()).collect();
+    Ok(conn.query_row(&sql, refs.as_slice(), |r| r.get(0))?)
+}
+
 /// Из чего состоит текущая выдача: моды, звёзды, длина, BPM.
 ///
 /// Считается тем же фильтром, что и список, — иначе сводка описывала бы
-/// не то, что человек видит на экране. Три запроса вместо одного: общий
-/// разбор и разбивка по модам считаются по-разному, а склеивать их в один
-/// запрос значит получить кратные строки из-за джойна тегов.
+/// не то, что человек видит на экране. Числа здесь про наборы (строки списка),
+/// а разброс звёзд и длины — по сложностям внутри них. Три запроса вместо
+/// одного: общий разбор и разбивка по модам считаются по-разному, а склеивать
+/// их в один запрос значит получить кратные строки из-за джойна тегов.
 pub fn summary(conn: &Connection, f: &LibraryFilter) -> Result<LibrarySummary> {
+    // Тот же ключ набора, что и в списке: ручные карты держатся порознь.
+    const SET_KEY: &str = "COALESCE(b.beatmapset_id, -b.beatmap_id)";
+
     let w = build_where(conn, f)?;
     let where_sql = if w.conds.is_empty() {
         String::new()
@@ -882,12 +959,13 @@ pub fn summary(conn: &Connection, f: &LibraryFilter) -> Result<LibrarySummary> {
     );
     let totals: Totals = conn.query_row(
         &format!(
-            "SELECT COUNT(*),
+            "SELECT COUNT(DISTINCT {SET_KEY}),
                     MIN(b.difficulty_rating), MAX(b.difficulty_rating), AVG(b.difficulty_rating),
                     AVG(b.total_length), SUM(b.total_length),
                     MIN(b.bpm), MAX(b.bpm)
                FROM beatmaps b{joins}{where_sql}",
-            joins = w.joins
+            joins = w.joins,
+            SET_KEY = SET_KEY,
         ),
         args.as_slice(),
         |r| {
@@ -904,28 +982,36 @@ pub fn summary(conn: &Connection, f: &LibraryFilter) -> Result<LibrarySummary> {
         },
     )?;
 
+    // «Без тегов» теперь про наборы: набор ждёт разметки, пока не размечена
+    // ни одна из его сложностей. Одной размеченной сложности достаточно,
+    // чтобы набор уехал из этого раздела в генерацию.
     let untagged: i64 = conn.query_row(
         &format!(
-            "SELECT COUNT(*) FROM beatmaps b{joins}{where_sql}{and} NOT EXISTS (
-                 SELECT 1 FROM beatmap_mods m WHERE m.beatmap_id = b.beatmap_id
+            "SELECT COUNT(DISTINCT {SET_KEY}) FROM beatmaps b{joins}{where_sql}{and} NOT EXISTS (
+                 SELECT 1 FROM beatmap_mods m
+                  JOIN beatmaps b2 ON b2.beatmap_id = m.beatmap_id
+                  WHERE COALESCE(b2.beatmapset_id, -b2.beatmap_id)
+                      = COALESCE(b.beatmapset_id, -b.beatmap_id)
              )",
             joins = w.joins,
-            and = if w.conds.is_empty() { " WHERE" } else { " AND" }
+            and = if w.conds.is_empty() { " WHERE" } else { " AND" },
+            SET_KEY = SET_KEY,
         ),
         args.as_slice(),
         |r| r.get(0),
     )?;
 
-    // Карта с несколькими тегами считается в каждом: тег отвечает на вопрос
-    // «куда её можно поставить», и сумма по модам законно больше числа карт.
+    // Набор с несколькими тегами считается в каждом: тег отвечает на вопрос
+    // «куда его можно поставить», и сумма по модам законно больше числа карт.
     let mut st = conn.prepare(&format!(
-        "SELECT m.mod, COUNT(*)
+        "SELECT m.mod, COUNT(DISTINCT {SET_KEY})
            FROM beatmaps b{joins}
            JOIN beatmap_mods m ON m.beatmap_id = b.beatmap_id
           {where_sql}
           GROUP BY m.mod
           ORDER BY m.mod",
-        joins = w.joins
+        joins = w.joins,
+        SET_KEY = SET_KEY,
     ))?;
     let by_mod = st
         .query_map(args.as_slice(), |r| {

@@ -91,6 +91,7 @@ pub fn run() {
             commands::collections::add_to_collection,
             commands::collections::remove_from_collection,
             commands::collections::create_folder,
+            commands::collections::move_folder,
             commands::collections::rename_folder,
             commands::collections::delete_folder,
             // шаблоны маппулов

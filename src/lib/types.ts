@@ -77,8 +77,11 @@ export interface Beatmap {
   skillsets: SkillsetTag[];
   labels: Label[];
 
-  /** Сколько сложностей у набора. Есть только в схлопнутом списке. */
+  /** Заполняется только в списке библиотеки, где строка — весь набор:
+   *  сколько сложностей внутри и какой у них разброс звёзд. */
   setCount?: number | null;
+  setStarsMin?: number | null;
+  setStarsMax?: number | null;
 }
 
 export interface Failtimes {
@@ -126,6 +129,9 @@ export interface Folder {
   id: number;
   name: string;
   position: number;
+  /** Родительская папка. null — папка лежит на верхнем уровне.
+   *  Папки вкладываются друг в друга без ограничений, как в проводнике. */
+  parentId: number | null;
 }
 
 export interface Collection {
@@ -174,8 +180,6 @@ export interface LibraryFilter {
    *  Это место в библиотеке, а не условие: счётчику и кнопке «Сохранить
    *  как умную» он не мешает, а сброс фильтра его не трогает. */
   noMods: boolean;
-  /** Схлопывать сложности одного набора в одну строку. */
-  groupSets: boolean;
   sort: SortKey;
   dir: SortDir;
 }
@@ -191,7 +195,6 @@ export const EMPTY_FILTER: LibraryFilter = {
   length: { min: null, max: null },
   collectionId: null,
   noMods: false,
-  groupSets: false,
   sort: 'added',
   dir: 'desc',
 };

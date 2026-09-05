@@ -27,14 +27,18 @@ fn row_to_collection(row: &rusqlite::Row) -> rusqlite::Result<Collection> {
     })
 }
 
-/// Счётчик карт. У обычной коллекции это число строк в ней; у умной —
-/// размер выдачи по сохранённому фильтру. Умных обычно несколько, и гнать
-/// подсчёт каждого на каждый показ дорого, поэтому считаем один раз
-/// запросом по всем коллекциям сразу.
+/// Счётчик карт. У обычной коллекции это число наборов в ней (строка
+/// библиотеки — набор, а не сложность); у умной — размер выдачи по
+/// сохранённому фильтру. Умных обычно несколько, и гнать подсчёт каждого
+/// на каждый показ дорого, поэтому считаем один раз запросом по всем
+/// коллекциям сразу.
 const LIST_SQL: &str = "SELECT c.id, c.name, c.color, c.icon, c.folder_id, c.position,
             c.is_smart, c.filter, c.created_at,
             CASE WHEN c.is_smart = 1 THEN 0 ELSE (
-                SELECT COUNT(*) FROM collection_beatmaps cb WHERE cb.collection_id = c.id
+                SELECT COUNT(DISTINCT COALESCE(b.beatmapset_id, -b.beatmap_id))
+                  FROM collection_beatmaps cb
+                  JOIN beatmaps b ON b.beatmap_id = cb.beatmap_id
+                 WHERE cb.collection_id = c.id
             ) END AS cnt
      FROM collections c";
 
@@ -50,10 +54,11 @@ pub fn list(conn: &Connection) -> Result<Vec<Collection>> {
     }
 
     // Умные коллекции: их состав — это фильтр, и счётчик заполняем живым
-    // подсчётом, а не нулём из списка. Считаем только те, что есть на экране.
+    // подсчётом наборов, а не нулём из списка. Считаем только те, что есть
+    // на экране.
     for c in out.iter_mut().filter(|c| c.is_smart) {
         if let Some(filter) = &c.filter {
-            c.count = super::beatmaps::count_for(conn, filter)?;
+            c.count = super::beatmaps::count_sets_for(conn, filter)?;
         }
     }
     Ok(out)
@@ -194,15 +199,21 @@ pub fn remove_beatmaps(conn: &Connection, collection_id: i64, ids: &[i64]) -> Re
 }
 
 // ──────────────────────────────────────────────────────────────── папки
+//
+// Папки — дерево без ограничения на глубину (как проводник). Удаление папки
+// не теряет ничего: подпапки и коллекции поднимаются на уровень выше —
+// так делают внешние ключи ON DELETE SET NULL.
 
 pub fn list_folders(conn: &Connection) -> Result<Vec<Folder>> {
-    let mut stmt =
-        conn.prepare("SELECT id, name, position FROM folders ORDER BY position ASC, id ASC")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, position, parent_id FROM folders ORDER BY position ASC, id ASC",
+    )?;
     let rows = stmt.query_map([], |r| {
         Ok(Folder {
             id: r.get(0)?,
             name: r.get(1)?,
             position: r.get(2)?,
+            parent_id: r.get(3)?,
         })
     })?;
 
@@ -213,19 +224,27 @@ pub fn list_folders(conn: &Connection) -> Result<Vec<Folder>> {
     Ok(out)
 }
 
-pub fn create_folder(conn: &Connection, name: &str) -> Result<Folder> {
-    let max: Option<i64> = conn.query_row("SELECT MAX(position) FROM folders", [], |r| r.get(0))?;
+pub fn create_folder(conn: &Connection, name: &str, parent_id: Option<i64>) -> Result<Folder> {
+    if let Some(pid) = parent_id {
+        ensure_folder(conn, pid)?;
+    }
+    let max: Option<i64> = conn.query_row(
+        "SELECT MAX(position) FROM folders WHERE parent_id IS ?1",
+        params![parent_id],
+        |r| r.get(0),
+    )?;
     let position = max.unwrap_or(0) + 1;
 
     conn.execute(
-        "INSERT INTO folders (name, position) VALUES (?1, ?2)",
-        params![name.trim(), position],
+        "INSERT INTO folders (name, position, parent_id) VALUES (?1, ?2, ?3)",
+        params![name.trim(), position, parent_id],
     )?;
 
     Ok(Folder {
         id: conn.last_insert_rowid(),
         name: name.trim().to_string(),
         position,
+        parent_id,
     })
 }
 
@@ -237,9 +256,59 @@ pub fn rename_folder(conn: &Connection, id: i64, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Папка удаляется, коллекции из неё поднимаются на верхний уровень —
-/// это делает внешний ключ ON DELETE SET NULL.
+/// Переложить папку внутрь другой (или на верхний уровень). Внутрь себя
+/// и к своим потомкам папку класть нельзя — дерево замкнулось бы в цикл.
+pub fn move_folder(
+    conn: &Connection,
+    id: i64,
+    parent_id: Option<i64>,
+    position: i64,
+) -> Result<()> {
+    ensure_folder(conn, id)?;
+
+    if let Some(pid) = parent_id {
+        if pid == id {
+            return Err(AppError::Other("Папка не может лежать в самой себе".into()));
+        }
+        // Поднимаемся от кандидата к корню: встретили себя — значит,
+        // кандидат сам лежит в нашем поддереве.
+        let mut cursor = Some(pid);
+        while let Some(current) = cursor {
+            if current == id {
+                return Err(AppError::Other(
+                    "Папка не может лежать внутри своей подпапки".into(),
+                ));
+            }
+            let parent: Option<Option<i64>> = conn
+                .query_row(
+                    "SELECT parent_id FROM folders WHERE id = ?1",
+                    params![current],
+                    |r| r.get::<_, Option<i64>>(0),
+                )
+                .optional()?;
+            cursor = parent.flatten();
+        }
+    }
+
+    conn.execute(
+        "UPDATE folders SET parent_id = ?2, position = ?3 WHERE id = ?1",
+        params![id, parent_id, position],
+    )?;
+    Ok(())
+}
+
+/// Папка удаляется, её подпапки и коллекции поднимаются на уровень выше —
+/// это делают внешние ключи ON DELETE SET NULL.
 pub fn delete_folder(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+fn ensure_folder(conn: &Connection, id: i64) -> Result<()> {
+    let found: Option<i64> = conn
+        .query_row("SELECT id FROM folders WHERE id = ?1", params![id], |r| r.get(0))
+        .optional()?;
+    found
+        .map(|_| ())
+        .ok_or_else(|| AppError::Other("Папка не найдена".into()))
 }

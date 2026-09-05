@@ -34,6 +34,9 @@ export interface MapRowBase {
   /** Метка слота маппула, например NM1. Без неё в шестиугольнике сам мод. */
   slot?: string;
   mod: ModTag;
+  /** Все мод-теги объекта. В библиотеке строка — набор, и показывать надо
+   *  все его теги сразу: один шестиугольник вводил бы в заблуждение. */
+  mods?: ModTag[];
   /** У карты не проставлено ни одного мод-тега. Шестиугольник приглушён и
    *  показывает прочерк: «NM по умолчанию» выдавал бы тег, которого нет. */
   untagged?: boolean;
@@ -90,6 +93,7 @@ export function MapRow(props: MapRowProps) {
     artist,
     slot,
     mod,
+    mods,
     untagged,
     selected,
     opened,
@@ -108,7 +112,13 @@ export function MapRow(props: MapRowProps) {
   const glow = props.kind === 'plain' || props.kind === 'live' || props.kind === 'pick';
   const muted = props.kind === 'ban' || props.kind === 'lock';
 
-  const style: CssVars = { '--mod': MOD_VAR[mod] };
+  // Кластер показываем, когда тегов несколько и метки слота нет: у слота
+  // маппула роль отвечает один тег, а у набора из библиотеки — весь список.
+  const cluster = slot === undefined && mods !== undefined && mods.length > 1 ? mods : null;
+  // Подкраска строки идёт от первого тега — представитель набора.
+  const tint = cluster?.[0] ?? mod;
+
+  const style: CssVars = { '--mod': MOD_VAR[tint] };
 
   const cls = [
     s.row,
@@ -276,12 +286,20 @@ export function MapRow(props: MapRowProps) {
       ) : null}
 
       <span className={s.hexslot}>
-        <Hex
-          mod={mod}
-          glow={glow && untagged !== true}
-          dim={muted || untagged === true}
-          {...(untagged === true ? { label: '—' } : slot !== undefined ? { label: slot } : {})}
-        />
+        {cluster !== null ? (
+          <span className={s.modCluster}>
+            {cluster.map((m) => (
+              <Hex key={m} mod={m} size="sm" glow={glow && untagged !== true} dim={muted} />
+            ))}
+          </span>
+        ) : (
+          <Hex
+            mod={mod}
+            glow={glow && untagged !== true}
+            dim={muted || untagged === true}
+            {...(untagged === true ? { label: '—' } : slot !== undefined ? { label: slot } : {})}
+          />
+        )}
       </span>
     </div>
   );

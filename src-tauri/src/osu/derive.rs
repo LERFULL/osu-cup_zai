@@ -160,6 +160,8 @@ mod tests {
             skillsets: vec![],
             labels: vec![],
             set_count: None,
+            set_stars_min: None,
+            set_stars_max: None,
         }
     }
 

@@ -1,0 +1,276 @@
+/* Проводник библиотеки: плитки папок и коллекций с навигацией как в проводнике. */
+
+.wrap {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.top {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 18px 12px;
+}
+
+.crumbs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.crumbRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.crumb {
+  max-width: 220px;
+  overflow: hidden;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--txt2);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+}
+
+.crumb:hover {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--txt);
+}
+
+.crumbOn {
+  color: var(--txt);
+  background: rgb(255 255 255 / 0.05);
+}
+
+.sep {
+  color: var(--txt3);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.input {
+  width: 220px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgb(255 111 177 / 0.5);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--txt);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(255 111 177 / 0.1);
+}
+
+.input::placeholder {
+  color: var(--txt3);
+}
+
+/* ── сетка плиток ── */
+
+.grid {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  padding: 4px 18px 20px;
+  overflow-y: auto;
+  /* Бросок мимо плиток возвращает коллекцию в текущую папку. */
+  min-height: 120px;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  transition: border-color 0.14s, transform 0.14s, box-shadow 0.18s;
+}
+
+.tile:hover {
+  border-color: #2e3549;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.35);
+}
+
+.tile.on {
+  border-color: rgb(255 111 177 / 0.55);
+  box-shadow: 0 0 0 1.5px rgb(255 111 177 / 0.35), 0 8px 22px rgb(0 0 0 / 0.35);
+}
+
+.tile.over {
+  border-color: rgb(91 200 245 / 0.8);
+  background: rgb(91 200 245 / 0.07);
+}
+
+.tileMain {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 13px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.glyph {
+  align-self: flex-start;
+  margin-bottom: 3px;
+  color: var(--txt3);
+  font-size: 21px;
+  line-height: 1;
+}
+
+.folderGlyph {
+  color: rgb(255 193 94 / 0.75);
+  text-shadow: 0 0 14px rgb(255 193 94 / 0.3);
+}
+
+.gold {
+  color: var(--gold);
+  text-shadow: 0 0 14px rgb(255 193 94 / 0.35);
+}
+
+.tileName {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.smart {
+  flex: 0 0 auto;
+  padding: 1.5px 7px;
+  border-radius: 999px;
+  background: rgb(91 200 245 / 0.14);
+  color: #7ed4f8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.tileNote {
+  color: var(--txt3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.tileCount {
+  position: absolute;
+  top: 11px;
+  right: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--txt2);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tileCount.waiting {
+  background: rgb(255 193 94 / 0.14);
+  color: var(--gold);
+}
+
+.more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--txt3);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.13s, background 0.13s, color 0.13s;
+}
+
+.tile:hover .more,
+.more:focus {
+  opacity: 1;
+}
+
+.more:hover {
+  background: rgb(255 255 255 / 0.07);
+  color: var(--txt);
+}
+
+.dot {
+  flex: 0 0 11px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgb(0 0 0 / 0.4);
+}
+
+.empty {
+  grid-column: 1 / -1;
+  padding: 42px 20px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  color: var(--txt3);
+  font-size: 13.5px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.hint {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgb(20 23 32 / 0.92);
+  color: var(--txt2);
+  font-size: 12px;
+  white-space: nowrap;
+}

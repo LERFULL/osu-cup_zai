@@ -106,8 +106,26 @@ pub async fn remove_from_collection(
 }
 
 #[tauri::command]
-pub async fn create_folder(state: State<'_, Arc<AppState>>, name: String) -> Result<Folder> {
-    state.db.with(|conn| col::create_folder(conn, &name))
+pub async fn create_folder(
+    state: State<'_, Arc<AppState>>,
+    name: String,
+    parent_id: Option<i64>,
+) -> Result<Folder> {
+    state
+        .db
+        .with(|conn| col::create_folder(conn, &name, parent_id))
+}
+
+#[tauri::command]
+pub async fn move_folder(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    parent_id: Option<i64>,
+    position: i64,
+) -> Result<()> {
+    state
+        .db
+        .with(|conn| col::move_folder(conn, id, parent_id, position))
 }
 
 #[tauri::command]
