@@ -473,6 +473,28 @@ pub fn stats(conn: &Connection, id: i64) -> Result<PlayerStats> {
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
+    // Турнирная статистика из привязанных лобби. Судья ставит победителей,
+    // а эти цифры пишет сам osu!: сколько карт сыграно на самом деле,
+    // сколько из них пройдено, средняя точность и промахи. Игрок
+    // сопоставляется по id профиля osu! — ник в лобби может быть любым.
+    let (lobby_maps, lobby_passed): (i64, i64) = conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(ls.passed), 0)
+           FROM lobby_scores ls
+           JOIN players p ON p.osu_user_id = ls.osu_user_id
+          WHERE p.id = ?1",
+        params![id],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+    )?;
+
+    let (lobby_avg_accuracy, lobby_avg_miss): (Option<f64>, Option<f64>) = conn.query_row(
+        "SELECT AVG(ls.accuracy), AVG(ls.miss)
+           FROM lobby_scores ls
+           JOIN players p ON p.osu_user_id = ls.osu_user_id
+          WHERE p.id = ?1",
+        params![id],
+        |r| Ok((r.get::<_, Option<f64>>(0)?, r.get::<_, Option<f64>>(1)?)),
+    )?;
+
     Ok(PlayerStats {
         player_id: id,
         tournaments,
@@ -488,6 +510,10 @@ pub fn stats(conn: &Connection, id: i64) -> Result<PlayerStats> {
         by_mod,
         history,
         versus,
+        lobby_maps,
+        lobby_passed,
+        lobby_avg_accuracy,
+        lobby_avg_miss,
     })
 }
 

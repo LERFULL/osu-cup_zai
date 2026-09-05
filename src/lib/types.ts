@@ -754,6 +754,13 @@ export interface PlayerStats {
   /** По одному турниру на строку, новые сверху. */
   history: PlayerAppearance[];
   versus: PlayerVersus[];
+  /** Турнирная статистика из привязанных лобби — пишет её osu!, а не судья. */
+  lobbyMaps: number;
+  lobbyPassed: number;
+  /** Средняя точность по картам из лобби, 0..1. */
+  lobbyAvgAccuracy: number | null;
+  /** Среднее число промахов за карту. */
+  lobbyAvgMiss: number | null;
 }
 
 /** Расширенный профиль osu! — то, что тянет карточка игрока с API. */

@@ -1983,6 +1983,11 @@ export function tournamentHandlers(pools: PoolAccess): Record<string, (a: Args) 
           nickname: players.find((p) => p.id === playerId)?.nickname ?? 'игрок',
           ...v,
         })),
+        // В dev-режиме лобби не читается: карточка просто не показывает блок.
+        lobbyMaps: 0,
+        lobbyPassed: 0,
+        lobbyAvgAccuracy: null,
+        lobbyAvgMiss: null,
       };
     },
 

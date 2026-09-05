@@ -114,6 +114,10 @@ const stats = (): PlayerStats => ({
   byMod: [],
   history: [],
   versus: [{ playerId: B, nickname: 'MEI', wins: 2, losses: 1 }],
+  lobbyMaps: 0,
+  lobbyPassed: 0,
+  lobbyAvgAccuracy: null,
+  lobbyAvgMiss: null,
 });
 
 function context(patch: Partial<AirContext> = {}): AirContext {

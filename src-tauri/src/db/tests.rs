@@ -855,6 +855,92 @@ fn pool_takes_template_inside_editor() {
 }
 
 #[test]
+fn lobby_games_feed_player_profile_idempotently() {
+    let mut conn = db();
+    // Турнир на двоих: сетка даёт матч, в который поллер складывает игры.
+    let t = tournament(&mut conn, &["Ari", "Bo"]);
+    let br = tournaments::bracket_of(&conn, t).unwrap();
+    let match_id = br.matches[0].id;
+
+    // Оба игрока с привязкой к osu!: сопоставление скоров идёт по нему.
+    let roster = tournaments::players_of(&conn, t).unwrap();
+    for (i, tp) in roster.iter().enumerate() {
+        players::update(
+            &conn,
+            tp.player_id,
+            &format!("P{i}"),
+            Some(1000 + i as i64),
+            "#000000",
+            None,
+        )
+        .unwrap();
+    }
+
+    // Завершённая игра лобби со скорами обоих игроков.
+    let game = crate::db::air::LobbyGameSave {
+        game_id: 777_001,
+        beatmap_id: Some(42),
+        beatmapset_id: Some(4242),
+        title: Some("artist — title [Insane]".into()),
+        start_time: Some("2026-09-01T10:00:00Z".into()),
+        end_time: Some("2026-09-01T10:02:00Z".into()),
+        mods: vec!["NM".into()],
+        total_length: Some(120),
+        scores: vec![
+            crate::db::air::LobbyScoreSave {
+                osu_user_id: Some(1000),
+                total_score: 512_345,
+                accuracy: Some(0.987),
+                max_combo: Some(412),
+                passed: true,
+                rank: Some("A".into()),
+                mods: vec![],
+                great: Some(380),
+                ok: Some(12),
+                meh: Some(2),
+                miss: Some(1),
+            },
+            crate::db::air::LobbyScoreSave {
+                osu_user_id: Some(1001),
+                total_score: 401_000,
+                accuracy: Some(0.912),
+                max_combo: Some(300),
+                passed: false,
+                rank: Some("B".into()),
+                mods: vec![],
+                great: Some(310),
+                ok: Some(9),
+                meh: Some(4),
+                miss: Some(18),
+            },
+        ],
+    };
+
+    crate::db::air::save_lobby_game(&conn, match_id, &game).unwrap();
+    // Поллер перечитывает то же событие несколько раз — задвоения быть не должно.
+    crate::db::air::save_lobby_game(&conn, match_id, &game).unwrap();
+
+    let a = players::get(&conn, roster[0].player_id).unwrap().unwrap();
+    let stats = players::stats(&conn, a.id).unwrap();
+    assert_eq!(stats.lobby_maps, 1, "игра одна, несмотря на двойную запись");
+    assert_eq!(stats.lobby_passed, 1);
+    assert_eq!(stats.lobby_avg_accuracy, Some(0.987));
+    assert_eq!(stats.lobby_avg_miss, Some(1.0));
+
+    // Сопернику досталась та же карта, но не пройденная.
+    let b = players::get(&conn, roster[1].player_id).unwrap().unwrap();
+    let stats = players::stats(&conn, b.id).unwrap();
+    assert_eq!(stats.lobby_maps, 1);
+    assert_eq!(stats.lobby_passed, 0);
+    assert_eq!(stats.lobby_avg_miss, Some(18.0));
+
+    // Игрок без привязки к osu! в лобби-статистике пуст — и это не ошибка.
+    let c = players::create(&conn, "Cy", None, None).unwrap();
+    let stats = players::stats(&conn, c).unwrap();
+    assert_eq!(stats.lobby_maps, 0);
+}
+
+#[test]
 fn series_never_repeats_a_map_across_its_pools() {
     let conn = db();
     // Девять карт на три пула по три слота — хватает ровно впритык.

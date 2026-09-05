@@ -60,6 +60,9 @@ const LIBRARY: &str = include_str!("migrations/008_library_folders.sql");
 /// Серия ↔ турнир: жёсткая привязка одной серии к одному турниру.
 const SERIES_TOURNAMENT: &str = include_str!("migrations/009_series_tournament.sql");
 
+/// Турнирная статистика из лобби: завершённые игры и скоры игроков.
+const LOBBY_STATS: &str = include_str!("migrations/010_lobby_stats.sql");
+
 /// Миграции по возрастанию версии. Чтобы добавить версию 6, допиши пару
 /// `(6, include_str!("migrations/006_...sql"))` — цикл применит её сам.
 const MIGRATIONS: &[(i64, &str)] = &[
@@ -72,10 +75,11 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (7, DOWNLOADS),
     (8, LIBRARY),
     (9, SERIES_TOURNAMENT),
+    (10, LOBBY_STATS),
 ];
 
 /// Версия схемы, которую ожидает текущий код.
-const TARGET_VERSION: i64 = 9;
+const TARGET_VERSION: i64 = 10;
 
 pub struct Db {
     conn: Mutex<Connection>,

@@ -873,6 +873,18 @@ pub struct PlayerStats {
     /// По одному турниру на строку, новые сверху.
     pub history: Vec<PlayerAppearance>,
     pub versus: Vec<PlayerVersus>,
+    /// Карт, сыгранных в привязанных лобби (по скорам из osu!).
+    #[serde(default)]
+    pub lobby_maps: i64,
+    /// Из них пройдено игроком.
+    #[serde(default)]
+    pub lobby_passed: i64,
+    /// Средняя точность по картам из лобби (0..1).
+    #[serde(default)]
+    pub lobby_avg_accuracy: Option<f64>,
+    /// Среднее число промахов за карту.
+    #[serde(default)]
+    pub lobby_avg_miss: Option<f64>,
 }
 
 /// Расширенный профиль osu! для карточки игрока: всё, что отдаёт

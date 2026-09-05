@@ -99,6 +99,104 @@ pub fn set_lobby(conn: &Connection, match_id: i64, room_id: Option<i64>) -> Resu
     Ok(())
 }
 
+// ────────────────────────────────────────── статистика из лобби
+//
+// Завершённые игры привязанного лобби складываются сюда для турнирного
+// профиля. Судья и журнал действий остаются единственным источником
+// результатов матча — эти таблицы на сетку и счёт не влияют никак.
+
+/// Игра лобби в виде для записи. Отдельная структура, а не DTO поллера:
+/// слой базы не должен знать про osu!-типы, а поллер — про колонки.
+#[derive(Debug, Clone)]
+pub struct LobbyGameSave {
+    pub game_id: i64,
+    pub beatmap_id: Option<i64>,
+    pub beatmapset_id: Option<i64>,
+    pub title: Option<String>,
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    pub mods: Vec<String>,
+    pub total_length: Option<i64>,
+    pub scores: Vec<LobbyScoreSave>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LobbyScoreSave {
+    pub osu_user_id: Option<i64>,
+    pub total_score: i64,
+    pub accuracy: Option<f64>,
+    pub max_combo: Option<i64>,
+    pub passed: bool,
+    pub rank: Option<String>,
+    pub mods: Vec<String>,
+    pub great: Option<i64>,
+    pub ok: Option<i64>,
+    pub meh: Option<i64>,
+    pub miss: Option<i64>,
+}
+
+/// Сохранить завершённую игру. Повторный вызов с тем же `game_id` —
+/// ничего не меняет: поллер перечитывает одно и то же событие лобби
+/// несколько раз, записать скоры дважды он не имеет права.
+pub fn save_lobby_game(
+    conn: &Connection,
+    match_id: i64,
+    game: &LobbyGameSave,
+) -> anyhow::Result<()> {
+    let inserted = conn.execute(
+        "INSERT OR IGNORE INTO lobby_games
+             (match_id, game_id, beatmap_id, beatmapset_id, title,
+              start_time, end_time, mods, total_length, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            match_id,
+            game.game_id,
+            game.beatmap_id,
+            game.beatmapset_id,
+            game.title,
+            game.start_time,
+            game.end_time,
+            serde_json::to_string(&game.mods)?,
+            game.total_length,
+            now_iso(),
+        ],
+    )?;
+    // Игра уже в базе — её скоры тоже: OR IGNORE выше сделал своё дело.
+    if inserted == 0 {
+        return Ok(());
+    }
+
+    let row_id: i64 = conn.query_row(
+        "SELECT id FROM lobby_games WHERE game_id = ?1",
+        params![game.game_id],
+        |r| r.get(0),
+    )?;
+
+    let mut st = conn.prepare(
+        "INSERT OR IGNORE INTO lobby_scores
+             (game_id, osu_user_id, total_score, accuracy, max_combo, passed,
+              score_rank, mods, great, ok, meh, miss)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+    )?;
+    for s in &game.scores {
+        st.execute(params![
+            row_id,
+            s.osu_user_id,
+            s.total_score,
+            s.accuracy,
+            s.max_combo,
+            s.passed,
+            s.rank,
+            serde_json::to_string(&s.mods)?,
+            s.great,
+            s.ok,
+            s.meh,
+            s.miss,
+        ])?;
+    }
+    Ok(())
+}
+
 // ────────────────────────────────────────────────── профили osu!
 
 /// Профиль игрока для сцен с цифрами.

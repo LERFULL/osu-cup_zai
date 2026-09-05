@@ -327,6 +327,171 @@ export function PlayerCard({ id, onClose }: Props) {
       {error !== null && <div className={s.error}>{error}</div>}
 
       <div className={s.body}>
+        {/* ── раздел: всё, что накопили турниры приложения ── */}
+        <div className={s.divide}>
+          <span>Турнирный профиль</span>
+        </div>
+
+        <div className={s.cols}>
+          <section className={s.block}>
+            <div className={s.blockTitle}>Турниры</div>
+
+            {stats === null ? null : (
+              <>
+                <div className={s.stats}>
+                  <Stat value={String(stats.tournaments)} label="турниров" />
+                  <Stat value={String(stats.tournamentWins)} label="побед в них" />
+                  <Stat
+                    value={`${stats.matchWins}/${stats.matches}`}
+                    label={`матчи · ${rate(stats.matchWins, stats.matches)}`}
+                  />
+                  <Stat
+                    value={`${stats.mapWins}/${stats.maps}`}
+                    label={`карты · ${rate(stats.mapWins, stats.maps)}`}
+                  />
+                </div>
+
+                {/* Цифры из привязанного лобби: настоящие очки и промахи,
+                    накопленные во время турниров. Судья их не ставит —
+                    их пишет сам osu!. */}
+                {stats.lobbyMaps > 0 ? (
+                  <div className={s.lobby}>
+                    <div className={s.lobbyHead}>
+                      <span className={s.lobbyTitle}>Лобби osu! · по привязанным матчам</span>
+                    </div>
+                    <div className={s.stats}>
+                      <Stat value={String(stats.lobbyMaps)} label="карт в лобби" />
+                      <Stat
+                        value={`${stats.lobbyPassed}/${stats.lobbyMaps}`}
+                        label={`пройдено · ${rate(stats.lobbyPassed, stats.lobbyMaps)}`}
+                      />
+                      <Stat
+                        value={
+                          stats.lobbyAvgAccuracy === null
+                            ? '—'
+                            : `${(stats.lobbyAvgAccuracy * 100).toFixed(1)}%`
+                        }
+                        label="средняя точность"
+                      />
+                      <Stat
+                        value={
+                          stats.lobbyAvgMiss === null
+                            ? '—'
+                            : stats.lobbyAvgMiss.toFixed(1)
+                        }
+                        label="промахов за карту"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {(stats.bestMod !== null || stats.worstMod !== null) && (
+                  <div className={s.mods}>
+                    {stats.bestMod !== null && (
+                      <Chip title="Чаще всего забирает эти карты">
+                        сильный мод: {stats.bestMod}
+                      </Chip>
+                    )}
+                    {stats.worstMod !== null && (
+                      <Chip title="Здесь проигрывает чаще прочего">
+                        слабый мод: {stats.worstMod}
+                      </Chip>
+                    )}
+                  </div>
+                )}
+
+                {stats.placements.length > 0 && (
+                  <div className={s.places}>
+                    <span className={s.label}>Места</span>
+                    <span className={s.placeList}>{stats.placements.join(' · ')}</span>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+
+          <section className={s.block}>
+            <div className={s.blockTitle}>Как идут моды</div>
+            {stats === null || stats.byMod.length === 0 ? (
+              <div className={s.muted}>Ещё не сыграно ни одной карты.</div>
+            ) : (
+              <div className={s.bars}>
+                {stats.byMod.map((m) => {
+                  const p = m.played === 0 ? 0 : Math.round((m.won / m.played) * 100);
+                  return (
+                    <div key={m.mod} className={s.modRow}>
+                      <span className={s.barMod} data-mod={m.mod}>
+                        {m.mod}
+                      </span>
+                      <div className={s.barTrack}>
+                        {/* Полоса — доля выигранных карт: сравнивать моды между
+                            собой на глаз проще, чем читать проценты. */}
+                        <div
+                          className={s.barFill}
+                          style={{ width: `${p}%`, background: `var(--${m.mod.toLowerCase()})` }}
+                        />
+                      </div>
+                      <span className={s.barValue}>
+                        {m.won}/{m.played}
+                        <span className={s.barPercent}>{p}%</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <section className={s.block}>
+          <div className={s.blockTitle}>Выступления</div>
+          {stats === null || stats.history.length === 0 ? (
+            <div className={s.muted}>Ещё не играл ни в одном турнире.</div>
+          ) : (
+            <div className={s.history}>
+              {stats.history.map((h) => (
+                <div key={h.tournamentId} className={s.hrow}>
+                  <span
+                    className={h.placement === 1 ? s.placeGold : s.place}
+                    title={h.placement === null ? 'Турнир ещё идёт' : `Место ${h.placement}`}
+                  >
+                    {h.placement === null ? '—' : h.placement === 1 ? '♛' : h.placement}
+                  </span>
+                  <span className={s.hname}>{h.tournamentName}</span>
+                  <span className={s.hscore}>
+                    {h.matchWins}/{h.matches} матчей
+                  </span>
+                  <span className={s.hwhen}>
+                    {h.finishedAt === null ? 'идёт' : h.finishedAt.slice(0, 10)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className={s.block}>
+          <div className={s.blockTitle}>Личные счёты</div>
+          {stats === null || stats.versus.length === 0 ? (
+            <div className={s.muted}>Ещё ни с кем не играл.</div>
+          ) : (
+            <div className={s.versus}>
+              {stats.versus.map((v) => (
+                <div key={v.playerId} className={s.vrow}>
+                  <span className={s.vname}>{v.nickname}</span>
+                  <span className={s.vscore}>
+                    {v.wins} : {v.losses}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+        {/* ── раздел: игровая статистика osu!, вторична по отношению к турнирам ── */}
+        <div className={s.divide}>
+          <span>Профиль osu!</span>
+        </div>
+
         {/* ── герой: кто это на osu! и чего он стоит ── */}
         <section className={s.osuBlock} style={{ borderColor: `${player.color}55` }}>
           {profile === null ? (
@@ -604,127 +769,6 @@ export function PlayerCard({ id, onClose }: Props) {
           </section>
         )}
 
-        <div className={s.cols}>
-          <section className={s.block}>
-            <div className={s.blockTitle}>Турниры</div>
-
-            {stats === null ? null : (
-              <>
-                <div className={s.stats}>
-                  <Stat value={String(stats.tournaments)} label="турниров" />
-                  <Stat value={String(stats.tournamentWins)} label="побед в них" />
-                  <Stat
-                    value={`${stats.matchWins}/${stats.matches}`}
-                    label={`матчи · ${rate(stats.matchWins, stats.matches)}`}
-                  />
-                  <Stat
-                    value={`${stats.mapWins}/${stats.maps}`}
-                    label={`карты · ${rate(stats.mapWins, stats.maps)}`}
-                  />
-                </div>
-
-                {(stats.bestMod !== null || stats.worstMod !== null) && (
-                  <div className={s.mods}>
-                    {stats.bestMod !== null && (
-                      <Chip title="Чаще всего забирает эти карты">
-                        сильный мод: {stats.bestMod}
-                      </Chip>
-                    )}
-                    {stats.worstMod !== null && (
-                      <Chip title="Здесь проигрывает чаще прочего">
-                        слабый мод: {stats.worstMod}
-                      </Chip>
-                    )}
-                  </div>
-                )}
-
-                {stats.placements.length > 0 && (
-                  <div className={s.places}>
-                    <span className={s.label}>Места</span>
-                    <span className={s.placeList}>{stats.placements.join(' · ')}</span>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-
-          <section className={s.block}>
-            <div className={s.blockTitle}>Как идут моды</div>
-            {stats === null || stats.byMod.length === 0 ? (
-              <div className={s.muted}>Ещё не сыграно ни одной карты.</div>
-            ) : (
-              <div className={s.bars}>
-                {stats.byMod.map((m) => {
-                  const p = m.played === 0 ? 0 : Math.round((m.won / m.played) * 100);
-                  return (
-                    <div key={m.mod} className={s.modRow}>
-                      <span className={s.barMod} data-mod={m.mod}>
-                        {m.mod}
-                      </span>
-                      <div className={s.barTrack}>
-                        {/* Полоса — доля выигранных карт: сравнивать моды между
-                            собой на глаз проще, чем читать проценты. */}
-                        <div
-                          className={s.barFill}
-                          style={{ width: `${p}%`, background: `var(--${m.mod.toLowerCase()})` }}
-                        />
-                      </div>
-                      <span className={s.barValue}>
-                        {m.won}/{m.played}
-                        <span className={s.barPercent}>{p}%</span>
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        </div>
-
-        <section className={s.block}>
-          <div className={s.blockTitle}>Выступления</div>
-          {stats === null || stats.history.length === 0 ? (
-            <div className={s.muted}>Ещё не играл ни в одном турнире.</div>
-          ) : (
-            <div className={s.history}>
-              {stats.history.map((h) => (
-                <div key={h.tournamentId} className={s.hrow}>
-                  <span
-                    className={h.placement === 1 ? s.placeGold : s.place}
-                    title={h.placement === null ? 'Турнир ещё идёт' : `Место ${h.placement}`}
-                  >
-                    {h.placement === null ? '—' : h.placement === 1 ? '♛' : h.placement}
-                  </span>
-                  <span className={s.hname}>{h.tournamentName}</span>
-                  <span className={s.hscore}>
-                    {h.matchWins}/{h.matches} матчей
-                  </span>
-                  <span className={s.hwhen}>
-                    {h.finishedAt === null ? 'идёт' : h.finishedAt.slice(0, 10)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className={s.block}>
-          <div className={s.blockTitle}>Личные счёты</div>
-          {stats === null || stats.versus.length === 0 ? (
-            <div className={s.muted}>Ещё ни с кем не играл.</div>
-          ) : (
-            <div className={s.versus}>
-              {stats.versus.map((v) => (
-                <div key={v.playerId} className={s.vrow}>
-                  <span className={s.vname}>{v.nickname}</span>
-                  <span className={s.vscore}>
-                    {v.wins} : {v.losses}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
       </div>
 
       {/* Объединение дубля: выбор игрока и подтверждение. */}
