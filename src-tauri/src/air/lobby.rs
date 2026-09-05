@@ -203,6 +203,19 @@ pub fn start(app: &AppHandle, state: Arc<AppState>, match_id: i64, room_id: i64)
                     failures = 0;
                     let (games, flags) = collect(&dto);
                     cursor.absorb(&dto, &flags);
+
+                    // Завершённые игры складываются в турнирный профиль.
+                    // Считаем до emit: сам вектор `games` дальше уезжает в
+                    // LobbyUpdate. Запись идемпотентна по номеру игры,
+                    // повторные опросы того же события ничего не задвоят.
+                    // Ошибка записи не роняет эфир: цифры на кадре важнее
+                    // статистики.
+                    let completed: Vec<LobbyGameSave> = games
+                        .iter()
+                        .filter(|g| g.end_time.is_some() && !g.scores.is_empty())
+                        .map(to_save)
+                        .collect();
+
                     emit(
                         &app,
                         LobbyUpdate {
@@ -216,15 +229,6 @@ pub fn start(app: &AppHandle, state: Arc<AppState>, match_id: i64, room_id: i64)
                         },
                     );
 
-                    // Завершённые игры складываются в турнирный профиль.
-                    // Запись идемпотентна по номеру игры, повторные опросы
-                    // того же события ничего не задвоят. Ошибка записи не
-                    // роняет эфир: цифры на кадре важнее статистики.
-                    let completed: Vec<LobbyGameSave> = games
-                        .iter()
-                        .filter(|g| g.end_time.is_some() && !g.scores.is_empty())
-                        .map(to_save)
-                        .collect();
                     if !completed.is_empty() {
                         let _ = state.db.with(|conn| {
                             for game in &completed {
