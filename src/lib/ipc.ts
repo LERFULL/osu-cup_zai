@@ -130,6 +130,21 @@ export const bulkClearMods = (beatmapIds: number[]) =>
 export const bulkAddSkillset = (beatmapIds: number[], skillset: Skillset) =>
   invoke<void>('bulk_add_skillset', { beatmapIds, skillset });
 
+/** Обложка, лежащая в локальном кеше: путь и набор. */
+export interface CoverReady {
+  beatmapsetId: number;
+  path: string;
+}
+
+/**
+ * Гарантирует обложки в локальном кеше и возвращает их пути. Нужен рендеру
+ * «Картинкой»: обложка из файла канвас не пачкает, а с assets.ppy.sh —
+ * пачкает (osu! не отдаёт CORS), и на машине без кеша картинка выходила
+ * без обложек. Что скачалось — в ответе, что нет — вид рисует плейсхолдер.
+ */
+export const ensureCovers = (beatmapSetIds: number[]) =>
+  invoke<CoverReady[]>('ensure_covers', { beatmapSetIds });
+
 // ─────────────────────────────────────────────────────────────── метки
 
 export const listLabels = () => invoke<Label[]>('list_labels');
